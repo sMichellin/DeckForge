@@ -18,6 +18,15 @@ EMU_PER_PT: Final[int] = 12_700
 EMU_PER_PX_96DPI: Final[int] = 9_525
 
 
+#: Внутренние поля текстового фрейма PowerPoint по умолчанию: 0.1" по бокам, 0.05" сверху.
+#: Это константы формата, а не конкретного шаблона, поэтому им место здесь.
+TEXT_FRAME_INSET_X_EMU: Final[int] = EMU_PER_INCH // 10
+TEXT_FRAME_INSET_Y_EMU: Final[int] = EMU_PER_INCH // 20
+
+#: Направляющие в viewProps задаются в 1/8 точки.
+EMU_PER_GUIDE_UNIT: Final[float] = EMU_PER_PT / 8
+
+
 def pt_to_emu(pt: float) -> Emu:
     return Emu(round(pt * EMU_PER_PT))
 

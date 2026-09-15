@@ -1,0 +1,233 @@
+{
+  "chart_defaults": {
+    "series_color_refs": [
+      "accent1",
+      "accent2",
+      "accent3",
+      "accent4",
+      "accent5",
+      "accent6"
+    ]
+  },
+  "decor": {
+    "footer": {
+      "present": true,
+      "y_emu": 6300000
+    },
+    "logo": null,
+    "static_shapes": []
+  },
+  "grid": {
+    "columns": 12,
+    "guides_source": "inferred",
+    "guides_x_emu": [
+      700000,
+      11493333
+    ],
+    "guides_y_emu": [
+      1425000,
+      1450000,
+      1800000,
+      5800000
+    ],
+    "gutter_emu": 10793333,
+    "margins_emu": {
+      "bottom": 1058000,
+      "left": 700000,
+      "right": 692000,
+      "top": 450000
+    }
+  },
+  "layouts": [
+    {
+      "capacity": {
+        "max_bullets": 2,
+        "max_chars_body": 178,
+        "max_chars_title": 40,
+        "supports_chart": false,
+        "supports_image": false,
+        "supports_table": false
+      },
+      "index": 0,
+      "kind": "title",
+      "kind_confidence": 0.9,
+      "kind_source": "heuristic",
+      "layout_id": "L00",
+      "master": "M01",
+      "name": "Титул",
+      "placeholders": [
+        {
+          "cx": 10792000,
+          "cy": 1200000,
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 700000,
+          "y": 2400000
+        },
+        {
+          "cx": 10792000,
+          "cy": 700000,
+          "idx": 1,
+          "ph_type": "SUBTITLE",
+          "role": "subtitle",
+          "x": 700000,
+          "y": 3800000
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "capacity": {
+        "max_bullets": 14,
+        "max_chars_body": 1246,
+        "max_chars_title": 40,
+        "supports_chart": true,
+        "supports_image": true,
+        "supports_table": true
+      },
+      "index": 1,
+      "kind": "bullets",
+      "kind_confidence": 0.8,
+      "kind_source": "heuristic",
+      "layout_id": "L01",
+      "master": "M01",
+      "name": "Заголовок и содержимое",
+      "placeholders": [
+        {
+          "cx": 10792000,
+          "cy": 1000000,
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 700000,
+          "y": 450000
+        },
+        {
+          "cx": 10792000,
+          "cy": 4000000,
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 700000,
+          "y": 1800000
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "capacity": {
+        "max_bullets": 28,
+        "max_chars_body": 1176,
+        "max_chars_title": 40,
+        "supports_chart": true,
+        "supports_image": true,
+        "supports_table": true
+      },
+      "index": 2,
+      "kind": "two_column",
+      "kind_confidence": 0.85,
+      "kind_source": "heuristic",
+      "layout_id": "L02",
+      "master": "M01",
+      "name": "Две колонки",
+      "placeholders": [
+        {
+          "cx": 10792000,
+          "cy": 1000000,
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 700000,
+          "y": 450000
+        },
+        {
+          "cx": 5200000,
+          "cy": 4000000,
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 700000,
+          "y": 1800000
+        },
+        {
+          "cx": 5200000,
+          "cy": 4000000,
+          "idx": 2,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 6300000,
+          "y": 1800000
+        }
+      ],
+      "preview_png": null
+    }
+  ],
+  "parser_version": "1.0.0",
+  "slide_size": {
+    "aspect": "16:9",
+    "cx_emu": 12192000,
+    "cy_emu": 6858000
+  },
+  "source_name": "synthetic.pptx",
+  "theme": {
+    "colors": {
+      "accent1": "#2E6BE6",
+      "accent2": "#12B886",
+      "accent3": "#F59F00",
+      "accent4": "#E03131",
+      "accent5": "#7048E8",
+      "accent6": "#0CA678",
+      "dk1": "#101014",
+      "dk2": "#3C4250",
+      "folHlink": "#9775FA",
+      "hlink": "#1C7ED6",
+      "lt1": "#FFFFFF",
+      "lt2": "#EEF1F6"
+    },
+    "fonts": {
+      "major_cs": null,
+      "major_latin": "TestSans Display",
+      "minor_cs": null,
+      "minor_latin": "TestSans Text"
+    }
+  },
+  "typography_scale": [
+    {
+      "bold": true,
+      "color_ref": "dk1",
+      "font_ref": "major_latin",
+      "italic": false,
+      "line_spacing": null,
+      "role": "title",
+      "size_pt": 40.0
+    },
+    {
+      "bold": false,
+      "color_ref": "dk1",
+      "font_ref": "minor_latin",
+      "italic": false,
+      "line_spacing": null,
+      "role": "subtitle",
+      "size_pt": 24.0
+    },
+    {
+      "bold": false,
+      "color_ref": "dk1",
+      "font_ref": "minor_latin",
+      "italic": false,
+      "line_spacing": null,
+      "role": "body",
+      "size_pt": 18.0
+    },
+    {
+      "bold": false,
+      "color_ref": "dk2",
+      "font_ref": "minor_latin",
+      "italic": false,
+      "line_spacing": null,
+      "role": "caption",
+      "size_pt": 11.7
+    }
+  ]
+}

@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1] / "src"
+#: Единственный модуль, где литералы геометрии — по определению не «константы шаблона»,
+#: а единицы измерения формата.
 ALLOWLIST = {"deckforge/domain/units.py"}
 
 PATTERNS: list[tuple[str, re.Pattern[str]]] = [
@@ -26,7 +28,8 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"Open Sans|Lato|PT Sans|Tahoma|Verdana)[\"']"
         ),
     ),
-    ("размер в EMU литералом", re.compile(r"(?<![\w.])\d{5,}(?![\w.])")),
+    # Разделители разрядов (1_200_000) не должны быть лазейкой: цифра плюс подчёркивания.
+    ("размер в EMU литералом", re.compile(r"(?<![\w.])\d[\d_]{4,}(?![\w.])")),
     ("Pt/Emu/Inches с литералом", re.compile(r"\b(?:Pt|Emu|Inches|Cm)\s*\(\s*\d")),
 ]
 
@@ -34,7 +37,7 @@ COMMENT_OR_DOC = re.compile(r"^\s*#|^\s*[\"']{3}|^\s*\*|^\s*\|")
 
 
 def scan(path: Path) -> list[str]:
-    rel = path.relative_to(SRC.parent.parent).as_posix().removeprefix("src/")
+    rel = path.relative_to(SRC).as_posix()
     if rel in ALLOWLIST:
         return []
     problems: list[str] = []

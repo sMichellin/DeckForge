@@ -126,5 +126,12 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["pptx.*", "cairosvg.*", "imagehash.*", "language_tool_python.*", "cv2.*"]
+module = [
+  "pptx.*",
+  "lxml.*",
+  "cairosvg.*",
+  "imagehash.*",
+  "language_tool_python.*",
+  "cv2.*",
+]
 ignore_missing_imports = true

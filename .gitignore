@@ -15,3 +15,8 @@ artifacts/**
 submission/decks/**
 !submission/decks/.gitkeep
 .DS_Store
+
+# Шаблоны для тестов — чужие файлы, публичный репозиторий их не распространяет.
+# Положите свои локально: tests/integration/test_real_templates.py подхватит их сам.
+tests/fixtures/templates/**/*.pptx
+tests/fixtures/templates/**/*.potx
