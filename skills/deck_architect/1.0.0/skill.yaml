@@ -1,0 +1,11 @@
+description: >-
+  Планирует состав и порядок слайдов по брифу и контент-пакету. Один вызов на колоду.
+prompt_ref: deck_planner
+model_ref: llm_main
+inputs: [content, manifest, variant, seed]
+outputs: [plan]
+retries: 2
+fallback: reduce_target_slides
+params:
+  enforce_headline_is_conclusion: true
+  max_slides: 15

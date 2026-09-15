@@ -1,0 +1,5 @@
+Набор данных «{{ dataset.title }}»
+Категории ({{ dataset.categories | length }}): {{ dataset.categories | join(", ") }}
+Серии ({{ dataset.series | length }}): {% for s in dataset.series %}{{ s.name }}{% if not loop.last %}, {% endif %}{% endfor %}
+{% if dataset.unit %}Единица: {{ dataset.unit }}{% endif %}
+Мысль слайда: {{ headline }}

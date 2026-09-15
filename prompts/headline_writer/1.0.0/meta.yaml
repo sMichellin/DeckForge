@@ -1,0 +1,6 @@
+model_ref: llm_fast
+temperature: 0.4
+max_tokens: 256
+author: DeckForge team
+changelog: |
+  1.0.0 — перегенерация одного заголовка по авто-фиксу regenerate_headline.

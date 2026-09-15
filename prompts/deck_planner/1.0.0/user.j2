@@ -1,0 +1,17 @@
+## Бриф
+Назначение: {{ brief.purpose }}
+Аудитория: {{ brief.audience }}
+Целевое число слайдов: {{ brief.target_slides }}
+{% if brief.key_message %}Ключевое сообщение: {{ brief.key_message }}{% endif %}
+
+## Факты
+{% for f in facts %}
+- [{{ f.fact_id }}] {{ f.text }}{% if f.numbers %} (числа: {% for n in f.numbers %}{{ n.raw or n.value }}{{ " " ~ n.unit if n.unit }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}
+{% endfor %}
+
+## Наборы данных
+{% for d in datasets %}
+- [{{ d.dataset_id }}] {{ d.title }} — категории: {{ d.categories | join(", ") }}; серий: {{ d.series | length }}{% if d.unit %}; единица: {{ d.unit }}{% endif %}
+{% endfor %}
+
+Спланируй колоду из {{ brief.target_slides }} слайдов. Seed: {{ seed }}.

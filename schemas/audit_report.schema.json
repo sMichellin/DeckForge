@@ -1,0 +1,285 @@
+{
+  "$defs": {
+    "AuditSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "errors": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Errors",
+          "type": "integer"
+        },
+        "warnings": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Warnings",
+          "type": "integer"
+        },
+        "infos": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Infos",
+          "type": "integer"
+        },
+        "passed": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Passed",
+          "type": "integer"
+        },
+        "scores": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Scores"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "AuditSummary",
+      "type": "object"
+    },
+    "AutoFix": {
+      "enum": [
+        "shrink_font",
+        "split_slide",
+        "snap_to_guide",
+        "map_to_nearest_theme_color",
+        "regenerate_headline",
+        "shorten_text",
+        "none"
+      ],
+      "title": "AutoFix",
+      "type": "string"
+    },
+    "BBox": {
+      "additionalProperties": false,
+      "description": "Прямоугольник в EMU. Origin — левый верхний угол слайда.",
+      "properties": {
+        "x": {
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        },
+        "cx": {
+          "exclusiveMinimum": 0,
+          "title": "Cx",
+          "type": "integer"
+        },
+        "cy": {
+          "exclusiveMinimum": 0,
+          "title": "Cy",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "cx",
+        "cy"
+      ],
+      "title": "BBox",
+      "type": "object"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "finding_id": {
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "check_id": {
+          "description": "Например layout.text_overflow",
+          "title": "Check Id",
+          "type": "string"
+        },
+        "deterministic": {
+          "title": "Deterministic",
+          "type": "boolean"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "slide_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Slide Id"
+        },
+        "block_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Block Id"
+        },
+        "bbox_emu": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BBox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "auto_fix": {
+          "$ref": "#/$defs/AutoFix",
+          "default": "none"
+        },
+        "auto_fix_applied": {
+          "default": false,
+          "title": "Auto Fix Applied",
+          "type": "boolean"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Для контекстуальных проверок",
+          "title": "Model"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "evidence": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "object"
+        }
+      },
+      "required": [
+        "finding_id",
+        "check_id",
+        "deterministic",
+        "severity",
+        "message"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "Scores": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "maximum": 5.0,
+          "minimum": 0.0,
+          "title": "Content",
+          "type": "number"
+        },
+        "design": {
+          "maximum": 5.0,
+          "minimum": 0.0,
+          "title": "Design",
+          "type": "number"
+        },
+        "coherence": {
+          "maximum": 5.0,
+          "minimum": 0.0,
+          "title": "Coherence",
+          "type": "number"
+        }
+      },
+      "required": [
+        "content",
+        "design",
+        "coherence"
+      ],
+      "title": "Scores",
+      "type": "object"
+    },
+    "Severity": {
+      "enum": [
+        "error",
+        "warning",
+        "info"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "deck_id": {
+      "title": "Deck Id",
+      "type": "string"
+    },
+    "variant": {
+      "pattern": "^[A-Z]$",
+      "title": "Variant",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "summary": {
+      "$ref": "#/$defs/AuditSummary"
+    },
+    "duration_s": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Duration S"
+    }
+  },
+  "required": [
+    "deck_id",
+    "variant"
+  ],
+  "title": "AuditReport",
+  "type": "object"
+}

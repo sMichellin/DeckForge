@@ -1,0 +1,7 @@
+model_ref: llm_fast
+temperature: 0.0
+max_tokens: 256
+author: DeckForge team
+changelog: |
+  1.0.0 — выбор типа визуализации только для пограничных случаев; основной путь
+  детерминирован в deckforge.domain.rules.choose_chart_type.

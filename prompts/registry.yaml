@@ -1,0 +1,20 @@
+# Какая версия промпта активна в каком профиле (C9, ARCHITECTURE.md §9.1).
+# Прямое чтение файлов промптов из кода запрещено — только через deckforge.registry.
+skills:
+  deck_planner:
+    active: "1.0.0"
+    model_ref: llm_main
+  slide_composer:
+    active: "1.0.0"
+    model_ref: llm_main
+    pinned:
+      dev: "1.0.0"
+  headline_writer:
+    active: "1.0.0"
+    model_ref: llm_fast
+  visual_selector:
+    active: "1.0.0"
+    model_ref: llm_fast
+  audit_judge:
+    active: "1.0.0"
+    model_ref: vlm_judge

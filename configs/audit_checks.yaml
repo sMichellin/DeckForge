@@ -1,0 +1,173 @@
+# Реестр проверок аудита (ARCHITECTURE.md §5, AUDIT.md).
+# Пороги живут здесь, а не в коде: изменение порога не требует правки пайплайна.
+checks:
+  # --- вёрстка (детерминированные) ---
+  layout.out_of_bounds:
+    deterministic: true
+    severity: error
+    title: "Элемент вышел за границы слайда"
+  layout.overlap:
+    deterministic: true
+    severity: error
+    title: "Два блока наложились друг на друга"
+    params: { min_overlap_ratio: 0.05 }
+  layout.text_overflow:
+    deterministic: true
+    severity: error
+    auto_fix: shrink_font
+    title: "Текст не помещается в свою рамку"
+  layout.text_clipped:
+    deterministic: true
+    severity: error
+    title: "Текст обрезан краем слайда"
+  layout.off_guides:
+    deterministic: true
+    severity: warning
+    auto_fix: snap_to_guide
+    title: "Блоки не выровнены по направляющим макета"
+    params: { tolerance_emu: 45720 }
+  layout.margin_violation:
+    deterministic: true
+    severity: warning
+    title: "Контент заходит в поля у краёв"
+  layout.image_aspect_distorted:
+    deterministic: true
+    severity: error
+    title: "Картинка растянута, пропорции нарушены"
+    params: { max_aspect_delta: 0.02 }
+
+  # --- шаблон ---
+  template.font_not_in_theme:
+    deterministic: true
+    severity: error
+    title: "Шрифт не из шаблона или гарнитур больше двух"
+    params: { max_families: 2 }
+  template.size_not_in_scale:
+    deterministic: true
+    severity: warning
+    title: "Кегль не из типографической шкалы шаблона"
+  template.color_not_in_palette:
+    deterministic: true
+    severity: error
+    auto_fix: map_to_nearest_theme_color
+    title: "Цвет не из палитры шаблона"
+    params: { max_delta_e: 12 }
+  template.layout_not_from_template:
+    deterministic: true
+    severity: error
+    title: "Слайд собран не на макете из шаблона"
+  template.decor_moved:
+    deterministic: true
+    severity: warning
+    title: "Логотип или колонтитул сдвинуты с положенного места"
+    params: { tolerance_emu: 45720 }
+  template.contrast_below_wcag:
+    deterministic: true
+    severity: error
+    title: "Контраст текста к фону ниже 4.5:1"
+    params: { min_ratio: 4.5, min_ratio_large: 3.0, large_text_pt: 18 }
+
+  # --- плотность ---
+  density.too_many_bullets:
+    deterministic: true
+    severity: warning
+    auto_fix: split_slide
+    title: "Больше 6 буллетов на слайде"
+    params: { max_bullets: 6 }
+  density.bullet_too_long:
+    deterministic: true
+    severity: warning
+    auto_fix: shorten_text
+    title: "Буллет длиннее 15 слов"
+    params: { max_words: 15 }
+  density.table_too_big:
+    deterministic: true
+    severity: warning
+    title: "Таблица больше 7 строк или 5 колонок"
+    params: { max_rows: 7, max_cols: 5 }
+  density.too_many_series:
+    deterministic: true
+    severity: warning
+    title: "Больше 5 серий на диаграмме"
+    params: { max_series: 5 }
+  density.fill_ratio:
+    deterministic: true
+    severity: warning
+    title: "Слайд заполнен меньше четверти или больше трёх четвертей"
+    params: { min_ratio: 0.25, max_ratio: 0.75 }
+
+  # --- целостность ---
+  integrity.file_opens:
+    deterministic: true
+    severity: error
+    title: "Файл не открывается"
+  integrity.placeholder_text:
+    deterministic: true
+    severity: error
+    title: "Остался текст-заглушка: lorem ipsum, XXX, TODO"
+  integrity.empty_slide:
+    deterministic: true
+    severity: error
+    title: "Пустой слайд или слайд с одним заголовком"
+  integrity.slide_is_image:
+    deterministic: true
+    severity: error
+    title: "C3: слайд оказался картинкой, а не редактируемыми объектами"
+  integrity.chart_labels_missing:
+    deterministic: true
+    severity: warning
+    title: "У диаграммы нет подписей осей, единиц или легенды"
+  integrity.duplicate_slides:
+    deterministic: true
+    severity: warning
+    title: "Два слайда дублируют друг друга"
+    params: { phash_distance: 6, text_cosine: 0.92 }
+
+  # --- контент: орфография детерминирована (LanguageTool), не модель ---
+  content.no_typos:
+    deterministic: true
+    severity: warning
+    title: "Текст без опечаток"
+
+  # --- контент: VLM-судья, 11 вопросов Приложения 1 ТЗ ---
+  content.headline_is_conclusion:
+    deterministic: false
+    severity: warning
+    auto_fix: regenerate_headline
+    title: "Заголовок содержит вывод, а не просто называет тему"
+  content.body_matches_headline:
+    deterministic: false
+    severity: warning
+    title: "Содержимое слайда соответствует заголовку"
+  content.one_sentence_summary:
+    deterministic: false
+    severity: info
+    title: "Слайд пересказывается одним предложением"
+  content.numbers_grounded:
+    deterministic: false
+    severity: error
+    title: "Все цифры и факты со слайда есть в исходных материалах"
+  content.has_substance:
+    deterministic: false
+    severity: warning
+    title: "На слайде есть содержание, а не только заголовок"
+  content.visuals_on_topic:
+    deterministic: false
+    severity: warning
+    title: "Картинки и иконки относятся к теме слайда"
+  content.no_prompt_leftovers:
+    deterministic: false
+    severity: error
+    title: "Нет служебного мусора: реплик спикера, кусков промпта"
+  content.single_language:
+    deterministic: false
+    severity: warning
+    title: "Вся колода на одном языке"
+  content.table_rows_meaningful:
+    deterministic: false
+    severity: info
+    title: "Все строки таблицы и элементы легенды работают на мысль слайда"
+  content.neighbours_connected:
+    deterministic: false
+    severity: info
+    title: "Соседние слайды связаны между собой по логике"

@@ -1,0 +1,13 @@
+description: >-
+  Разбирает незнакомый шаблон: тема, типошкала, сетка, декор, классификация макетов.
+  Единственный шаг, которому доступен исходный .pptx (ADR-003).
+prompt_ref: null
+model_ref: vlm_judge
+inputs: [template_path]
+outputs: [manifest]
+retries: 1
+fallback: heuristic_only
+params:
+  classify_with_vlm: true
+  vlm_confidence_threshold: 0.6
+  cache_by_sha256: true

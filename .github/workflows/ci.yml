@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pipx install poetry==2.3.*
+      - run: poetry install --with dev --no-interaction
+      - name: ruff
+        run: poetry run ruff check src tests scripts
+      - name: mypy
+        run: poetry run mypy
+      - name: "Гейт C1/C2 — лицензии и размеры моделей"
+        run: poetry run python scripts/check_licenses.py
+      - name: "Гейт C6 — никаких констант шаблона в src/"
+        run: poetry run python scripts/lint_no_template_constants.py
+      - name: tests
+        run: poetry run pytest -q --cov=deckforge --cov-report=term-missing

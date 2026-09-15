@@ -1,0 +1,347 @@
+{
+  "$defs": {
+    "Asset": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_id": {
+          "pattern": "^a\\d{3,}$",
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "kind": {
+          "description": "image | logo | chart_image | file",
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "caption": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Caption"
+        },
+        "width_px": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width Px"
+        },
+        "height_px": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height Px"
+        }
+      },
+      "required": [
+        "asset_id",
+        "kind",
+        "path"
+      ],
+      "title": "Asset",
+      "type": "object"
+    },
+    "Brief": {
+      "additionalProperties": false,
+      "properties": {
+        "purpose": {
+          "description": "feature | product | project | initiative | report",
+          "title": "Purpose",
+          "type": "string"
+        },
+        "audience": {
+          "title": "Audience",
+          "type": "string"
+        },
+        "target_slides": {
+          "maximum": 60,
+          "minimum": 1,
+          "title": "Target Slides",
+          "type": "integer"
+        },
+        "language": {
+          "default": "ru",
+          "maxLength": 5,
+          "minLength": 2,
+          "title": "Language",
+          "type": "string"
+        },
+        "tone": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tone"
+        },
+        "key_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Key Message"
+        }
+      },
+      "required": [
+        "purpose",
+        "audience",
+        "target_slides"
+      ],
+      "title": "Brief",
+      "type": "object"
+    },
+    "Dataset": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_id": {
+          "pattern": "^d\\d{3,}$",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "categories": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Categories",
+          "type": "array"
+        },
+        "series": {
+          "items": {
+            "$ref": "#/$defs/Series"
+          },
+          "title": "Series",
+          "type": "array"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        }
+      },
+      "required": [
+        "dataset_id",
+        "title",
+        "categories",
+        "series"
+      ],
+      "title": "Dataset",
+      "type": "object"
+    },
+    "Fact": {
+      "additionalProperties": false,
+      "properties": {
+        "fact_id": {
+          "pattern": "^f\\d{3,}$",
+          "title": "Fact Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "numbers": {
+          "items": {
+            "$ref": "#/$defs/Number"
+          },
+          "title": "Numbers",
+          "type": "array"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Например content.md#L42",
+          "title": "Source Ref"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "fact_id",
+        "text"
+      ],
+      "title": "Fact",
+      "type": "object"
+    },
+    "Number": {
+      "additionalProperties": false,
+      "description": "Число, извлечённое из контента. Якорь фактчекинга `content.numbers_grounded`.",
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "raw": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Как было написано в исходнике",
+          "title": "Raw"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "Number",
+      "type": "object"
+    },
+    "Series": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "values"
+      ],
+      "title": "Series",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "brief": {
+      "$ref": "#/$defs/Brief"
+    },
+    "facts": {
+      "items": {
+        "$ref": "#/$defs/Fact"
+      },
+      "title": "Facts",
+      "type": "array"
+    },
+    "datasets": {
+      "items": {
+        "$ref": "#/$defs/Dataset"
+      },
+      "title": "Datasets",
+      "type": "array"
+    },
+    "assets": {
+      "items": {
+        "$ref": "#/$defs/Asset"
+      },
+      "title": "Assets",
+      "type": "array"
+    },
+    "raw_markdown": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Нормализованный исходник",
+      "title": "Raw Markdown"
+    }
+  },
+  "required": [
+    "brief"
+  ],
+  "title": "ContentPackage",
+  "type": "object"
+}

@@ -1,0 +1,34 @@
+# Реестр моделей. CI-гейт scripts/check_licenses.py падает при нарушении constraints (C1, C2).
+models:
+  llm_main:
+    hf_id: "Qwen/Qwen3-32B"
+    license: "apache-2.0"
+    params_total_b: 32.8
+    role: "planning,composition"
+    endpoint_ref: "llm"
+  llm_fast:
+    hf_id: "Qwen/Qwen3-30B-A3B"
+    license: "apache-2.0"
+    params_total_b: 30.5
+    params_active_b: 3.3
+    role: "composition,bulk"
+    endpoint_ref: "llm"
+    notes: "MoE. Запасной путь при превышении бюджета C5 — §12 ARCHITECTURE.md"
+  vlm_judge:
+    hf_id: "Qwen/Qwen3-VL-8B-Instruct"
+    license: "apache-2.0"
+    params_total_b: 8.0
+    role: "audit,layout-classification"
+    endpoint_ref: "vlm"
+  t2i:
+    hf_id: "Qwen/Qwen-Image"
+    license: "apache-2.0"
+    params_total_b: 20.0
+    role: "slide-images"
+    endpoint_ref: "t2i"
+    notes: "Задача «со звёздочкой», change (24)"
+
+constraints:
+  allowed_licenses: ["apache-2.0", "mit"]
+  max_params_b_llm: 35
+  max_params_b_t2i: 20

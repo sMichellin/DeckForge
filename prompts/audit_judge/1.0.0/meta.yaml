@@ -1,0 +1,7 @@
+model_ref: vlm_judge
+response_model: null
+temperature: 0.0
+max_tokens: 256
+author: DeckForge team
+changelog: |
+  1.0.0 — один вопрос за вызов, строгий формат verdict/reason, 3 прогона с разными seed.

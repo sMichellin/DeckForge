@@ -1,0 +1,30 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.6
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-added-large-files
+        args: [--maxkb=5000]
+      - id: detect-private-key
+  - repo: local
+    hooks:
+      - id: no-template-constants
+        name: "C6: никаких констант шаблона в src/"
+        entry: python scripts/lint_no_template_constants.py
+        language: system
+        pass_filenames: false
+        files: ^src/
+      - id: check-licenses
+        name: "C1/C2: лицензии и размеры моделей"
+        entry: python scripts/check_licenses.py
+        language: system
+        pass_filenames: false
+        files: ^configs/models\.yaml$

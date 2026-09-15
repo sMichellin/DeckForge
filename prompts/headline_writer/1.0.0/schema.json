@@ -1,0 +1,6 @@
+{
+  "type": "object",
+  "properties": { "headline": { "type": "string", "minLength": 1 } },
+  "required": ["headline"],
+  "additionalProperties": false
+}

@@ -1,0 +1,23 @@
+# pptx → png (превью и VLM-аудит) и pptx → pdf.
+#
+# Кириллические шрифты ставятся ЯВНО: без них LibreOffice подменит гарнитуру,
+# превью разойдётся с PowerPoint, и весь VLM-аудит будет врать (ARCHITECTURE.md §15).
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libreoffice-impress libreoffice-core \
+        fonts-liberation2 fonts-dejavu-core fonts-noto-core fonts-noto-color-emoji \
+        fontconfig python3-minimal \
+    && rm -rf /var/lib/apt/lists/*
+
+# Шрифты самого шаблона, если они не вшиты в файл, кладутся сюда на этапе сборки.
+COPY assets/fonts/ /usr/share/fonts/truetype/deckforge/
+RUN fc-cache -fv
+
+WORKDIR /work
+# Прогрев профиля: первый запуск soffice иначе съедает ~10 с из бюджета C5.
+RUN soffice --headless --terminate_after_init || true
+
+ENTRYPOINT ["soffice", "--headless", "--norestore", "--nolockcheck"]

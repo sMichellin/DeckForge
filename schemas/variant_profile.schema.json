@@ -1,0 +1,79 @@
+{
+  "$defs": {
+    "Density": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Density",
+      "type": "string"
+    },
+    "LayoutKind": {
+      "description": "Семантический тип макета шаблона. Определяется классификатором, не именем макета.",
+      "enum": [
+        "title",
+        "section",
+        "bullets",
+        "two_column",
+        "chart",
+        "table",
+        "kpi",
+        "quote",
+        "image_full",
+        "closing",
+        "custom"
+      ],
+      "title": "LayoutKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "variant_id": {
+      "pattern": "^[A-Z]$",
+      "title": "Variant Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "layout_preference": {
+      "items": {
+        "$ref": "#/$defs/LayoutKind"
+      },
+      "title": "Layout Preference",
+      "type": "array"
+    },
+    "density": {
+      "$ref": "#/$defs/Density"
+    },
+    "grouping": {
+      "description": "by_topic | by_narrative_arc | pyramid",
+      "title": "Grouping",
+      "type": "string"
+    },
+    "data_visual": {
+      "description": "table_first | chart_first | kpi_first",
+      "title": "Data Visual",
+      "type": "string"
+    },
+    "rationale": {
+      "default": "",
+      "description": "Обоснование оси различий для документации",
+      "title": "Rationale",
+      "type": "string"
+    }
+  },
+  "required": [
+    "variant_id",
+    "name",
+    "layout_preference",
+    "density",
+    "grouping",
+    "data_visual"
+  ],
+  "title": "VariantProfile",
+  "type": "object"
+}

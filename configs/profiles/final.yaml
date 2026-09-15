@@ -1,0 +1,9 @@
+# Сдача (A3, A11): девять колод, три формата, полный аудит, максимальная стабильность.
+target_slides: 12
+variants: [A, B, C]
+exports: [pptx, pdf, html]
+audit:
+  run_semantic: true
+  vlm_votes: 3
+  auto_fix: true
+  max_fix_rounds: 2

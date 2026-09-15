@@ -1,0 +1,761 @@
+{
+  "$defs": {
+    "BBox": {
+      "additionalProperties": false,
+      "description": "Прямоугольник в EMU. Origin — левый верхний угол слайда.",
+      "properties": {
+        "x": {
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        },
+        "cx": {
+          "exclusiveMinimum": 0,
+          "title": "Cx",
+          "type": "integer"
+        },
+        "cy": {
+          "exclusiveMinimum": 0,
+          "title": "Cy",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "cx",
+        "cy"
+      ],
+      "title": "BBox",
+      "type": "object"
+    },
+    "ChartDefaults": {
+      "additionalProperties": false,
+      "properties": {
+        "series_color_refs": {
+          "items": {
+            "$ref": "#/$defs/ColorRef"
+          },
+          "title": "Series Color Refs",
+          "type": "array"
+        }
+      },
+      "title": "ChartDefaults",
+      "type": "object"
+    },
+    "ColorRef": {
+      "description": "Имена цветов схемы темы. RGB-литералы в IR запрещены (ADR-002).",
+      "enum": [
+        "dk1",
+        "lt1",
+        "dk2",
+        "lt2",
+        "accent1",
+        "accent2",
+        "accent3",
+        "accent4",
+        "accent5",
+        "accent6",
+        "hlink",
+        "folHlink"
+      ],
+      "title": "ColorRef",
+      "type": "string"
+    },
+    "Decor": {
+      "additionalProperties": false,
+      "properties": {
+        "logo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DecorElement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "footer": {
+          "$ref": "#/$defs/FooterSpec"
+        },
+        "static_shapes": {
+          "items": {
+            "$ref": "#/$defs/StaticShape"
+          },
+          "title": "Static Shapes",
+          "type": "array"
+        }
+      },
+      "title": "Decor",
+      "type": "object"
+    },
+    "DecorElement": {
+      "additionalProperties": false,
+      "properties": {
+        "layout_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Layout Ids",
+          "type": "array"
+        },
+        "x": {
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "title": "Y",
+          "type": "integer"
+        },
+        "cx": {
+          "title": "Cx",
+          "type": "integer"
+        },
+        "cy": {
+          "title": "Cy",
+          "type": "integer"
+        },
+        "image_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image Sha"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "cx",
+        "cy"
+      ],
+      "title": "DecorElement",
+      "type": "object"
+    },
+    "FontRef": {
+      "description": "Имена гарнитур схемы темы.",
+      "enum": [
+        "major_latin",
+        "minor_latin",
+        "major_cs",
+        "minor_cs"
+      ],
+      "title": "FontRef",
+      "type": "string"
+    },
+    "FooterSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "present": {
+          "default": false,
+          "title": "Present",
+          "type": "boolean"
+        },
+        "y_emu": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Y Emu"
+        }
+      },
+      "title": "FooterSpec",
+      "type": "object"
+    },
+    "Grid": {
+      "additionalProperties": false,
+      "properties": {
+        "margins_emu": {
+          "$ref": "#/$defs/Margins"
+        },
+        "guides_x_emu": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Guides X Emu",
+          "type": "array"
+        },
+        "guides_y_emu": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Guides Y Emu",
+          "type": "array"
+        },
+        "columns": {
+          "default": 12,
+          "exclusiveMinimum": 0,
+          "title": "Columns",
+          "type": "integer"
+        },
+        "gutter_emu": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Gutter Emu",
+          "type": "integer"
+        },
+        "guides_source": {
+          "default": "xml",
+          "description": "xml — направляющие есть в мастере; inferred — выведены кластеризацией",
+          "title": "Guides Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "margins_emu"
+      ],
+      "title": "Grid",
+      "type": "object"
+    },
+    "LayoutCapacity": {
+      "additionalProperties": false,
+      "description": "Вместимость макета. Вычисляется по метрикам шрифта и площади, не константами.",
+      "properties": {
+        "max_bullets": {
+          "minimum": 0,
+          "title": "Max Bullets",
+          "type": "integer"
+        },
+        "max_chars_body": {
+          "minimum": 0,
+          "title": "Max Chars Body",
+          "type": "integer"
+        },
+        "max_chars_title": {
+          "minimum": 0,
+          "title": "Max Chars Title",
+          "type": "integer"
+        },
+        "supports_chart": {
+          "default": false,
+          "title": "Supports Chart",
+          "type": "boolean"
+        },
+        "supports_table": {
+          "default": false,
+          "title": "Supports Table",
+          "type": "boolean"
+        },
+        "supports_image": {
+          "default": false,
+          "title": "Supports Image",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "max_bullets",
+        "max_chars_body",
+        "max_chars_title"
+      ],
+      "title": "LayoutCapacity",
+      "type": "object"
+    },
+    "LayoutKind": {
+      "description": "Семантический тип макета шаблона. Определяется классификатором, не именем макета.",
+      "enum": [
+        "title",
+        "section",
+        "bullets",
+        "two_column",
+        "chart",
+        "table",
+        "kpi",
+        "quote",
+        "image_full",
+        "closing",
+        "custom"
+      ],
+      "title": "LayoutKind",
+      "type": "string"
+    },
+    "LayoutSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "layout_id": {
+          "title": "Layout Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "master": {
+          "title": "Master",
+          "type": "string"
+        },
+        "index": {
+          "description": "Позиция в slide_layouts исходного файла",
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/LayoutKind"
+        },
+        "kind_confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Kind Confidence",
+          "type": "number"
+        },
+        "kind_source": {
+          "description": "heuristic | vlm | vlm+heuristic",
+          "title": "Kind Source",
+          "type": "string"
+        },
+        "capacity": {
+          "$ref": "#/$defs/LayoutCapacity"
+        },
+        "placeholders": {
+          "items": {
+            "$ref": "#/$defs/PlaceholderSpec"
+          },
+          "title": "Placeholders",
+          "type": "array"
+        },
+        "preview_png": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preview Png"
+        }
+      },
+      "required": [
+        "layout_id",
+        "name",
+        "master",
+        "index",
+        "kind",
+        "kind_confidence",
+        "kind_source",
+        "capacity",
+        "placeholders"
+      ],
+      "title": "LayoutSpec",
+      "type": "object"
+    },
+    "Margins": {
+      "additionalProperties": false,
+      "properties": {
+        "left": {
+          "minimum": 0,
+          "title": "Left",
+          "type": "integer"
+        },
+        "right": {
+          "minimum": 0,
+          "title": "Right",
+          "type": "integer"
+        },
+        "top": {
+          "minimum": 0,
+          "title": "Top",
+          "type": "integer"
+        },
+        "bottom": {
+          "minimum": 0,
+          "title": "Bottom",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "left",
+        "right",
+        "top",
+        "bottom"
+      ],
+      "title": "Margins",
+      "type": "object"
+    },
+    "PlaceholderSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "idx": {
+          "minimum": 0,
+          "title": "Idx",
+          "type": "integer"
+        },
+        "ph_type": {
+          "description": "TITLE | BODY | PICTURE | CHART | TABLE | ...",
+          "title": "Ph Type",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextRole"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "x": {
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        },
+        "cx": {
+          "exclusiveMinimum": 0,
+          "title": "Cx",
+          "type": "integer"
+        },
+        "cy": {
+          "exclusiveMinimum": 0,
+          "title": "Cy",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "idx",
+        "ph_type",
+        "x",
+        "y",
+        "cx",
+        "cy"
+      ],
+      "title": "PlaceholderSpec",
+      "type": "object"
+    },
+    "SlideSize": {
+      "additionalProperties": false,
+      "properties": {
+        "cx_emu": {
+          "exclusiveMinimum": 0,
+          "title": "Cx Emu",
+          "type": "integer"
+        },
+        "cy_emu": {
+          "exclusiveMinimum": 0,
+          "title": "Cy Emu",
+          "type": "integer"
+        },
+        "aspect": {
+          "description": "Например 16:9, 4:3",
+          "title": "Aspect",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cx_emu",
+        "cy_emu",
+        "aspect"
+      ],
+      "title": "SlideSize",
+      "type": "object"
+    },
+    "StaticShape": {
+      "additionalProperties": false,
+      "properties": {
+        "shape_id": {
+          "title": "Shape Id",
+          "type": "string"
+        },
+        "bbox": {
+          "$ref": "#/$defs/BBox"
+        },
+        "z": {
+          "default": 0,
+          "title": "Z",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "shape_id",
+        "bbox"
+      ],
+      "title": "StaticShape",
+      "type": "object"
+    },
+    "TextRole": {
+      "description": "Роль в типографической шкале шаблона.",
+      "enum": [
+        "title",
+        "subtitle",
+        "body",
+        "caption"
+      ],
+      "title": "TextRole",
+      "type": "string"
+    },
+    "Theme": {
+      "additionalProperties": false,
+      "properties": {
+        "colors": {
+          "$ref": "#/$defs/ThemeColors"
+        },
+        "fonts": {
+          "$ref": "#/$defs/ThemeFonts"
+        }
+      },
+      "required": [
+        "colors",
+        "fonts"
+      ],
+      "title": "Theme",
+      "type": "object"
+    },
+    "ThemeColors": {
+      "additionalProperties": false,
+      "description": "Все 12 цветов clrScheme. Отсутствие любого — ошибка парсера, не значение по умолчанию.",
+      "properties": {
+        "dk1": {
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Dk1",
+          "type": "string"
+        },
+        "lt1": {
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Lt1",
+          "type": "string"
+        },
+        "dk2": {
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Dk2",
+          "type": "string"
+        },
+        "lt2": {
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Lt2",
+          "type": "string"
+        },
+        "accent1": {
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Accent1",
+          "type": "string"
+        },
+        "accent2": {
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Accent2",
+          "type": "string"
+        },
+        "accent3": {
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Accent3",
+          "type": "string"
+        },
+        "accent4": {
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Accent4",
+          "type": "string"
+        },
+        "accent5": {
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Accent5",
+          "type": "string"
+        },
+        "accent6": {
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Accent6",
+          "type": "string"
+        },
+        "hlink": {
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Hlink",
+          "type": "string"
+        },
+        "folHlink": {
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Folhlink",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dk1",
+        "lt1",
+        "dk2",
+        "lt2",
+        "accent1",
+        "accent2",
+        "accent3",
+        "accent4",
+        "accent5",
+        "accent6",
+        "hlink",
+        "folHlink"
+      ],
+      "title": "ThemeColors",
+      "type": "object"
+    },
+    "ThemeFonts": {
+      "additionalProperties": false,
+      "properties": {
+        "major_latin": {
+          "title": "Major Latin",
+          "type": "string"
+        },
+        "minor_latin": {
+          "title": "Minor Latin",
+          "type": "string"
+        },
+        "major_cs": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Major Cs"
+        },
+        "minor_cs": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minor Cs"
+        }
+      },
+      "required": [
+        "major_latin",
+        "minor_latin"
+      ],
+      "title": "ThemeFonts",
+      "type": "object"
+    },
+    "TypographyStep": {
+      "additionalProperties": false,
+      "description": "Ступень типографической шкалы. Выводится из шаблона, не задаётся константами.",
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/TextRole"
+        },
+        "size_pt": {
+          "exclusiveMinimum": 0,
+          "title": "Size Pt",
+          "type": "number"
+        },
+        "font_ref": {
+          "$ref": "#/$defs/FontRef"
+        },
+        "bold": {
+          "default": false,
+          "title": "Bold",
+          "type": "boolean"
+        },
+        "italic": {
+          "default": false,
+          "title": "Italic",
+          "type": "boolean"
+        },
+        "color_ref": {
+          "$ref": "#/$defs/ColorRef"
+        },
+        "line_spacing": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line Spacing"
+        }
+      },
+      "required": [
+        "role",
+        "size_pt",
+        "font_ref",
+        "color_ref"
+      ],
+      "title": "TypographyStep",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Дизайн-система шаблона как самодостаточный кэшируемый JSON.",
+  "properties": {
+    "template_id": {
+      "description": "sha256:<hex> исходного файла",
+      "title": "Template Id",
+      "type": "string"
+    },
+    "source_name": {
+      "title": "Source Name",
+      "type": "string"
+    },
+    "slide_size": {
+      "$ref": "#/$defs/SlideSize"
+    },
+    "theme": {
+      "$ref": "#/$defs/Theme"
+    },
+    "typography_scale": {
+      "items": {
+        "$ref": "#/$defs/TypographyStep"
+      },
+      "title": "Typography Scale",
+      "type": "array"
+    },
+    "grid": {
+      "$ref": "#/$defs/Grid"
+    },
+    "layouts": {
+      "items": {
+        "$ref": "#/$defs/LayoutSpec"
+      },
+      "title": "Layouts",
+      "type": "array"
+    },
+    "decor": {
+      "$ref": "#/$defs/Decor"
+    },
+    "chart_defaults": {
+      "$ref": "#/$defs/ChartDefaults"
+    },
+    "parser_version": {
+      "title": "Parser Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "template_id",
+    "source_name",
+    "slide_size",
+    "theme",
+    "typography_scale",
+    "grid",
+    "layouts",
+    "parser_version"
+  ],
+  "title": "TemplateManifest",
+  "type": "object"
+}

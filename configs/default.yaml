@@ -1,0 +1,25 @@
+# Воспроизводимый запуск (C11). Профиль переопределяет эти значения.
+seed: 1337
+language: ru
+target_slides: 12
+variants: [A, B, C]
+exports: [pptx, pdf, html]
+
+# Бюджет C5: колода 10–15 слайдов за ≤ 5 минут
+time_budget_s: 300
+parallel_slides: 6
+
+models:
+  planning: llm_main
+  composition: llm_main
+  bulk: llm_fast
+  judge: vlm_judge
+  image: t2i
+
+audit:
+  run_deterministic: true
+  run_semantic: true
+  vlm_votes: 3
+  vlm_confidence_threshold: 0.6
+  auto_fix: true
+  max_fix_rounds: 2

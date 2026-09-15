@@ -1,0 +1,10 @@
+# Быстрая итерация: без VLM, меньше слайдов, кэш ответов включён.
+target_slides: 6
+variants: [A]
+exports: [pptx]
+audit:
+  run_semantic: false
+  auto_fix: false
+models:
+  planning: llm_fast
+  composition: llm_fast

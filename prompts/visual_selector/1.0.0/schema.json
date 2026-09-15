@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "visual": { "type": "string" },
+    "reason": { "type": "string" }
+  },
+  "required": ["visual", "reason"],
+  "additionalProperties": false
+}

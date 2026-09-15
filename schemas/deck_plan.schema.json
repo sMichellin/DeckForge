@@ -1,0 +1,163 @@
+{
+  "$defs": {
+    "NarrativeCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "one_idea_per_slide": {
+          "default": true,
+          "title": "One Idea Per Slide",
+          "type": "boolean"
+        },
+        "has_arc": {
+          "default": true,
+          "title": "Has Arc",
+          "type": "boolean"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "title": "NarrativeCheck",
+      "type": "object"
+    },
+    "SlideIntent": {
+      "description": "Роль слайда в нарративе колоды.",
+      "enum": [
+        "title",
+        "agenda",
+        "problem",
+        "solution",
+        "evidence",
+        "comparison",
+        "process",
+        "metrics",
+        "roadmap",
+        "section",
+        "summary",
+        "closing"
+      ],
+      "title": "SlideIntent",
+      "type": "string"
+    },
+    "SlidePlan": {
+      "additionalProperties": false,
+      "properties": {
+        "slide_id": {
+          "pattern": "^s\\d{2,}$",
+          "title": "Slide Id",
+          "type": "string"
+        },
+        "intent": {
+          "$ref": "#/$defs/SlideIntent"
+        },
+        "headline": {
+          "description": "Вывод, а не тема. Требование закладывается в промпт планировщика, проверяется аудитом content.headline_is_conclusion",
+          "minLength": 1,
+          "title": "Headline",
+          "type": "string"
+        },
+        "fact_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fact Refs",
+          "type": "array"
+        },
+        "dataset_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Ref"
+        },
+        "asset_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Asset Refs",
+          "type": "array"
+        },
+        "suggested_visual": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Например chart:bar, table, smartart:process, kpi",
+          "title": "Suggested Visual"
+        },
+        "speaker_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Speaker Note"
+        }
+      },
+      "required": [
+        "slide_id",
+        "intent",
+        "headline"
+      ],
+      "title": "SlidePlan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "deck_id": {
+      "title": "Deck Id",
+      "type": "string"
+    },
+    "variant": {
+      "pattern": "^[A-Z]$",
+      "title": "Variant",
+      "type": "string"
+    },
+    "seed": {
+      "title": "Seed",
+      "type": "integer"
+    },
+    "language": {
+      "default": "ru",
+      "title": "Language",
+      "type": "string"
+    },
+    "slides": {
+      "items": {
+        "$ref": "#/$defs/SlidePlan"
+      },
+      "title": "Slides",
+      "type": "array"
+    },
+    "narrative_check": {
+      "$ref": "#/$defs/NarrativeCheck"
+    }
+  },
+  "required": [
+    "deck_id",
+    "variant",
+    "seed",
+    "slides"
+  ],
+  "title": "DeckPlan",
+  "type": "object"
+}

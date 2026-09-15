@@ -1,0 +1,12 @@
+description: >-
+  Наполняет один слайд по выбранному макету. Параллелится по слайдам, общий префикс —
+  манифест, чтобы работал prefix caching (§12).
+prompt_ref: slide_composer
+model_ref: llm_main
+inputs: [slide_plan, layout, content, variant, seed]
+outputs: [slide_ir]
+retries: 2
+fallback: simpler_layout
+params:
+  guided_decoding: true
+  parallel: true

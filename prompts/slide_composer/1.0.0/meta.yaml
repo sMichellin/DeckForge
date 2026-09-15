@@ -1,0 +1,8 @@
+model_ref: llm_main
+response_model: deckforge.domain.slide.SlideIR
+temperature: 0.2
+top_p: 0.9
+max_tokens: 2048
+author: DeckForge team
+changelog: |
+  1.0.0 — первая версия: распределение контента по плейсхолдерам выбранного макета.

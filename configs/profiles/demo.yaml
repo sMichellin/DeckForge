@@ -1,0 +1,9 @@
+# Конфигурация живого прогона на видео (A4): предсказуемое время, полный аудит.
+target_slides: 12
+variants: [A]
+exports: [pptx, pdf]
+time_budget_s: 240
+audit:
+  run_semantic: true
+  vlm_votes: 1
+  auto_fix: true

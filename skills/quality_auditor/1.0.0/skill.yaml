@@ -1,0 +1,13 @@
+description: >-
+  Контекстуальная часть аудита: 11 вопросов ТЗ по рендеру слайда, мажоритарное
+  голосование по трём прогонам (ADR-004).
+prompt_ref: audit_judge
+model_ref: vlm_judge
+inputs: [slide_preview, content]
+outputs: [findings]
+retries: 1
+fallback: deterministic_only
+params:
+  votes: 3
+  confidence_threshold: 0.6
+  one_question_per_call: true

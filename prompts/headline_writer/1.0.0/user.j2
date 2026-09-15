@@ -1,0 +1,10 @@
+Текущий заголовок: {{ current_headline }}
+Замечание аудита: {{ finding_message }}
+
+Содержимое слайда:
+{{ slide_text }}
+
+Факты:
+{% for f in facts %}
+- [{{ f.fact_id }}] {{ f.text }}
+{% endfor %}

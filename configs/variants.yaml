@@ -1,0 +1,30 @@
+# Три варианта вёрстки (C7). Оси различий объявлены декларативно — ADR-005.
+# Все три обязаны пройти один и тот же аудит соответствия шаблону.
+variants:
+  A:
+    name: "Плотный аналитический"
+    layout_preference: [bullets, table, chart]
+    density: high
+    grouping: by_topic
+    data_visual: table_first
+    rationale: >-
+      Для читателя, который изучает колоду без докладчика: максимум фактов на слайд
+      в пределах capacity макета, данные — таблицей, где таблица читается быстрее графика.
+  B:
+    name: "Визуальный нарратив"
+    layout_preference: [kpi, chart, image_full]
+    density: low
+    grouping: by_narrative_arc
+    data_visual: chart_first
+    rationale: >-
+      Для выступления со сцены: одна мысль на слайд, крупная визуализация,
+      порядок слайдов подчинён драматургии, а не структуре источника.
+  C:
+    name: "Executive summary"
+    layout_preference: [section, kpi, two_column]
+    density: medium
+    grouping: pyramid
+    data_visual: kpi_first
+    rationale: >-
+      Принцип пирамиды Минто: вывод первым, дальше аргументы, детали в конце.
+      Руководитель получает ответ на первом слайде и может остановиться в любой момент.

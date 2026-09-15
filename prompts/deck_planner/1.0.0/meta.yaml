@@ -1,0 +1,8 @@
+model_ref: llm_main
+response_model: deckforge.domain.plan.DeckPlan
+temperature: 0.3
+top_p: 0.95
+max_tokens: 4096
+author: DeckForge team
+changelog: |
+  1.0.0 — первая версия: состав и порядок слайдов, заголовки-выводы, привязка фактов.
