@@ -32,7 +32,7 @@ class _Positioned(DomainModel):
     def bbox(self) -> BBox | None:
         if None in (self.x, self.y, self.cx, self.cy):
             return None
-        return BBox(x=self.x, y=self.y, cx=self.cx, cy=self.cy)  # type: ignore[arg-type]
+        return BBox(x=self.x, y=self.y, cx=self.cx, cy=self.cy)
 
     @model_validator(mode="after")
     def _all_or_nothing(self) -> _Positioned:

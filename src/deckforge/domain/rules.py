@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import math
+
 from deckforge.domain.base import BBox
 from deckforge.domain.enums import ChartType
 from deckforge.domain.template import TemplateManifest
@@ -32,7 +34,8 @@ def meets_wcag_aa(fg_hex: str, bg_hex: str, *, large_text: bool = False) -> bool
 def delta_e_rgb(a_hex: str, b_hex: str) -> float:
     """Грубое евклидово расстояние в RGB — достаточно для `map_to_nearest_theme_color`."""
     a, b = a_hex.lstrip("#"), b_hex.lstrip("#")
-    return sum((int(a[i : i + 2], 16) - int(b[i : i + 2], 16)) ** 2 for i in (0, 2, 4)) ** 0.5
+    squared = sum((int(a[i : i + 2], 16) - int(b[i : i + 2], 16)) ** 2 for i in (0, 2, 4))
+    return math.sqrt(squared)
 
 
 def overlap_ratio(a: BBox, b: BBox) -> float:

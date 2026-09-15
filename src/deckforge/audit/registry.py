@@ -10,8 +10,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from deckforge.domain.audit import Finding, Severity
-from deckforge.domain.enums import AutoFix
+from deckforge.domain.audit import Finding
+from deckforge.domain.enums import AutoFix, Severity
 
 
 class CheckContext(Protocol):

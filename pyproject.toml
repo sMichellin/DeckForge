@@ -43,7 +43,7 @@ langgraph   = "^1.2"
 langgraph-checkpoint-sqlite = "^2.0"
 
 # --- сервис ---
-fastapi     = "^0.124"
+fastapi     = ">=0.133.0,<0.137.0"
 uvicorn     = { version = "^0.34", extras = ["standard"] }
 arq         = "^0.26"
 redis       = "^5.2"
@@ -53,16 +53,19 @@ structlog   = "^25.1"
 pyyaml      = "^6.0"
 
 # --- аудит ---
-opencv-python-headless = "^4.11"
+opencv-python-headless = ">=4.13.0,<5.0"
 imagehash              = "^4.3"
 language-tool-python   = "^2.9"
 scikit-learn           = "^1.6"
 
+[tool.poetry.group.inference]
+optional = true
+
 [tool.poetry.group.inference.dependencies]
 vllm         = "^0.29"
-transformers = "^4.50"
+transformers = ">=5.10.4,<6.0"
 torch        = "^2.6"
-xgrammar     = "^0.1"
+xgrammar     = ">=0.2.1,<1.0.0"
 
 [tool.poetry.group.ui.dependencies]
 streamlit = "^1.42"
@@ -76,6 +79,7 @@ ruff            = "^0.9"
 mypy            = "^1.15"
 pre-commit      = "^4.1"
 langfuse        = "^2.57"
+types-PyYAML    = "^6.0"
 
 [tool.poetry.scripts]
 deckforge = "deckforge.cli:app"
