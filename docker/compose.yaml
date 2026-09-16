@@ -15,14 +15,16 @@ services:
     command: ["uvicorn", "deckforge.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]
     ports: ["8080:8080"]
 
+  # Воркер собирается из своего образа: рендер превью запускает soffice подпроцессом,
+  # а подпроцесс не умеет стартовать в соседнем контейнере.
   worker:
     build:
       context: ..
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Dockerfile.worker
     env_file: [../.env]
     volumes:
       - ../artifacts:/app/artifacts:z
-    depends_on: [redis, minio, soffice]
+    depends_on: [redis, minio]
     command: ["arq", "deckforge.api.worker.WorkerSettings"]
 
   ui:
@@ -35,14 +37,6 @@ services:
     volumes:
       - ../frontend:/app/frontend:z
     ports: ["8501:8501"]
-
-  soffice:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.libreoffice
-    volumes:
-      - ../artifacts:/work:z
-    entrypoint: ["sleep", "infinity"]
 
   languagetool:
     image: docker.io/erikvl87/languagetool:latest

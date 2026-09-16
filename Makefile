@@ -12,6 +12,13 @@ help:
 image: ## Собрать образ приложения
 	$(PODMAN) build -f docker/Dockerfile -t $(IMAGE) .
 
+worker-image: ## Собрать образ воркера (приложение + LibreOffice); гейт кириллицы внутри
+	$(PODMAN) build -f docker/Dockerfile.worker -t localhost/deckforge:worker .
+
+preview-test: worker-image ## Тесты рендера превью (нужен LibreOffice)
+	$(PODMAN) run --rm -v $(CURDIR):/app:z -w /app -e PYTHONPATH=/app/src \
+		localhost/deckforge:worker pytest -q -m needs_libreoffice
+
 test: ## Тесты
 	$(RUN) pytest -q
 

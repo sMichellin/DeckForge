@@ -6,8 +6,11 @@ FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# poppler-utils нужен для pdf → png: сам LibreOffice конвертирует в png только первый
+# слайд, поэтому колода идёт через pdf одной командой, а страницы режутся отдельно.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libreoffice-impress libreoffice-core \
+        poppler-utils \
         fonts-liberation2 fonts-dejavu-core fonts-noto-core fonts-noto-color-emoji \
         fontconfig python3-minimal \
     && rm -rf /var/lib/apt/lists/*

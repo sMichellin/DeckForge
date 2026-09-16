@@ -1,0 +1,56 @@
+# Воркер: приложение + LibreOffice в одном образе.
+#
+# Почему не отдельный сервис с общим томом: рендерер запускает `soffice` подпроцессом,
+# а подпроцесс не умеет запускаться в чужом контейнере. Держать офис отдельно имело бы
+# смысл при обращении по сети, но у LibreOffice сетевого API нет.
+#
+# Образ тяжелее приложенческого примерно на 400 МБ, поэтому API и UI собираются из
+# docker/Dockerfile без него: превью рисует воркер.
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    POETRY_VERSION=2.3.0 \
+    POETRY_VIRTUALENVS_CREATE=false \
+    PIP_NO_CACHE_DIR=1
+
+# poppler-utils: soffice конвертирует в png только первый слайд, поэтому колода
+# идёт через pdf, а страницы режет pdftoppm.
+# Шрифты с кириллицей обязательны: без них LibreOffice молча подставит свои,
+# превью разойдётся с PowerPoint и VLM-аудит будет врать (ARCHITECTURE.md §15).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv build-essential \
+        libreoffice-impress libreoffice-core poppler-utils \
+        fonts-liberation2 fonts-dejavu-core fonts-noto-core fonts-noto-color-emoji \
+        fontconfig libcairo2 libpango-1.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY assets/fonts/ /usr/share/fonts/truetype/deckforge/
+RUN fc-cache -fv
+
+RUN pip install --break-system-packages "poetry==${POETRY_VERSION}"
+
+WORKDIR /app
+COPY pyproject.toml poetry.lock* ./
+RUN poetry install --with dev --no-root --no-interaction
+
+COPY src/ src/
+COPY configs/ configs/
+COPY prompts/ prompts/
+COPY skills/ skills/
+COPY schemas/ schemas/
+COPY scripts/ scripts/
+COPY assets/ assets/
+COPY tests/ tests/
+RUN poetry install --only-root --no-interaction
+
+ENV PYTHONPATH=/app/src
+
+# Прогрев профиля: первый запуск soffice иначе съедает секунды из бюджета C5.
+RUN soffice --headless --terminate_after_init || true
+
+# Гейт образа: кириллица должна рисоваться, а не подставляться.
+RUN python3 scripts/check_cyrillic_render.py
+
+CMD ["arq", "deckforge.api.worker.WorkerSettings"]
