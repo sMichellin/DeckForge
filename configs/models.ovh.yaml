@@ -1,0 +1,53 @@
+# Реестр для OVHcloud AI Endpoints: DECKFORGE_MODELS_CONFIG=models.ovh.yaml,
+# DECKFORGE_*_BASE_URL=https://oai.endpoints.kepler.ai.cloud.ovh.net/v1.
+#
+# Ключ — токен AI Endpoints из консоли OVH (Public Cloud → AI Endpoints → API keys),
+# а НЕ ключи приложения OVH API: у последних другая область действия, эндпоинт их
+# не принимает.
+#
+# Чем этот провайдер выделяется среди проверенных:
+#   * Qwen3.8-27B отдаётся по цене 0/0 — единственная бесплатная позиция, проходящая
+#     по ТЗ, среди всех облачных провайдеров, что мы смотрели;
+#   * здесь есть открытая Mistral-Small-3.2-24B-Instruct-2506, которую сам Mistral
+#     через свой API уже не раздаёт;
+#   * в каталоге 7 пригодных моделей из 25 — больше, чем у кого-либо ещё.
+#
+# Цены на 16.09.2026, $ за 1M токенов (вход/выход).
+models:
+  llm_main:
+    hf_id: "Qwen3.8-27B"
+    license: "apache-2.0"
+    params_total_b: 27.8
+    role: "planning,composition"
+    endpoint_ref: "llm"
+    notes: >-
+      Веса Qwen/Qwen3.8-27B. Цена 0/0. Та же линейка, что обещана топ-10 через
+      инференс VK. Размышляет — бюджет токенов нужен с запасом.
+  llm_fast:
+    hf_id: "Qwen3.5-9B"
+    license: "apache-2.0"
+    params_total_b: 9.7
+    role: "composition,bulk"
+    endpoint_ref: "llm"
+    notes: "Веса Qwen/Qwen3.5-9B. 0.12/0.18 — путь деградации по бюджету C5."
+  vlm_judge:
+    hf_id: "Mistral-Small-3.2-24B-Instruct-2506"
+    license: "apache-2.0"
+    params_total_b: 24.0
+    role: "audit,layout-classification"
+    endpoint_ref: "vlm"
+    notes: >-
+      Веса mistralai/Mistral-Small-3.2-24B-Instruct-2506, картинки принимает.
+      0.10/0.31. Сам Mistral эту версию через API больше не отдаёт.
+  t2i:
+    hf_id: "Qwen/Qwen-Image"
+    license: "apache-2.0"
+    params_total_b: 20.0
+    role: "slide-images"
+    endpoint_ref: "t2i"
+    notes: "В каталоге AI Endpoints text-to-image нет — роль остаётся незакрытой."
+
+constraints:
+  allowed_licenses: ["apache-2.0", "mit"]
+  max_params_b_llm: 35
+  max_params_b_t2i: 20
