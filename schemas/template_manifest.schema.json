@@ -284,6 +284,68 @@
       "title": "LayoutKind",
       "type": "string"
     },
+    "LayoutShape": {
+      "additionalProperties": false,
+      "description": "Фигура макета **вне** плейсхолдеров.\n\nШаблоны сплошь и рядом кладут фон, фотографию или декоративный знак обычной фигурой,\nа не плейсхолдером. Для наполнения такая фигура бесполезна — в неё ничего не положить, —\nно для понимания макета необходима: без неё «Паттерн + фото» выглядит как пустой слайд\nс заголовком.",
+      "properties": {
+        "shape_id": {
+          "title": "Shape Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ShapeKind"
+        },
+        "x": {
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        },
+        "cx": {
+          "exclusiveMinimum": 0,
+          "title": "Cx",
+          "type": "integer"
+        },
+        "cy": {
+          "exclusiveMinimum": 0,
+          "title": "Cy",
+          "type": "integer"
+        },
+        "z": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Z",
+          "type": "integer"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Первые знаки текста, если он есть",
+          "title": "Text"
+        }
+      },
+      "required": [
+        "shape_id",
+        "kind",
+        "x",
+        "y",
+        "cx",
+        "cy"
+      ],
+      "title": "LayoutShape",
+      "type": "object"
+    },
     "LayoutSpec": {
       "additionalProperties": false,
       "properties": {
@@ -327,6 +389,14 @@
             "$ref": "#/$defs/PlaceholderSpec"
           },
           "title": "Placeholders",
+          "type": "array"
+        },
+        "shapes": {
+          "description": "Фигуры вне плейсхолдеров: фон, фотографии, декор. Наполнению не подлежат.",
+          "items": {
+            "$ref": "#/$defs/LayoutShape"
+          },
+          "title": "Shapes",
           "type": "array"
         },
         "preview_png": {
@@ -444,6 +514,18 @@
       ],
       "title": "PlaceholderSpec",
       "type": "object"
+    },
+    "ShapeKind": {
+      "description": "Что за фигура. Тип важен для классификации: картинка во весь слайд и текстовый\nблок того же размера означают совершенно разные макеты.",
+      "enum": [
+        "picture",
+        "text",
+        "shape",
+        "chart",
+        "table"
+      ],
+      "title": "ShapeKind",
+      "type": "string"
     },
     "SlideSize": {
       "additionalProperties": false,

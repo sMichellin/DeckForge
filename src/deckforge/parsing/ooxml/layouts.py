@@ -10,7 +10,7 @@ from __future__ import annotations
 from lxml import etree
 
 from deckforge.domain.enums import TextRole
-from deckforge.domain.template import PlaceholderSpec
+from deckforge.domain.template import LayoutShape, PlaceholderSpec, ShapeKind
 
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 P = "http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -179,3 +179,82 @@ def placeholder_text_sizes(
         bold = ph.bold if ph.bold is not None else (base.bold if base else None)
         out.setdefault(ph.idx, (size, bold))
     return out
+
+
+#: Минимальная доля площади слайда, ниже которой фигура для классификации не интересна:
+#: мелкий декор только зашумит схему и промпт.
+_MIN_SHAPE_AREA_SHARE = 0.01
+
+_KIND_BY_TAG = {
+    "pic": ShapeKind.PICTURE,
+    "graphicFrame": ShapeKind.CHART,
+    "tbl": ShapeKind.TABLE,
+}
+
+
+def parse_shapes(part_xml: bytes, slide_cx: int, slide_cy: int) -> list[LayoutShape]:
+    """Фигуры вне плейсхолдеров: фон, фотографии, декоративные знаки.
+
+    В шаблонах это сплошь и рядом: в «Паттерн + фото» фотография лежит элементом `p:pic`
+    без всякого плейсхолдера, и макет, разобранный по одним плейсхолдерам, выглядит как
+    пустой слайд с заголовком.
+
+    Группы разворачиваются: внутри `p:grpSp` встречаются те же картинки.
+    """
+    root = etree.fromstring(part_xml)
+    tree = root.find(f"{{{P}}}cSld/{{{P}}}spTree")
+    if tree is None:
+        return []
+
+    slide_area = slide_cx * slide_cy
+    shapes: list[LayoutShape] = []
+    _collect_shapes(tree, shapes, slide_area, prefix="s")
+    return shapes
+
+
+def _collect_shapes(
+    parent: etree._Element, out: list[LayoutShape], slide_area: int, prefix: str
+) -> None:
+    for index, element in enumerate(parent):
+        tag = etree.QName(element).localname
+        if tag in ("nvGrpSpPr", "grpSpPr"):
+            continue
+        if tag == "grpSp":
+            _collect_shapes(element, out, slide_area, prefix=f"{prefix}{index}g")
+            continue
+        if tag not in ("sp", "pic", "graphicFrame"):
+            continue
+        if element.find(f".//{{{P}}}nvPr/{{{P}}}ph") is not None:
+            continue  # плейсхолдеры разбираются отдельно
+
+        off = element.find(f".//{{{A}}}xfrm/{{{A}}}off")
+        ext = element.find(f".//{{{A}}}xfrm/{{{A}}}ext")
+        if off is None or ext is None:
+            continue
+        try:
+            cx, cy = int(ext.get("cx")), int(ext.get("cy"))
+            x, y = int(off.get("x")), int(off.get("y"))
+        except (TypeError, ValueError):
+            continue
+        if cx <= 0 or cy <= 0 or (slide_area and cx * cy / slide_area < _MIN_SHAPE_AREA_SHARE):
+            continue
+
+        text = "".join(element.itertext()).strip()
+        kind = _KIND_BY_TAG.get(tag, ShapeKind.TEXT if text else ShapeKind.SHAPE)
+        if tag == "graphicFrame" and element.find(f".//{{{A}}}tbl") is not None:
+            kind = ShapeKind.TABLE
+
+        out.append(
+            LayoutShape(
+                shape_id=f"{prefix}{index}",
+                kind=kind,
+                # Фигуры за краем слайда (гигантская кавычка на y=-1 млн) обрезаются,
+                # но не выбрасываются: видимая часть и есть то, что читает человек.
+                x=max(0, x),
+                y=max(0, y),
+                cx=cx,
+                cy=cy,
+                z=index,
+                text=text[:40] or None,
+            )
+        )

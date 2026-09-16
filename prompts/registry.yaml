@@ -15,6 +15,9 @@ skills:
   visual_selector:
     active: "1.0.0"
     model_ref: llm_fast
+  layout_classifier:
+    active: "1.0.0"
+    model_ref: vlm_judge
   audit_judge:
     active: "1.0.0"
     model_ref: vlm_judge

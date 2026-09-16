@@ -75,7 +75,8 @@
           "y": 3800000
         }
       ],
-      "preview_png": null
+      "preview_png": null,
+      "shapes": []
     },
     {
       "capacity": {
@@ -113,7 +114,8 @@
           "y": 1800000
         }
       ],
-      "preview_png": null
+      "preview_png": null,
+      "shapes": []
     },
     {
       "capacity": {
@@ -160,7 +162,8 @@
           "y": 1800000
         }
       ],
-      "preview_png": null
+      "preview_png": null,
+      "shapes": []
     }
   ],
   "parser_version": "1.0.0",

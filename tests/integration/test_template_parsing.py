@@ -189,3 +189,35 @@ def test_zip_without_presentation_part_is_rejected(tmp_path: Path) -> None:
 )
 def test_aspect_is_computed(cx: int, cy: int, expected: str) -> None:
     assert aspect_of(cx, cy) == expected
+
+
+# --- классификация макетов, change (5) ---------------------------------------
+
+
+def test_parser_classifies_every_layout(template: Path, parser: TemplateParser) -> None:
+    """Ни один макет не остаётся с техническим `pending` после сборки манифеста."""
+    manifest = parser.parse(template)
+    for layout in manifest.layouts:
+        assert layout.kind_source in {"heuristic", "vlm", "vlm+heuristic"}
+        assert 0.0 < layout.kind_confidence <= 1.0
+
+
+def test_parser_uses_the_injected_classifier(tmp_path: Path) -> None:
+    from deckforge.parsing.layout_kind import LayoutClassifier
+
+    class AlwaysChart:
+        def ask_image(self, **kwargs: object) -> dict[str, str]:
+            return {"kind": "chart", "reason": "так решила подделка"}
+
+    parser = TemplateParser(classifier=LayoutClassifier(vlm=AlwaysChart(), votes=1))
+    manifest = parser.parse(build(tmp_path / "injected.pptx"), use_cache=False)
+
+    # Уверенные макеты остаются за эвристикой, спорные уходят модели — и это видно.
+    sources = {layout.kind_source for layout in manifest.layouts}
+    assert sources <= {"heuristic", "vlm", "vlm+heuristic"}
+
+
+def test_classifier_is_optional(template: Path) -> None:
+    """Без VLM-клиента парсер обязан работать: это рабочий режим, а не деградация."""
+    manifest = TemplateParser().parse(template, use_cache=False)
+    assert {layout.kind_source for layout in manifest.layouts} == {"heuristic"}

@@ -1,0 +1,46 @@
+# Реестр для Cloudflare Workers AI: DECKFORGE_MODELS_CONFIG=models.cloudflare.yaml,
+# DECKFORGE_*_BASE_URL=https://api.cloudflare.com/client/v4/accounts/<account_id>/ai/v1.
+#
+# Бесплатный тариф — 10 000 «нейронов» в сутки. Здесь единственное место среди
+# проверенных, где отдаётся **открытая** Mistral Small 3.1 24B: сам Mistral через свой
+# API открытые версии больше не раздаёт.
+#
+# Qwen3.8-27B тут работает, но медленно (22 с на текст, 56 с на картинку), поэтому
+# роль судьи отдана Mistral Small: 2–3 с и картинки принимает.
+models:
+  llm_main:
+    hf_id: "@cf/qwen/qwen3.8-27b"
+    license: "apache-2.0"
+    params_total_b: 27.8
+    role: "planning,composition"
+    endpoint_ref: "llm"
+    notes: "Веса: Qwen/Qwen3.8-27B. Медленно — держать как запасной путь."
+  llm_fast:
+    hf_id: "@cf/qwen/qwen3-30b-a3b-fp8"
+    license: "apache-2.0"
+    params_total_b: 30.5
+    params_active_b: 3.3
+    role: "composition,bulk"
+    endpoint_ref: "llm"
+    notes: "Веса: Qwen/Qwen3-30B-A3B. Картинок не принимает."
+  vlm_judge:
+    hf_id: "@cf/mistralai/mistral-small-3.1-24b-instruct"
+    license: "apache-2.0"
+    params_total_b: 24.0
+    role: "audit,layout-classification"
+    endpoint_ref: "vlm"
+    notes: >-
+      Веса: mistralai/Mistral-Small-3.1-24B-Instruct-2503, apache-2.0.
+      Картинки принимает, отвечает за 2–3 с.
+  t2i:
+    hf_id: "Qwen/Qwen-Image"
+    license: "apache-2.0"
+    params_total_b: 20.0
+    role: "slide-images"
+    endpoint_ref: "t2i"
+    notes: "Роль незакрыта: подходящей t2i в каталоге Workers AI нет."
+
+constraints:
+  allowed_licenses: ["apache-2.0", "mit"]
+  max_params_b_llm: 35
+  max_params_b_t2i: 20

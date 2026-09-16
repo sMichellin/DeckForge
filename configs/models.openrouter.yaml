@@ -1,0 +1,43 @@
+# Реестр для OpenRouter. Выбирается переменной DECKFORGE_MODELS_CONFIG=models.openrouter.yaml
+# вместе с DECKFORGE_*_BASE_URL=https://openrouter.ai/api/v1.
+#
+# Здесь есть Qwen3-VL-8B — ровно та модель, что заявлена в ARCHITECTURE.md §9.2
+# и которой нет на роутере HuggingFace.
+#
+# Внимание: бесплатный тариф OpenRouter не содержит ни одной модели, проходящей по ТЗ
+# (23 бесплатные позиции — это Claude, GPT, Gemini, Grok и GLM: закрытые веса либо
+# больше 35B). Всё ниже — платное, но дешёвое; цены на 15.09.2026, $/1M токенов.
+models:
+  llm_main:
+    hf_id: "qwen/qwen3.8-27b"
+    license: "apache-2.0"
+    params_total_b: 27.8
+    role: "planning,composition"
+    endpoint_ref: "llm"
+    notes: "0.21 вход / 2.55 выход. Размышляет, бюджет токенов нужен с запасом."
+  llm_fast:
+    hf_id: "qwen/qwen3.5-9b"
+    license: "apache-2.0"
+    params_total_b: 9.0
+    role: "composition,bulk"
+    endpoint_ref: "llm"
+    notes: "0.10 / 0.15 — самая дешёвая пригодная позиция, путь деградации по бюджету C5."
+  vlm_judge:
+    hf_id: "qwen/qwen3-vl-8b-instruct"
+    license: "apache-2.0"
+    params_total_b: 8.0
+    role: "audit,layout-classification"
+    endpoint_ref: "vlm"
+    notes: "0.12 / 0.45. Та самая модель из §9.2; structured output поддерживается."
+  t2i:
+    hf_id: "qwen/qwen-image"
+    license: "apache-2.0"
+    params_total_b: 20.0
+    role: "slide-images"
+    endpoint_ref: "t2i"
+    notes: "Задача «со звёздочкой», change (24)"
+
+constraints:
+  allowed_licenses: ["apache-2.0", "mit"]
+  max_params_b_llm: 35
+  max_params_b_t2i: 20

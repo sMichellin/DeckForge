@@ -1,7 +1,7 @@
 description: >-
   Разбирает незнакомый шаблон: тема, типошкала, сетка, декор, классификация макетов.
   Единственный шаг, которому доступен исходный .pptx (ADR-003).
-prompt_ref: null
+prompt_ref: layout_classifier
 model_ref: vlm_judge
 inputs: [template_path]
 outputs: [manifest]
@@ -9,5 +9,10 @@ retries: 1
 fallback: heuristic_only
 params:
   classify_with_vlm: true
+  # Порог, ниже которого эвристике не верят и зовут VLM (deckforge.parsing.layout_kind).
   vlm_confidence_threshold: 0.6
+  # Мажоритарное голосование: три прогона с разными seed.
+  votes: 3
   cache_by_sha256: true
+  # Макеты с одинаковой геометрией спрашиваются у модели один раз.
+  cache_by_geometry: true

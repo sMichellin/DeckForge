@@ -91,6 +91,7 @@ build-backend = "poetry.core.masonry.api"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+asyncio_mode = "auto"
 markers = [
   "slow: тесты дольше 5 с",
   "needs_llm: требует поднятого инференса",

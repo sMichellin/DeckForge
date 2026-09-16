@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from deckforge.config import CONFIGS_DIR, load_yaml
+from deckforge.config import CONFIGS_DIR, get_settings, load_yaml
 
 
 class ModelSpec(BaseModel):
@@ -16,7 +16,25 @@ class ModelSpec(BaseModel):
     params_active_b: float | None = Field(default=None, gt=0)
     role: str
     endpoint_ref: str | None = None
+    provider: str | None = Field(
+        default=None,
+        description=(
+            "Провайдер инференса. Для роутера HuggingFace это часть идентификатора "
+            "(`модель:провайдер`). Пин обязателен там, где провайдеры одной модели "
+            "отличаются по возможностям: у Qwen3.8-27B structured output есть "
+            "у deepinfra и ovhcloud и нет у novita."
+        ),
+    )
+    supports_structured_output: bool = Field(
+        default=True,
+        description="Держит ли бэкенд JSON Schema. Если нет, схема уходит в текст промпта.",
+    )
     notes: str | None = None
+
+    @property
+    def endpoint_model_id(self) -> str:
+        """Идентификатор, который уходит в запрос."""
+        return f"{self.hf_id}:{self.provider}" if self.provider else self.hf_id
 
 
 class ModelConstraints(BaseModel):
@@ -50,7 +68,8 @@ class ModelsRegistry(BaseModel):
 
 def load_models_registry(path: Path | None = None, *, strict: bool = True) -> ModelsRegistry:
     """`strict=True` — отказ на нарушении C1/C2. `strict=False` — для отчёта в CI."""
-    registry = ModelsRegistry.model_validate(load_yaml(path or CONFIGS_DIR / "models.yaml"))
+    path = path or CONFIGS_DIR / get_settings().models_config
+    registry = ModelsRegistry.model_validate(load_yaml(path))
     if strict and (violations := registry.violations()):
         raise ValueError("нарушения ограничений ТЗ:\n" + "\n".join(violations))
     return registry

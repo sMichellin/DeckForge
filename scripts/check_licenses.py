@@ -11,20 +11,30 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from deckforge.config import CONFIGS_DIR
 from deckforge.registry.models import load_models_registry
 
 
 def main() -> int:
-    registry = load_models_registry(strict=False)
-    violations = registry.violations()
+    # Проверяются все реестры: подсунуть дисквалифицирующую модель можно в любой из них.
+    registries = sorted(CONFIGS_DIR.glob("models*.yaml"))
+    violations: list[str] = []
+    for path in registries:
+        registry = load_models_registry(path, strict=False)
+        violations += [f"{path.name}: {v}" for v in registry.violations()]
+        if not violations:
+            print(f"--- {path.name}")
+            for name, spec in registry.models.items():
+                active = f", активных {spec.params_active_b}B" if spec.params_active_b else ""
+                print(
+                    f"OK  {name:12} {spec.endpoint_model_id:34} "
+                    f"{spec.license:12} {spec.params_total_b}B{active}"
+                )
     if violations:
         print("НАРУШЕНИЯ ОГРАНИЧЕНИЙ ТЗ:", file=sys.stderr)
         for v in violations:
             print(f"  - {v}", file=sys.stderr)
         return 1
-    for name, spec in registry.models.items():
-        active = f", активных {spec.params_active_b}B" if spec.params_active_b else ""
-        print(f"OK  {name:12} {spec.hf_id:32} {spec.license:12} {spec.params_total_b}B{active}")
     return 0
 
 

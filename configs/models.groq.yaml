@@ -1,0 +1,45 @@
+# Реестр для Groq: DECKFORGE_MODELS_CONFIG=models.groq.yaml
+# и DECKFORGE_*_BASE_URL=https://api.groq.com/openai/v1.
+#
+# Самый быстрый из проверенных: 0.3–0.4 с на вызов против 2–3 с у прочих.
+# Бесплатный тариф настоящий, но узкий: 1000 запросов в сутки и 8000 токенов в минуту —
+# последнее и есть ограничитель, композицию колоды придётся притормаживать.
+#
+# Qwen3.8-27B здесь принимает картинки, поэтому одна модель закрывает обе роли:
+# и планирование с композицией, и VLM-судью.
+models:
+  llm_main:
+    hf_id: "qwen/qwen3.8-27b"
+    license: "apache-2.0"
+    params_total_b: 27.8
+    role: "planning,composition"
+    endpoint_ref: "llm"
+    notes: "Веса: Qwen/Qwen3.8-27B, apache-2.0, image-text-to-text."
+  llm_fast:
+    hf_id: "openai/gpt-oss-20b"
+    license: "apache-2.0"
+    params_total_b: 20.9
+    role: "composition,bulk"
+    endpoint_ref: "llm"
+    notes: >-
+      Веса: openai/gpt-oss-20b, apache-2.0. Текстовая, картинок не принимает —
+      годится для планирования и массовой композиции, но не для аудита.
+  vlm_judge:
+    hf_id: "qwen/qwen3.8-27b"
+    license: "apache-2.0"
+    params_total_b: 27.8
+    role: "audit,layout-classification"
+    endpoint_ref: "vlm"
+    notes: "Та же модель, что llm_main: она vision-capable, отдельная VLM не нужна."
+  t2i:
+    hf_id: "Qwen/Qwen-Image"
+    license: "apache-2.0"
+    params_total_b: 20.0
+    role: "slide-images"
+    endpoint_ref: "t2i"
+    notes: "Groq изображения не генерирует — роль остаётся незакрытой."
+
+constraints:
+  allowed_licenses: ["apache-2.0", "mit"]
+  max_params_b_llm: 35
+  max_params_b_t2i: 20

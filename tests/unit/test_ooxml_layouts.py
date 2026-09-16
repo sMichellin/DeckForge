@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from deckforge.domain.enums import TextRole
-from deckforge.parsing.ooxml.layouts import parse_placeholders, resolve_placeholders
+from deckforge.domain.template import ShapeKind
+from deckforge.parsing.ooxml.layouts import (
+    parse_placeholders,
+    parse_shapes,
+    resolve_placeholders,
+)
 
 NS = (
     'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
@@ -91,3 +96,71 @@ def test_sizes_are_read_from_layout_level_properties() -> None:
     layout = part(sp('<p:ph type="title"/>', xfrm(1, 1, 10, 10), size='sz="5400" b="1"'))
     (raw,) = parse_placeholders(layout)
     assert (raw.size_pt, raw.bold) == (54.0, True)
+
+
+# --- фигуры вне плейсхолдеров -------------------------------------------------
+
+
+def shape(x: int, y: int, cx: int, cy: int, *, tag: str = "sp", text: str = "") -> str:
+    """Фигура БЕЗ плейсхолдера — то, чем шаблоны кладут фон и фотографии."""
+    body = f"<p:txBody><a:p><a:r><a:t>{text}</a:t></a:r></a:p></p:txBody>" if text else ""
+    return (
+        f"<p:{tag}><p:nvSpPr><p:nvPr/></p:nvSpPr>"
+        f'<p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm></p:spPr>'
+        f"{body}</p:{tag}>"
+    )
+
+
+SLIDE_CX, SLIDE_CY = 12_192_000, 6_858_000
+
+
+def test_picture_without_a_placeholder_is_found() -> None:
+    """Главный случай: в «Паттерн + фото» фотография лежит обычным p:pic.
+
+    Без этого макет с фотографией на пол-слайда выглядит как пустой слайд с заголовком.
+    """
+    layout = part(
+        sp('<p:ph type="title"/>', xfrm(600_000, 400_000, 3_000_000, 1_000_000)),
+        shape(5_335_631, 0, 6_872_200, 6_855_356, tag="pic"),
+    )
+    shapes = parse_shapes(layout, SLIDE_CX, SLIDE_CY)
+    assert [s.kind for s in shapes] == [ShapeKind.PICTURE]
+    assert shapes[0].cx == 6_872_200
+
+
+def test_placeholders_are_not_reported_as_shapes() -> None:
+    """Иначе каждое место под контент посчиталось бы дважды."""
+    layout = part(sp('<p:ph type="body" idx="1"/>', xfrm(1, 1, 9_000_000, 5_000_000)))
+    assert parse_shapes(layout, SLIDE_CX, SLIDE_CY) == []
+
+
+def test_decorative_text_shape_is_kept_with_its_text() -> None:
+    """Гигантская кавычка в «Цитата без фото» — единственный признак, что это цитата."""
+    layout = part(shape(544_512, 0, 2_058_988, 4_478_149, text="«"))
+    (found,) = parse_shapes(layout, SLIDE_CX, SLIDE_CY)
+    assert found.kind is ShapeKind.TEXT
+    assert found.text == "«"
+
+
+def test_shape_above_the_slide_is_clipped_not_dropped() -> None:
+    """У декора координата бывает отрицательной; видимая часть — то, что читает человек."""
+    layout = part(shape(500_000, 1, 2_000_000, 4_000_000))
+    (found,) = parse_shapes(layout, SLIDE_CX, SLIDE_CY)
+    assert found.y == 1
+
+
+def test_tiny_decor_is_ignored() -> None:
+    """Мелочь только зашумила бы схему и промпт."""
+    layout = part(shape(0, 0, 40_000, 40_000))
+    assert parse_shapes(layout, SLIDE_CX, SLIDE_CY) == []
+
+
+def test_shapes_inside_groups_are_unwrapped() -> None:
+    inner = shape(0, 0, 6_000_000, 6_000_000, tag="pic")
+    layout = part(f"<p:grpSp><p:nvGrpSpPr/><p:grpSpPr/>{inner}</p:grpSp>")
+    assert [s.kind for s in parse_shapes(layout, SLIDE_CX, SLIDE_CY)] == [ShapeKind.PICTURE]
+
+
+def test_shape_without_geometry_is_skipped() -> None:
+    layout = part("<p:sp><p:nvSpPr><p:nvPr/></p:nvSpPr><p:spPr/></p:sp>")
+    assert parse_shapes(layout, SLIDE_CX, SLIDE_CY) == []

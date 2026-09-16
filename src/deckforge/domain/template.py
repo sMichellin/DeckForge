@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from pydantic import Field, field_validator, model_validator
 
 from deckforge.domain.base import BBox, DomainModel
@@ -114,6 +116,40 @@ class LayoutCapacity(DomainModel):
     supports_image: bool = False
 
 
+class ShapeKind(StrEnum):
+    """Что за фигура. Тип важен для классификации: картинка во весь слайд и текстовый
+    блок того же размера означают совершенно разные макеты."""
+
+    PICTURE = "picture"
+    TEXT = "text"
+    SHAPE = "shape"
+    CHART = "chart"
+    TABLE = "table"
+
+
+class LayoutShape(DomainModel):
+    """Фигура макета **вне** плейсхолдеров.
+
+    Шаблоны сплошь и рядом кладут фон, фотографию или декоративный знак обычной фигурой,
+    а не плейсхолдером. Для наполнения такая фигура бесполезна — в неё ничего не положить, —
+    но для понимания макета необходима: без неё «Паттерн + фото» выглядит как пустой слайд
+    с заголовком.
+    """
+
+    shape_id: str
+    kind: ShapeKind
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+    cx: int = Field(gt=0)
+    cy: int = Field(gt=0)
+    z: int = Field(default=0, ge=0)
+    text: str | None = Field(default=None, description="Первые знаки текста, если он есть")
+
+    @property
+    def bbox(self) -> BBox:
+        return BBox(x=self.x, y=self.y, cx=self.cx, cy=self.cy)
+
+
 class LayoutSpec(DomainModel):
     layout_id: str
     name: str
@@ -124,6 +160,10 @@ class LayoutSpec(DomainModel):
     kind_source: str = Field(description="heuristic | vlm | vlm+heuristic")
     capacity: LayoutCapacity
     placeholders: list[PlaceholderSpec]
+    shapes: list[LayoutShape] = Field(
+        default_factory=list,
+        description="Фигуры вне плейсхолдеров: фон, фотографии, декор. Наполнению не подлежат.",
+    )
     preview_png: str | None = None
 
     def placeholder(self, idx: int) -> PlaceholderSpec | None:

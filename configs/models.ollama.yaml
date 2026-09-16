@@ -1,0 +1,42 @@
+# Реестр для локального Ollama: DECKFORGE_MODELS_CONFIG=models.ollama.yaml
+# и DECKFORGE_*_BASE_URL=http://localhost:11434/v1 (ключ любой непустой).
+#
+# Единственный по-настоящему бесплатный путь отладки: ни у HuggingFace, ни у OpenRouter
+# бесплатных провайдеров с пригодными по ТЗ моделями нет. Ollama держит JSON Schema
+# через параметр format, а клиент передаёт её тем же response_format.
+#
+# Подготовка:
+#   ollama pull qwen3:8b
+#   ollama pull qwen3-vl:8b
+models:
+  llm_main:
+    hf_id: "qwen3:8b"
+    license: "apache-2.0"
+    params_total_b: 8.2
+    role: "planning,composition"
+    endpoint_ref: "llm"
+    notes: "Локально. Качество ниже 27B, но пайплайн проверяется целиком и бесплатно."
+  llm_fast:
+    hf_id: "qwen3:4b"
+    license: "apache-2.0"
+    params_total_b: 4.0
+    role: "composition,bulk"
+    endpoint_ref: "llm"
+  vlm_judge:
+    hf_id: "qwen3-vl:8b"
+    license: "apache-2.0"
+    params_total_b: 8.0
+    role: "audit,layout-classification"
+    endpoint_ref: "vlm"
+  t2i:
+    hf_id: "qwen-image"
+    license: "apache-2.0"
+    params_total_b: 20.0
+    role: "slide-images"
+    endpoint_ref: "t2i"
+    notes: "Ollama изображения не генерирует — роль остаётся незакрытой локально."
+
+constraints:
+  allowed_licenses: ["apache-2.0", "mit"]
+  max_params_b_llm: 35
+  max_params_b_t2i: 20

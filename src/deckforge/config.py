@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     languagetool_url: str = "http://localhost:8010"
 
     soffice_bin: str = "soffice"
+    #: Какой реестр моделей брать. Провайдер меняется правкой этой переменной
+    #: и base_url — код моделей по имени не знает (C11).
+    models_config: str = "models.yaml"
     artifacts_dir: Path = ARTIFACTS_DIR
     profile: str = "dev"
 

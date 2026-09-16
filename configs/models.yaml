@@ -1,11 +1,19 @@
 # Реестр моделей. CI-гейт scripts/check_licenses.py падает при нарушении constraints (C1, C2).
+#
+# Идентификаторы сверены с каталогом роутера HuggingFace (139 моделей) 15.09.2026:
+# лицензия и число параметров взяты с карточек HF, а не из головы.
+# Код нигде не называет модель по имени — только роль, поэтому смена провайдера
+# это правка этого файла и переменных окружения (C11).
 models:
   llm_main:
-    hf_id: "Qwen/Qwen3-32B"
+    hf_id: "Qwen/Qwen3.8-27B"
     license: "apache-2.0"
-    params_total_b: 32.8
+    params_total_b: 27.8
     role: "planning,composition"
     endpoint_ref: "llm"
+    notes: >-
+      Та же линейка, что обещана топ-10 через инференс VK. Гибридная: размышляет,
+      и отключить это через роутер нельзя, поэтому бюджет токенов считается с запасом.
   llm_fast:
     hf_id: "Qwen/Qwen3-30B-A3B"
     license: "apache-2.0"
@@ -13,13 +21,17 @@ models:
     params_active_b: 3.3
     role: "composition,bulk"
     endpoint_ref: "llm"
-    notes: "MoE. Запасной путь при превышении бюджета C5 — §12 ARCHITECTURE.md"
+    notes: "MoE. Путь деградации при превышении бюджета C5 — §12 ARCHITECTURE.md"
   vlm_judge:
-    hf_id: "Qwen/Qwen3-VL-8B-Instruct"
+    hf_id: "Qwen/Qwen3-VL-30B-A3B-Instruct"
     license: "apache-2.0"
-    params_total_b: 8.0
+    params_total_b: 31.1
+    params_active_b: 3.3
     role: "audit,layout-classification"
     endpoint_ref: "vlm"
+    notes: >-
+      Qwen3-VL-8B-Instruct, заявленный в ARCHITECTURE.md §9.2, на роутере HF
+      не раздаётся — это самая лёгкая доступная VL-модель в пределах 35B.
   t2i:
     hf_id: "Qwen/Qwen-Image"
     license: "apache-2.0"

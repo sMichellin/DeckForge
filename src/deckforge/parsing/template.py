@@ -13,7 +13,7 @@ import json
 from math import gcd
 from pathlib import Path
 
-from deckforge.domain.enums import ColorRef
+from deckforge.domain.enums import ColorRef, LayoutKind
 from deckforge.domain.template import (
     ChartDefaults,
     Decor,
@@ -26,9 +26,9 @@ from deckforge.domain.template import (
 )
 from deckforge.parsing.capacity import compute_capacity
 from deckforge.parsing.grid import infer_grid
-from deckforge.parsing.layout_kind import classify_heuristic
+from deckforge.parsing.layout_kind import LayoutClassifier
 from deckforge.parsing.ooxml.decor import extract_decor
-from deckforge.parsing.ooxml.layouts import resolve_placeholders
+from deckforge.parsing.ooxml.layouts import parse_shapes, resolve_placeholders
 from deckforge.parsing.ooxml.theme import parse_theme
 from deckforge.parsing.package import TemplatePackage
 from deckforge.parsing.typography import (
@@ -81,8 +81,13 @@ def aspect_of(cx: int, cy: int) -> str:
 class TemplateParser:
     """Сборка манифеста из пакета шаблона."""
 
-    def __init__(self, cache_dir: Path | None = None) -> None:
+    def __init__(
+        self, cache_dir: Path | None = None, classifier: LayoutClassifier | None = None
+    ) -> None:
         self.cache_dir = cache_dir
+        #: Без VLM-клиента классификатор работает одной эвристикой — это рабочий режим,
+        #: а не деградация: вид макета получают все макеты в любом случае.
+        self.classifier = classifier or LayoutClassifier()
 
     # --- кэш ---------------------------------------------------------------
 
@@ -138,6 +143,7 @@ class TemplateParser:
 
         typography = derive_scale(observations, theme)
         layouts = self._fill_capacity(layouts, typography, cx * cy)
+        layouts = self._classify(layouts, slide_size)
 
         return TemplateManifest(
             template_id=template_id,
@@ -178,18 +184,22 @@ class TemplateParser:
                     # Макет без пригодных плейсхолдеров композиции не поможет.
                     continue
 
-                kind, confidence = classify_heuristic(placeholders, slide_size)
                 layouts.append(
                     LayoutSpec(
                         layout_id=f"L{index:02d}",
                         name=pkg.layout_name(layout_part),
                         master=master_id,
                         index=index,
-                        kind=kind,
-                        kind_confidence=confidence,
-                        kind_source="heuristic",
+                        # Вид проставляется отдельным проходом: классификатору нужен
+                        # собранный LayoutSpec, чтобы отрисовать превью.
+                        kind=LayoutKind.CUSTOM,
+                        kind_confidence=0.0,
+                        kind_source="pending",
                         capacity=_EMPTY_CAPACITY,
                         placeholders=placeholders,
+                        shapes=parse_shapes(
+                            layout_xml, slide_size.cx_emu, slide_size.cy_emu
+                        ),
                     )
                 )
                 observations += collect_observations(
@@ -211,6 +221,22 @@ class TemplateParser:
             )
             for layout in layouts
         ]
+
+    def _classify(self, layouts: list[LayoutSpec], slide_size: SlideSize) -> list[LayoutSpec]:
+        """Вид макета: эвристика для всех, VLM — только для спорных (§5, ADR-004)."""
+        classified: list[LayoutSpec] = []
+        for layout in layouts:
+            result = self.classifier.classify(layout.placeholders, slide_size, layout)
+            classified.append(
+                layout.model_copy(
+                    update={
+                        "kind": result.kind,
+                        "kind_confidence": result.confidence,
+                        "kind_source": result.source,
+                    }
+                )
+            )
+        return classified
 
     def _read_decor(
         self, pkg: TemplatePackage, master_part: str, cx: int, cy: int

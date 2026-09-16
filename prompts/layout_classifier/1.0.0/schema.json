@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "title",
+        "section",
+        "bullets",
+        "two_column",
+        "chart",
+        "table",
+        "kpi",
+        "quote",
+        "image_full",
+        "closing",
+        "custom"
+      ]
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "reason"
+  ],
+  "additionalProperties": false
+}

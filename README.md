@@ -67,7 +67,8 @@ make checks      # показать реестр проверок аудита
 
 | Переменная | Назначение |
 |---|---|
-| `DECKFORGE_LLM_BASE_URL`, `DECKFORGE_LLM_API_KEY` | OpenAI-совместимый эндпоинт LLM (vLLM или VK Inference) |
+| `DECKFORGE_MODELS_CONFIG` | какой реестр моделей брать: `models.yaml` (HuggingFace), `models.openrouter.yaml`, `models.ollama.yaml` |
+| `DECKFORGE_LLM_BASE_URL`, `DECKFORGE_LLM_API_KEY` | OpenAI-совместимый эндпоинт LLM (vLLM, роутер HF, OpenRouter, Ollama, VK Inference) |
 | `DECKFORGE_VLM_BASE_URL`, `DECKFORGE_VLM_API_KEY` | VLM: классификация макетов и аудит-судья |
 | `DECKFORGE_T2I_BASE_URL`, `DECKFORGE_T2I_API_KEY` | text-to-image (задача «со звёздочкой») |
 | `DECKFORGE_REDIS_URL` | очередь arq |
@@ -110,10 +111,37 @@ docker/      образы приложения и LibreOffice
 | [MODELS.md](MODELS.md) | модели, лицензии, размеры, системные требования |
 | [AUDIT.md](AUDIT.md) | все проверки и область покрытия |
 | [PLAN.md](PLAN.md) | календарный план и чек-лист сдачи |
+| [docs/inference-providers.md](docs/inference-providers.md) | где брать инференс: что проверено и что дисквалифицирует |
 | [AGENTS.md](AGENTS.md) | правила работы для AI-агента и для человека |
 | [docs/adr/](docs/adr/) | архитектурные решения с обоснованием |
 
 ---
+
+## Где брать инференс
+
+Все провайдеры говорят по протоколу OpenAI, поэтому переключение — это две переменные
+окружения и выбор реестра моделей. Код модель по имени нигде не называет.
+
+| Путь | Чем платим | Пригодные по ТЗ модели |
+|---|---|---|
+| **Локальный Ollama** | ничем | `qwen3:8b`, `qwen3-vl:8b` — единственный бесплатный путь, проходящий по ТЗ |
+| Роутер HuggingFace | месячный лимит кредитов аккаунта | Qwen3.8-27B, Qwen3-VL-30B-A3B |
+| OpenRouter | по токенам, от $0.10 за 1M | Qwen3-VL-8B (та самая из §9.2), Qwen3.8-27B |
+| vLLM на своей GPU | железом | любые |
+
+**Бесплатного облачного инференса с пригодными моделями не существует.** На роутере
+HuggingFace бесплатных провайдеров 0 из 332 пар модель×провайдер; у OpenRouter
+23 бесплатные позиции из 446 — и все это Claude, GPT, Gemini, Grok и GLM: закрытые
+веса либо больше 35B, то есть прямая дисквалификация по ТЗ. «Бесплатность» HF — это
+месячный лимит кредитов на аккаунт, и он кончается за пару сотен вызовов.
+
+```bash
+# локально и бесплатно
+ollama pull qwen3:8b && ollama pull qwen3-vl:8b
+export DECKFORGE_MODELS_CONFIG=models.ollama.yaml
+export DECKFORGE_LLM_BASE_URL=http://localhost:11434/v1 DECKFORGE_LLM_API_KEY=ollama
+export DECKFORGE_VLM_BASE_URL=http://localhost:11434/v1 DECKFORGE_VLM_API_KEY=ollama
+```
 
 ## Ограничения
 

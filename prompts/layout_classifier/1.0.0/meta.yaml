@@ -1,0 +1,7 @@
+model_ref: vlm_judge
+temperature: 0.0
+top_p: 0.9
+max_tokens: 128
+author: DeckForge team
+changelog: |
+  1.0.0 — один макет за вызов, ответ строго из перечня видов, три прогона с разными seed.
