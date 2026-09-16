@@ -100,6 +100,19 @@ class PlaceholderSpec(DomainModel):
     cx: int = Field(gt=0)
     cy: int = Field(gt=0)
 
+    #: Фактическая гарнитура **этого** плейсхолдера, а не роли целиком.
+    #: Нужна метрикам текста: считать ширину по гарнитуре темы, когда плейсхолдер набран
+    #: другой, — значит полагаться на совпадение. На шаблонах кейса Arial и Play совпадают
+    #: по ширине в пределах половины процента, но это удача, а не правило: на незнакомом
+    #: шаблоне расхождение может быть любым (C6).
+    font_family: str | None = None
+
+    #: Кегль **этого** плейсхолдера. Общий кегль роли даёт заголовок 60 pt в полосе
+    #: высотой 1,8 см — вписывание по такому кеглю не имеет смысла.
+    size_pt: float | None = Field(default=None, gt=0)
+
+    bold: bool | None = None
+
     @property
     def bbox(self) -> BBox:
         return BBox(x=self.x, y=self.y, cx=self.cx, cy=self.cy)
@@ -154,7 +167,19 @@ class LayoutSpec(DomainModel):
     layout_id: str
     name: str
     master: str
-    index: int = Field(ge=0, description="Позиция в slide_layouts исходного файла")
+
+    #: Имя части макета в пакете, например `ppt/slideLayouts/slideLayout7.xml`.
+    #: Единственный надёжный адрес макета: см. предупреждение у `index`.
+    part_name: str
+
+    index: int = Field(
+        ge=0,
+        description=(
+            "Сквозной порядковый номер макета в манифесте. НЕ индекс в "
+            "`prs.slide_layouts`: нумерация сквозная по всем мастерам, а макеты без "
+            "пригодных плейсхолдеров пропускаются. Для адресации использовать `part_name`."
+        ),
+    )
     kind: LayoutKind
     kind_confidence: float = Field(ge=0.0, le=1.0)
     kind_source: str = Field(description="heuristic | vlm | vlm+heuristic")

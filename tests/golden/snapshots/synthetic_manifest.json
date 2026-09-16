@@ -55,22 +55,29 @@
       "layout_id": "L00",
       "master": "M01",
       "name": "Титул",
+      "part_name": "ppt/slideLayouts/slideLayout1.xml",
       "placeholders": [
         {
+          "bold": true,
           "cx": 10792000,
           "cy": 1200000,
+          "font_family": null,
           "idx": 0,
           "ph_type": "TITLE",
           "role": "title",
+          "size_pt": 40.0,
           "x": 700000,
           "y": 2400000
         },
         {
+          "bold": false,
           "cx": 10792000,
           "cy": 700000,
+          "font_family": null,
           "idx": 1,
           "ph_type": "SUBTITLE",
           "role": "subtitle",
+          "size_pt": 24.0,
           "x": 700000,
           "y": 3800000
         }
@@ -94,22 +101,29 @@
       "layout_id": "L01",
       "master": "M01",
       "name": "Заголовок и содержимое",
+      "part_name": "ppt/slideLayouts/slideLayout2.xml",
       "placeholders": [
         {
+          "bold": true,
           "cx": 10792000,
           "cy": 1000000,
+          "font_family": null,
           "idx": 0,
           "ph_type": "TITLE",
           "role": "title",
+          "size_pt": 40.0,
           "x": 700000,
           "y": 450000
         },
         {
+          "bold": false,
           "cx": 10792000,
           "cy": 4000000,
+          "font_family": null,
           "idx": 1,
           "ph_type": "BODY",
           "role": "body",
+          "size_pt": 18.0,
           "x": 700000,
           "y": 1800000
         }
@@ -133,31 +147,41 @@
       "layout_id": "L02",
       "master": "M01",
       "name": "Две колонки",
+      "part_name": "ppt/slideLayouts/slideLayout3.xml",
       "placeholders": [
         {
+          "bold": true,
           "cx": 10792000,
           "cy": 1000000,
+          "font_family": null,
           "idx": 0,
           "ph_type": "TITLE",
           "role": "title",
+          "size_pt": 40.0,
           "x": 700000,
           "y": 450000
         },
         {
+          "bold": false,
           "cx": 5200000,
           "cy": 4000000,
+          "font_family": null,
           "idx": 1,
           "ph_type": "BODY",
           "role": "body",
+          "size_pt": 18.0,
           "x": 700000,
           "y": 1800000
         },
         {
+          "bold": false,
           "cx": 5200000,
           "cy": 4000000,
+          "font_family": null,
           "idx": 2,
           "ph_type": "BODY",
           "role": "body",
+          "size_pt": 18.0,
           "x": 6300000,
           "y": 1800000
         }

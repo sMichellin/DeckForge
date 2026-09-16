@@ -124,6 +124,7 @@ def layout(*boxes: tuple[int, int, int, int], role: TextRole | None = TextRole.B
         layout_id="L00",
         name="проба",
         master="M01",
+        part_name="ppt/slideLayouts/slideLayout1.xml",
         index=0,
         kind=LayoutKind.BULLETS,
         kind_confidence=0.8,

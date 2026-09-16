@@ -39,7 +39,7 @@ DECOR_PH_TYPES = frozenset({"ftr", "sldnum", "dt"})
 class RawPlaceholder:
     """Плейсхолдер как он лежит в XML: геометрия может быть не задана."""
 
-    __slots__ = ("bold", "cx", "cy", "idx", "ph_type", "size_pt", "x", "y")
+    __slots__ = ("bold", "cx", "cy", "font", "idx", "ph_type", "size_pt", "x", "y")
 
     def __init__(
         self,
@@ -51,12 +51,14 @@ class RawPlaceholder:
         cy: int | None,
         size_pt: float | None,
         bold: bool | None,
+        font: str | None = None,
     ) -> None:
         self.idx = idx
         self.ph_type = ph_type
         self.x, self.y, self.cx, self.cy = x, y, cx, cy
         self.size_pt = size_pt
         self.bold = bold
+        self.font = font
 
     @property
     def key(self) -> tuple[str, int]:
@@ -68,11 +70,16 @@ class RawPlaceholder:
         return None not in (self.x, self.y, self.cx, self.cy)
 
 
-def _first_size_and_bold(shape: etree._Element) -> tuple[float | None, bool | None]:
-    """Кегль и жирность первого уровня из `lvl1pPr/defRPr` или из первого прогона текста.
+def _text_properties(
+    shape: etree._Element,
+) -> tuple[float | None, bool | None, str | None]:
+    """Кегль, жирность и гарнитура первого уровня из `lvl1pPr/defRPr`.
 
     Именно здесь в шаблонах, выгруженных из сторонних редакторов, лежат настоящие размеры:
     `txStyles` мастера у них заполнены одинаковым значением для всех уровней и бесполезны.
+
+    Гарнитура возвращается как есть, вместе со ссылками вида `+mj-lt`: разрешать их
+    некому — тема известна на уровень выше, в сборщике манифеста.
     """
     for xpath in (
         f".//{{{A}}}lvl1pPr/{{{A}}}defRPr",
@@ -85,8 +92,10 @@ def _first_size_and_bold(shape: etree._Element) -> tuple[float | None, bool | No
         raw_size = node.get("sz")
         if raw_size:
             bold = node.get("b")
-            return int(raw_size) / 100, (bold == "1") if bold is not None else None
-    return None, None
+            latin = node.find(f"{{{A}}}latin")
+            typeface = (latin.get("typeface") if latin is not None else None) or None
+            return int(raw_size) / 100, (bold == "1") if bold is not None else None, typeface
+    return None, None, None
 
 
 def parse_placeholders(part_xml: bytes) -> list[RawPlaceholder]:
@@ -104,7 +113,7 @@ def parse_placeholders(part_xml: bytes) -> list[RawPlaceholder]:
 
         off = shape.find(f".//{{{A}}}xfrm/{{{A}}}off")
         ext = shape.find(f".//{{{A}}}xfrm/{{{A}}}ext")
-        size_pt, bold = _first_size_and_bold(shape)
+        size_pt, bold, font = _text_properties(shape)
         out.append(
             RawPlaceholder(
                 idx=idx,
@@ -115,6 +124,7 @@ def parse_placeholders(part_xml: bytes) -> list[RawPlaceholder]:
                 cy=int(ext.get("cy")) if ext is not None else None,
                 size_pt=size_pt,
                 bold=bold,
+                font=font,
             )
         )
     return out
@@ -151,6 +161,10 @@ def resolve_placeholders(
                 y=max(0, y),
                 cx=cx,
                 cy=cy,
+                # Наследуются так же, как геометрия: своё значение перекрывает мастер.
+                font_family=ph.font if ph.font else (base.font if base else None),
+                size_pt=ph.size_pt if ph.size_pt is not None else (base.size_pt if base else None),
+                bold=ph.bold if ph.bold is not None else (base.bold if base else None),
             )
         )
 

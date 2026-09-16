@@ -56,6 +56,34 @@ _SERIES_REFS: tuple[ColorRef, ...] = (
 _EMPTY_CAPACITY = LayoutCapacity(max_bullets=0, max_chars_body=0, max_chars_title=0)
 
 
+#: Ссылки на гарнитуры темы в OOXML. Плейсхолдер часто не называет шрифт прямо,
+#: а ссылается на мажорную или минорную гарнитуру схемы.
+_THEME_FONT_REFS = {
+    "+mj-lt": "major_latin",
+    "+mn-lt": "minor_latin",
+    "+mj-cs": "major_cs",
+    "+mn-cs": "minor_cs",
+}
+
+
+def _resolve_placeholder_fonts(layout: LayoutSpec, theme: Theme) -> LayoutSpec:
+    """Развернуть ссылки вида `+mj-lt` в имя гарнитуры темы.
+
+    Слоям выше не должно быть дела до синтаксиса OOXML: они спрашивают, каким шрифтом
+    набран плейсхолдер, и получают имя, которое можно найти в системе.
+    """
+    updated = []
+    changed = False
+    for ph in layout.placeholders:
+        slot = _THEME_FONT_REFS.get(ph.font_family or "")
+        if slot is None:
+            updated.append(ph)
+            continue
+        updated.append(ph.model_copy(update={"font_family": getattr(theme.fonts, slot)}))
+        changed = True
+    return layout.model_copy(update={"placeholders": updated}) if changed else layout
+
+
 def template_id_of(path: Path) -> str:
     """`sha256:<hex>` — идентификатор шаблона и ключ кэша манифеста."""
     digest = hashlib.sha256()
@@ -142,6 +170,7 @@ class TemplateParser:
             raise ValueError("в шаблоне нет макетов с пригодными плейсхолдерами")
 
         typography = derive_scale(observations, theme)
+        layouts = [_resolve_placeholder_fonts(layout, theme) for layout in layouts]
         layouts = self._fill_capacity(layouts, typography, cx * cy)
         layouts = self._classify(layouts, slide_size)
 
@@ -189,6 +218,7 @@ class TemplateParser:
                         layout_id=f"L{index:02d}",
                         name=pkg.layout_name(layout_part),
                         master=master_id,
+                        part_name=layout_part,
                         index=index,
                         # Вид проставляется отдельным проходом: классификатору нужен
                         # собранный LayoutSpec, чтобы отрисовать превью.

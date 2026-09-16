@@ -164,3 +164,52 @@ def test_shapes_inside_groups_are_unwrapped() -> None:
 def test_shape_without_geometry_is_skipped() -> None:
     layout = part("<p:sp><p:nvSpPr><p:nvPr/></p:nvSpPr><p:spPr/></p:sp>")
     assert parse_shapes(layout, SLIDE_CX, SLIDE_CY) == []
+
+
+# --- гарнитура и кегль плейсхолдера (запрос потока B) ------------------------
+
+
+def test_placeholder_carries_its_own_font_and_size() -> None:
+    """Метрики текста считаются по гарнитуре **плейсхолдера**, а не роли целиком.
+
+    Считать ширину по шрифту темы, когда плейсхолдер набран другим, значит полагаться
+    на совпадение: на шаблонах кейса Arial и Play расходятся в пределах полупроцента,
+    но на незнакомом шаблоне расхождение может быть любым (C6).
+    """
+    style = (
+        '<a:lstStyle><a:lvl1pPr><a:defRPr sz="5400" b="1">'
+        '<a:latin typeface="Play"/></a:defRPr></a:lvl1pPr></a:lstStyle>'
+    )
+    layout = part(
+        f'<p:sp><p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>'
+        f"<p:spPr>{xfrm(1, 2, 300, 400)}</p:spPr>"
+        f"<p:txBody>{style}</p:txBody></p:sp>"
+    )
+    (placeholder,) = resolve_placeholders(layout, None)
+    assert placeholder.font_family == "Play"
+    assert placeholder.size_pt == 54.0
+    assert placeholder.bold is True
+
+
+def test_font_is_inherited_from_the_master() -> None:
+    style = (
+        '<a:lstStyle><a:lvl1pPr><a:defRPr sz="1800">'
+        '<a:latin typeface="Inter"/></a:defRPr></a:lvl1pPr></a:lstStyle>'
+    )
+    master = part(
+        f'<p:sp><p:nvSpPr><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>'
+        f"<p:spPr>{xfrm(1, 2, 300, 400)}</p:spPr>"
+        f"<p:txBody>{style}</p:txBody></p:sp>",
+        root="sldMaster",
+    )
+    layout = part(sp('<p:ph type="body" idx="1"/>'))
+    (placeholder,) = resolve_placeholders(layout, master)
+    assert placeholder.font_family == "Inter"
+    assert placeholder.size_pt == 18.0
+
+
+def test_placeholder_without_declared_font_leaves_it_unset() -> None:
+    """`None` честнее подстановки темы: вызывающий сам решит, чем заменять."""
+    layout = part(sp('<p:ph type="title"/>', xfrm(1, 2, 300, 400)))
+    (placeholder,) = resolve_placeholders(layout, None)
+    assert placeholder.font_family is None

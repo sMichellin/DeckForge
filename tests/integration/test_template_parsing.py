@@ -221,3 +221,30 @@ def test_classifier_is_optional(template: Path) -> None:
     """Без VLM-клиента парсер обязан работать: это рабочий режим, а не деградация."""
     manifest = TemplateParser().parse(template, use_cache=False)
     assert {layout.kind_source for layout in manifest.layouts} == {"heuristic"}
+
+
+# --- адресация макета и гарнитуры, запросы потока B --------------------------
+
+
+def test_layout_knows_its_part_in_the_package(template: Path, parser: TemplateParser) -> None:
+    """`index` для адресации не годится: он сквозной по мастерам и пропускает макеты
+    без пригодных плейсхолдеров. `prs.slide_layouts[index]` на шаблонах кейса указывает
+    не на тот макет в 34 случаях из 37. Надёжный адрес — имя части пакета."""
+    manifest = parser.parse(template)
+    for layout in manifest.layouts:
+        assert layout.part_name.startswith("ppt/slideLayouts/")
+        assert layout.part_name.endswith(".xml")
+    parts = [layout.part_name for layout in manifest.layouts]
+    assert len(parts) == len(set(parts)), "часть пакета обязана адресовать ровно один макет"
+
+
+def test_theme_font_references_are_resolved(template: Path, parser: TemplateParser) -> None:
+    """Слоям выше не должно быть дела до синтаксиса OOXML: `+mj-lt` разворачивается здесь."""
+    manifest = parser.parse(template)
+    fonts = {
+        ph.font_family
+        for layout in manifest.layouts
+        for ph in layout.placeholders
+        if ph.font_family
+    }
+    assert not any(f.startswith("+") for f in fonts), f"неразвёрнутые ссылки: {fonts}"

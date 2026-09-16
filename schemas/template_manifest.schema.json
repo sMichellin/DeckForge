@@ -361,8 +361,12 @@
           "title": "Master",
           "type": "string"
         },
+        "part_name": {
+          "title": "Part Name",
+          "type": "string"
+        },
         "index": {
-          "description": "Позиция в slide_layouts исходного файла",
+          "description": "Сквозной порядковый номер макета в манифесте. НЕ индекс в `prs.slide_layouts`: нумерация сквозная по всем мастерам, а макеты без пригодных плейсхолдеров пропускаются. Для адресации использовать `part_name`.",
           "minimum": 0,
           "title": "Index",
           "type": "integer"
@@ -416,6 +420,7 @@
         "layout_id",
         "name",
         "master",
+        "part_name",
         "index",
         "kind",
         "kind_confidence",
@@ -502,6 +507,43 @@
           "exclusiveMinimum": 0,
           "title": "Cy",
           "type": "integer"
+        },
+        "font_family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Font Family"
+        },
+        "size_pt": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Pt"
+        },
+        "bold": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bold"
         }
       },
       "required": [

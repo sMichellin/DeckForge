@@ -38,6 +38,7 @@ def layout_of(*placeholders: PlaceholderSpec, name: str = "проба") -> Layou
         layout_id="L00",
         name=name,
         master="M01",
+        part_name="ppt/slideLayouts/slideLayout1.xml",
         index=0,
         kind=LayoutKind.CUSTOM,
         kind_confidence=0.0,
