@@ -25,11 +25,9 @@ from deckforge.export.pptx import export_pptx
 from deckforge.layout.fitting import fit_slide
 from deckforge.parsing import TemplateParser
 from deckforge.rendering.soffice import SofficeRenderer
+from tests.e2e.cold_corpus import cold_templates
 
-COLD_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "templates" / "cold"
-COLD_TEMPLATES = sorted(
-    p for p in COLD_DIR.glob("*") if p.suffix.lower() in {".pptx", ".potx"}
-)
+COLD_TEMPLATES = cold_templates()
 TEXT_TYPES = {"TITLE", "CTRTITLE", "SUBTITLE", "BODY", "OBJ"}
 MAX_SLIDES = 12
 
@@ -78,7 +76,9 @@ def cold_deck(manifest: TemplateManifest) -> DeckIR:
                   slides=slides)
 
 
-@pytest.mark.skipif(not COLD_TEMPLATES, reason="в tests/fixtures/templates/cold/ нет шаблонов")
+@pytest.mark.skipif(
+    not COLD_TEMPLATES, reason="нет холодных шаблонов: ни в cold/, ни от LibreOffice"
+)
 @pytest.mark.parametrize("template", COLD_TEMPLATES, ids=lambda p: p.name)
 def test_cold_template_end_to_end(template: Path, tmp_path: Path) -> None:
     manifest = TemplateParser().parse(template, use_cache=False)

@@ -13,7 +13,7 @@ import json
 from math import gcd
 from pathlib import Path
 
-from deckforge.domain.enums import ColorRef, LayoutKind
+from deckforge.domain.enums import ColorRef, LayoutKind, TextRole
 from deckforge.domain.template import (
     ChartDefaults,
     Decor,
@@ -203,6 +203,7 @@ class TemplateParser:
         for master_index, master_part in enumerate(masters, start=1):
             master_xml = pkg.read(master_part)
             master_id = f"M{master_index:02d}"
+            master_roles: dict[int, TextRole] = {}
 
             for layout_part in pkg.layout_parts(master_part):
                 if not pkg.has(layout_part):
@@ -232,10 +233,18 @@ class TemplateParser:
                         ),
                     )
                 )
-                observations += collect_observations(
-                    layout_xml, {p.idx: p.role for p in placeholders if p.role}
-                )
+                roles = {p.idx: p.role for p in placeholders if p.role}
+                master_roles.update(roles)
+                observations += collect_observations(layout_xml, roles)
                 index += 1
+
+            # Кегли бывают заданы не в макетах, а в самом мастере. Шаблоны, сделанные
+            # не в PowerPoint, держат шкалу именно там: у них макет ссылается на мастер,
+            # а не повторяет размеры. Без этого прохода такой шаблон вообще не парсится —
+            # `derive_scale` получает пустой список и честно отказывается работать.
+            # Наблюдения мастера идут после макетов: при равной частоте кегль,
+            # объявленный в макете, остаётся более сильным сигналом.
+            observations += collect_observations(master_xml, master_roles)
 
         return layouts, observations
 
