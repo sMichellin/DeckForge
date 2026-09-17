@@ -139,30 +139,20 @@ def _paragraphs(block: TextBlock | BulletsBlock) -> list[tuple[str, int]]:
     return [(item.text, item.level) for item in block.items]
 
 
-class PptxWriter:
-    def __init__(
-        self,
-        template_path: Path,
-        manifest: TemplateManifest,
-        fonts: FontLibrary | None = None,
-    ) -> None:
-        self.template_path = template_path
-        self.manifest = manifest
-        #: Шрифты для вписывания подменённых блоков (цепочка деградации диаграммы).
-        self.fonts = fonts
-        #: Что было подменено при последней записи и почему — для аудита и интерфейса.
-        self.degradations: list[str] = []
+class SlideValidator:
+    """Инварианты IR до записи — общие для pptx и html: оба формата показывают одно и то же."""
 
-    # --- проверка ------------------------------------------------------------
+    def __init__(self, manifest: TemplateManifest) -> None:
+        self.manifest = manifest
 
     def validate(self, slide: SlideIR, content: ContentPackage | None = None) -> None:
         """Инварианты §4.4: макет есть в манифесте, placeholder_idx существует,
         координаты внутри полей, цвета — только `color_ref`, текст вписан."""
-        problems = self._problems(slide, content)
+        problems = self.problems(slide, content)
         if problems:
             raise WriterError("\n".join(problems))
 
-    def _problems(self, slide: SlideIR, content: ContentPackage | None) -> list[str]:
+    def problems(self, slide: SlideIR, content: ContentPackage | None) -> list[str]:
         layout = self.manifest.layout(slide.layout_id)
         if layout is None:
             return [f"{slide.slide_id}: макета {slide.layout_id} нет в манифесте"]
@@ -282,36 +272,17 @@ class PptxWriter:
                     out.append(f"{where}: ассет {asset.path} не картинка")
         return out
 
-    # --- запись --------------------------------------------------------------
 
-    def write(
-        self, deck: DeckIR, out_path: Path, content: ContentPackage | None = None
-    ) -> Path:
-        if deck.template_id != self.manifest.template_id:
-            raise WriterError(
-                f"template_id колоды {deck.template_id} не совпадает с манифестом "
-                f"{self.manifest.template_id}"
-            )
-        self.degradations = []
-        slides = [self._degrade(slide, content) for slide in deck.slides]
-        problems = [p for slide in slides for p in self._problems(slide, content)]
-        if problems:
-            raise WriterError("\n".join(problems))
+class SlideDegrader:
+    """Цепочка §15 «диаграмма → таблица → буллеты» — общая для pptx и html."""
 
-        prs = _open_template(self.template_path)
-        _drop_sample_slides(prs)
-        layouts = self._layouts_by_id(prs)
-        table_style = template_table_style(prs)
-        for slide in slides:
-            self._render_slide(prs, layouts[slide.layout_id], slide, content, table_style)
+    def __init__(self, manifest: TemplateManifest, fonts: FontLibrary | None = None) -> None:
+        self.manifest = manifest
+        self.fonts = fonts
+        #: Что подменено и почему — для аудита и интерфейса.
+        self.degradations: list[str] = []
 
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        prs.save(str(out_path))  # type: ignore[attr-defined]
-        return out_path
-
-    # --- деградация ------------------------------------------------------------
-
-    def _degrade(self, slide: SlideIR, content: ContentPackage | None) -> SlideIR:
+    def degrade(self, slide: SlideIR, content: ContentPackage | None) -> SlideIR:
         """Цепочка §15: диаграмма, которую не построить, → таблица → буллеты.
 
         Подменённый блок вписывается сразу, иначе писатель не знал бы, влезает ли он.
@@ -374,6 +345,53 @@ class PptxWriter:
         bullets = BulletsBlock(block_id=block_id, items=[BulletItem(text=t) for t in items],
                                **_coords(box))
         return bullets, fit_block(bullets, layout, self.manifest, fonts=self.fonts)
+
+
+class PptxWriter:
+    def __init__(
+        self,
+        template_path: Path,
+        manifest: TemplateManifest,
+        fonts: FontLibrary | None = None,
+    ) -> None:
+        self.template_path = template_path
+        self.manifest = manifest
+        #: Шрифты для вписывания подменённых блоков (цепочка деградации диаграммы).
+        self.fonts = fonts
+        #: Что было подменено при последней записи и почему — для аудита и интерфейса.
+        self.degradations: list[str] = []
+        self.validator = SlideValidator(manifest)
+
+    def validate(self, slide: SlideIR, content: ContentPackage | None = None) -> None:
+        self.validator.validate(slide, content)
+
+    # --- запись --------------------------------------------------------------
+
+    def write(
+        self, deck: DeckIR, out_path: Path, content: ContentPackage | None = None
+    ) -> Path:
+        if deck.template_id != self.manifest.template_id:
+            raise WriterError(
+                f"template_id колоды {deck.template_id} не совпадает с манифестом "
+                f"{self.manifest.template_id}"
+            )
+        degrader = SlideDegrader(self.manifest, self.fonts)
+        slides = [degrader.degrade(slide, content) for slide in deck.slides]
+        self.degradations = degrader.degradations
+        problems = [p for slide in slides for p in self.validator.problems(slide, content)]
+        if problems:
+            raise WriterError("\n".join(problems))
+
+        prs = _open_template(self.template_path)
+        _drop_sample_slides(prs)
+        layouts = self._layouts_by_id(prs)
+        table_style = template_table_style(prs)
+        for slide in slides:
+            self._render_slide(prs, layouts[slide.layout_id], slide, content, table_style)
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        prs.save(str(out_path))  # type: ignore[attr-defined]
+        return out_path
 
     def _layouts_by_id(self, prs: object) -> dict[str, object]:
         """`layout_id` → макет python-pptx через имя части пакета.
