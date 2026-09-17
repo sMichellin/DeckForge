@@ -30,7 +30,7 @@ from deckforge.audit.geometry import (
     covers,
     layout_of,
     placeholder_of,
-    positioned_blocks,
+    self_positioned_blocks,
 )
 from deckforge.audit.registry import CheckContext, check
 from deckforge.domain.audit import Finding
@@ -346,7 +346,9 @@ def decor_moved(ctx: CheckContext) -> Iterable[Finding]:
         if not decor_boxes:
             continue
 
-        for block, bbox in positioned_blocks(slide, ctx.manifest):
+        # Плейсхолдер, наложенный на декор, — так нарисован сам шаблон. Наша вина
+        # начинается там, где мы поставили блок своими координатами.
+        for block, bbox in self_positioned_blocks(slide, ctx.manifest):
             # Сдвинуть декор из IR нельзя — он приезжает с мастера (ADR-002).
             # Испортить его можно единственным способом: накрыть своим блоком.
             for label, decor_box in decor_boxes:

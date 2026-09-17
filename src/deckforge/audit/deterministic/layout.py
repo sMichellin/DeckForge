@@ -23,6 +23,7 @@ from deckforge.audit.geometry import (
     covers,
     layout_of,
     positioned_blocks,
+    self_positioned_blocks,
 )
 from deckforge.audit.registry import CheckContext, CheckUnavailable, check
 from deckforge.domain.audit import Finding
@@ -235,7 +236,9 @@ def off_guides(ctx: CheckContext) -> Iterable[Finding]:
         raise CheckUnavailable("в манифесте нет направляющих: выравнивать не по чему")
 
     for slide in ctx.deck.slides:
-        for block, bbox in positioned_blocks(slide, ctx.manifest):
+        # Только блоки, положение которых выбрали мы: блок в плейсхолдере стоит там,
+        # где его поставил автор шаблона, и промахнуться мимо направляющей не мог.
+        for block, bbox in self_positioned_blocks(slide, ctx.manifest):
             for axis, value, guides in (
                 ("x", bbox.x, grid.guides_x_emu),
                 ("y", bbox.y, grid.guides_y_emu),
@@ -271,7 +274,9 @@ def margin_violation(ctx: CheckContext) -> Iterable[Finding]:
     content_box = ctx.manifest.content_bbox
     slide_box = ctx.manifest.slide_size.bbox
     for slide in ctx.deck.slides:
-        for block, bbox in positioned_blocks(slide, ctx.manifest):
+        # Плейсхолдер шаблона может заходить в поля — это решение автора шаблона,
+        # а поля мы вывели статистикой по его же макетам. Спрашиваем только за своё.
+        for block, bbox in self_positioned_blocks(slide, ctx.manifest):
             # Полноэкранная плашка или картинка в край — приём шаблона (см. `covers`).
             if covers(bbox, slide_box, FULL_BLEED_SHARE):
                 continue

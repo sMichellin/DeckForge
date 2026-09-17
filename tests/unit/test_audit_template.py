@@ -141,6 +141,27 @@ def test_decor_moved_catches_a_block_over_the_logo(manifest: TemplateManifest) -
     assert [f.block_id for f in findings] == ["b2"]
 
 
+def test_decor_moved_ignores_a_block_anchored_in_a_placeholder(
+    manifest: TemplateManifest,
+) -> None:
+    """Плейсхолдер, наложенный на декор, — так нарисован сам шаблон.
+
+    Замер тимлида: 73 находки `decor_moved`, на наших блоках — ноль.
+    Логотип помещён туда же, где лежит плейсхолдер тела макета `L07`.
+    """
+    body_placeholder = manifest.layout("L07").placeholders[1]
+    logo = DecorElement(
+        layout_ids=["M01"],
+        x=body_placeholder.x,
+        y=body_placeholder.y,
+        cx=360_000,
+        cy=180_000,
+    )
+    with_logo = manifest.model_copy(update={"decor": Decor(logo=logo)})
+    colony = deck(slide(title(), body("Текст в плейсхолдере")))
+    assert list(decor_moved(context_for("template.decor_moved", colony, with_logo))) == []
+
+
 def test_decor_moved_silent_when_logo_is_free(manifest: TemplateManifest) -> None:
     colony = deck(slide(body("В стороне", box=(2, 2, 3, 1))))
     context = context_for("template.decor_moved", colony, _with_logo(manifest))

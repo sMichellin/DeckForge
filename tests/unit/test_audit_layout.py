@@ -135,10 +135,48 @@ def test_off_guides_is_unavailable_without_guides(manifest: TemplateManifest) ->
         list(off_guides(context_for("layout.off_guides", colony, manifest)))
 
 
+def test_off_guides_ignores_a_block_anchored_in_a_placeholder(
+    manifest: TemplateManifest,
+) -> None:
+    """Блок в плейсхолдере стоит там, где его поставил автор шаблона.
+
+    Замер тимлида: 106 находок `off_guides` на четырёх шаблонах кейса, из них
+    на наших блоках — ноль. Шаблон не может нарушать сам себя.
+    """
+    near = manifest.grid.margins_emu.left + 20_000
+    grid = Grid(
+        margins_emu=manifest.grid.margins_emu,
+        guides_x_emu=[near],
+        guides_y_emu=[1_800_000],
+        guides_source="xml",
+    )
+    with_guides = manifest.model_copy(update={"grid": grid})
+    colony = deck(slide(title(), body("Текст в плейсхолдере")))
+    assert list(off_guides(context_for("layout.off_guides", colony, with_guides))) == []
+
+
 def test_margin_violation_catches_content_in_the_margin(manifest: TemplateManifest) -> None:
     colony = deck(slide(body("В поле", box=(0.5, 2, 5, 3))))
     findings = list(margin_violation(context_for("layout.margin_violation", colony, manifest)))
     assert [f.block_id for f in findings] == ["b2"]
+
+
+def test_margin_violation_ignores_a_block_anchored_in_a_placeholder(
+    manifest: TemplateManifest,
+) -> None:
+    """Плейсхолдер может заходить в поля — поля мы вывели статистикой по его же макетам.
+
+    Замер тимлида: 15 находок `margin_violation`, на наших блоках — ноль.
+    """
+    layout = manifest.layout("L07")
+    in_margin = layout.placeholders[1].model_copy(update={"x": 180_000})
+    patched = layout.model_copy(update={"placeholders": [layout.placeholders[0], in_margin]})
+    others = [item for item in manifest.layouts if item.layout_id != "L07"]
+    with_patched = manifest.model_copy(update={"layouts": [*others, patched]})
+
+    colony = deck(slide(title(), body("Текст в плейсхолдере")))
+    context = context_for("layout.margin_violation", colony, with_patched)
+    assert list(margin_violation(context)) == []
 
 
 def test_margin_violation_allows_a_full_bleed_block(manifest: TemplateManifest) -> None:
