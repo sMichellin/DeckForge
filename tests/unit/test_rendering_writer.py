@@ -9,7 +9,7 @@ from PIL import Image
 from pptx import Presentation
 from pptx.enum.dml import MSO_THEME_COLOR
 
-from deckforge.domain.content import Asset, Brief, ContentPackage
+from deckforge.domain.content import Asset, Brief, ContentPackage, Dataset, Series
 from deckforge.domain.enums import ColorRef, FontRef, ImageSource, TextRole
 from deckforge.domain.slide import (
     BulletItem,
@@ -18,7 +18,11 @@ from deckforge.domain.slide import (
     DeckIR,
     FitResult,
     ImageBlock,
+    KpiBlock,
+    KpiItem,
     SlideIR,
+    SmartArtBlock,
+    TableBlock,
     TextBlock,
 )
 from deckforge.domain.template import PlaceholderSpec, TemplateManifest
@@ -297,8 +301,81 @@ def test_size_outside_the_template_scale_is_rejected(writer: PptxWriter) -> None
 
 
 def test_unsupported_block_names_the_change_that_adds_it(writer: PptxWriter) -> None:
-    chart = ChartBlock(block_id="c", chart_type="clustered_bar", dataset_ref="d1")
-    assert "(14)" in problems(writer, ok_slide(blocks=[title(), chart], fit_report={"t": fit(40)}))
+    smartart = SmartArtBlock(block_id="s", pattern="process", items=["а", "б"])
+    slide = ok_slide(blocks=[title(), smartart], fit_report={"t": fit(40)})
+    assert "(21)" in problems(writer, slide)
+
+
+def data_content(**dataset_update: object) -> ContentPackage:
+    dataset = Dataset(dataset_id="d001", title="Выручка", categories=["2024", "2025"],
+                      series=[Series(name="Россия", values=[1.0, 2.0])])
+    return ContentPackage(
+        brief=Brief(purpose="report", audience="команда", target_slides=1),
+        datasets=[dataset.model_copy(update=dataset_update)],
+    )
+
+
+def box_of(manifest: TemplateManifest) -> dict[str, int]:
+    b = manifest.content_bbox
+    return {"x": b.x, "y": b.y, "cx": b.cx, "cy": b.cy // 2}
+
+
+def test_chart_with_dataset_and_coordinates_passes(
+    writer: PptxWriter, manifest: TemplateManifest
+) -> None:
+    chart = ChartBlock(block_id="c", chart_type="clustered_bar", dataset_ref="d001",
+                       **box_of(manifest))
+    writer.validate(ok_slide(blocks=[title(), chart], fit_report={"t": fit(40)}), data_content())
+
+
+def test_chart_without_dataset_is_rejected(
+    writer: PptxWriter, manifest: TemplateManifest
+) -> None:
+    chart = ChartBlock(block_id="c", chart_type="clustered_bar", dataset_ref="d404",
+                       **box_of(manifest))
+    slide = ok_slide(blocks=[title(), chart], fit_report={"t": fit(40)})
+    with pytest.raises(WriterError, match="d404"):
+        writer.validate(slide, data_content())
+
+
+def test_chart_without_coordinates_is_rejected(writer: PptxWriter) -> None:
+    chart = ChartBlock(block_id="c", chart_type="clustered_bar", dataset_ref="d001")
+    slide = ok_slide(blocks=[title(), chart], fit_report={"t": fit(40)})
+    with pytest.raises(WriterError, match="без координат"):
+        writer.validate(slide, data_content())
+
+
+def test_impossible_chart_is_named_in_validation(
+    writer: PptxWriter, manifest: TemplateManifest
+) -> None:
+    """`validate` не деградирует сам: это делает `write`, и там подмена записывается."""
+    chart = ChartBlock(block_id="c", chart_type="pie", dataset_ref="d001", **box_of(manifest))
+    content = data_content(series=[Series(name="а", values=[1.0, 2.0]),
+                                   Series(name="б", values=[3.0, 4.0])])
+    slide = ok_slide(blocks=[title(), chart], fit_report={"t": fit(40)})
+    with pytest.raises(WriterError, match="одна серия"):
+        writer.validate(slide, content)
+
+
+def test_table_needs_fit_report(writer: PptxWriter, manifest: TemplateManifest) -> None:
+    table = TableBlock(block_id="tb", header=["а"], rows=[["б"]], **box_of(manifest))
+    slide = ok_slide(blocks=[title(), table], fit_report={"t": fit(40)})
+    assert "fit_report" in problems(writer, slide)
+
+
+def test_table_without_rows_or_dataset_is_rejected(
+    writer: PptxWriter, manifest: TemplateManifest
+) -> None:
+    table = TableBlock(block_id="tb", dataset_ref="d404", **box_of(manifest))
+    slide = ok_slide(blocks=[title(), table], fit_report={"t": fit(40), "tb": fit(18)})
+    assert "d404" in problems(writer, slide)
+
+
+def test_kpi_needs_coordinates_and_fit(writer: PptxWriter) -> None:
+    kpi = KpiBlock(block_id="k", items=[KpiItem(value="37 %", label="рост")])
+    message = problems(writer, ok_slide(blocks=[title(), kpi], fit_report={"t": fit(40)}))
+    assert "без координат" in message
+    assert "fit_report" in message
 
 
 def test_all_problems_are_reported_at_once(writer: PptxWriter) -> None:

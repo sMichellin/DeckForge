@@ -1,4 +1,4 @@
-"""`SlideIR` → .pptx. Change (13) `pptx-writer`.
+"""`SlideIR` → .pptx. Changes (13) `pptx-writer`, (14) диаграммы, таблицы, KPI.
 
 Инварианты рендерера (ADR-002):
 * слайд создаётся **только** на макете из шаблона — по части пакета, а не по позиции
@@ -23,13 +23,31 @@ from pptx.oxml.ns import qn
 from pptx.util import Emu, Pt
 
 from deckforge.domain.base import BBox
-from deckforge.domain.content import ContentPackage
-from deckforge.domain.enums import ImageSource
-from deckforge.domain.slide import BulletsBlock, DeckIR, ImageBlock, SlideIR, TextBlock
+from deckforge.domain.content import ContentPackage, Dataset
+from deckforge.domain.enums import ColorRef, ImageSource, TextRole
+from deckforge.domain.slide import (
+    Block,
+    BulletItem,
+    BulletsBlock,
+    ChartBlock,
+    DeckIR,
+    FitResult,
+    ImageBlock,
+    KpiBlock,
+    SlideIR,
+    TableBlock,
+    TextBlock,
+)
 from deckforge.domain.template import LayoutSpec, TemplateManifest
+from deckforge.layout.errors import LayoutFitError
+from deckforge.layout.fitting import fit_block, fit_table, table_row_heights
+from deckforge.layout.fonts import FontLibrary
+from deckforge.layout.tabular import dataset_bullets, table_cells, table_has_header
 from deckforge.parsing.ooxml.layouts import resolve_placeholders
 from deckforge.parsing.package import TemplatePackage
+from deckforge.rendering.charts import add_chart, chart_problem
 from deckforge.rendering.images import add_image
+from deckforge.rendering.tables import add_table, template_table_style
 from deckforge.rendering.theme_binding import apply_theme_color, theme_font_token
 
 #: Плейсхолдеры, в которые текст не кладётся: там ждут картинку, диаграмму, таблицу.
@@ -37,12 +55,13 @@ _NON_TEXT_PLACEHOLDERS = frozenset({"PIC", "CHART", "TBL", "MEDIA", "CLIPART", "
 
 #: Какой change добавит блок, который писатель пока не умеет.
 _PENDING_BLOCKS = {
-    "chart": "(14) native-charts-tables",
-    "table": "(14) native-charts-tables",
-    "kpi": "(14) native-charts-tables",
     "smartart": "(21) smartart-icons",
     "icon": "(21) smartart-icons",
 }
+
+_COLOR_REFS = {ref.value: ref for ref in ColorRef}
+#: Элементы свойств текста: цвет внутри них — цвет букв, а не заливки фигуры.
+_TEXT_PROPERTIES = frozenset({"defRPr", "rPr", "endParaRPr"})
 
 _CONTENT_TYPE_POTX = "presentationml.template.main+xml"
 _CONTENT_TYPE_PPTX = "presentationml.presentation.main+xml"
@@ -90,6 +109,30 @@ def _drop_sample_slides(prs: object) -> None:
         slide_ids.remove(slide_id)
 
 
+def _text_rank(placeholder: object) -> int:
+    """Основной текст важнее подзаголовка, подзаголовок — заголовка: у заголовка часто акцент."""
+    kind = str(placeholder.placeholder_format.type).split(" ")[0]  # type: ignore[attr-defined]
+    return {"BODY": 0, "OBJECT": 0, "SUBTITLE": 1, "TITLE": 2, "CENTER_TITLE": 2}.get(kind, 3)
+
+
+def _layout_text_color(layout: object) -> ColorRef | None:
+    """Цвет текста макета — ссылкой на тему из его плейсхолдеров, основной текст первым.
+
+    Тёмный макет в шаблонах кейса тёмный за счёт фона, а не `clrMap`: светлый цвет задан
+    плейсхолдерам. Свободный текст (текстбокс, подпись KPI, подписи диаграммы) берёт этот цвет,
+    иначе цвет роли из типошкалы дал бы тёмные буквы на тёмном фоне. Заголовок — последним:
+    на части макетов VK Education он акцентный, а текст — нет.
+    """
+    placeholders = sorted(layout.placeholders, key=_text_rank)  # type: ignore[attr-defined]
+    for placeholder in placeholders:
+        for node in placeholder._element.iter(qn("a:schemeClr")):
+            ancestors = {etree.QName(a).localname for a in node.iterancestors()}
+            ref = _COLOR_REFS.get(node.get("val") or "")
+            if ref is not None and ancestors & _TEXT_PROPERTIES:
+                return ref
+    return None
+
+
 def _paragraphs(block: TextBlock | BulletsBlock) -> list[tuple[str, int]]:
     if isinstance(block, TextBlock):
         return [(text, 0) for text in _PARAGRAPH_BREAK.split(block.text)]
@@ -97,9 +140,18 @@ def _paragraphs(block: TextBlock | BulletsBlock) -> list[tuple[str, int]]:
 
 
 class PptxWriter:
-    def __init__(self, template_path: Path, manifest: TemplateManifest) -> None:
+    def __init__(
+        self,
+        template_path: Path,
+        manifest: TemplateManifest,
+        fonts: FontLibrary | None = None,
+    ) -> None:
         self.template_path = template_path
         self.manifest = manifest
+        #: Шрифты для вписывания подменённых блоков (цепочка деградации диаграммы).
+        self.fonts = fonts
+        #: Что было подменено при последней записи и почему — для аудита и интерфейса.
+        self.degradations: list[str] = []
 
     # --- проверка ------------------------------------------------------------
 
@@ -136,6 +188,48 @@ class PptxWriter:
                 out += self._text_problems(where, block, layout, slide)
             elif isinstance(block, ImageBlock):
                 out += self._image_problems(where, block, content)
+            elif isinstance(block, ChartBlock):
+                out += self._chart_problems(where, block, content)
+            elif isinstance(block, TableBlock):
+                out += self._box_problems(where, block.bbox, block.type)
+                try:
+                    table_cells(block, _dataset(content, block.dataset_ref))
+                except LayoutFitError as exc:
+                    out.append(f"{where}: {exc}")
+                out += self._fit_problems(where, block.block_id, slide)
+            elif isinstance(block, KpiBlock):
+                out += self._box_problems(where, block.bbox, block.type)
+                out += self._fit_problems(where, block.block_id, slide)
+        return out
+
+    def _box_problems(self, where: str, box: BBox | None, kind: str) -> list[str]:
+        if box is None:
+            return [f"{where}: {kind} без координат"]
+        if not self.manifest.content_bbox.contains(box):
+            return [f"{where}: координаты выходят за поля шаблона"]
+        return []
+
+    def _fit_problems(self, where: str, block_id: str, slide: SlideIR) -> list[str]:
+        fit = slide.fit_report.get(block_id)
+        ladder = self.manifest.size_ladder_pt
+        if fit is None:
+            return [f"{where}: нет записи в fit_report — вписывание не выполнялось"]
+        out = []
+        if fit.overflow:
+            out.append(f"{where}: переполнение, стратегия {fit.strategy}")
+        if ladder and fit.final_size_pt not in ladder:
+            out.append(f"{where}: кегль {fit.final_size_pt:g} вне шкалы шаблона {ladder}")
+        return out
+
+    def _chart_problems(
+        self, where: str, block: ChartBlock, content: ContentPackage | None
+    ) -> list[str]:
+        out = self._box_problems(where, block.bbox, block.type)
+        dataset = _dataset(content, block.dataset_ref)
+        if dataset is None:
+            out.append(f"{where}: датасета {block.dataset_ref} нет в ContentPackage")
+        elif (problem := chart_problem(block.chart_type, dataset)) is not None:
+            out.append(f"{where}: диаграмму не построить — {problem}")
         return out
 
     def _text_problems(
@@ -161,16 +255,7 @@ class PptxWriter:
         elif not self.manifest.content_bbox.contains(block.bbox):
             out.append(f"{where}: координаты выходят за поля шаблона")
 
-        fit = slide.fit_report.get(block.block_id)
-        ladder = self.manifest.size_ladder_pt
-        if fit is None:
-            out.append(f"{where}: нет записи в fit_report — вписывание не выполнялось")
-        else:
-            if fit.overflow:
-                out.append(f"{where}: переполнение, стратегия {fit.strategy}")
-            if ladder and fit.final_size_pt not in ladder:
-                out.append(f"{where}: кегль {fit.final_size_pt:g} вне шкалы шаблона {ladder}")
-        return out
+        return out + self._fit_problems(where, block.block_id, slide)
 
     def _image_problems(
         self, where: str, block: ImageBlock, content: ContentPackage | None
@@ -207,19 +292,88 @@ class PptxWriter:
                 f"template_id колоды {deck.template_id} не совпадает с манифестом "
                 f"{self.manifest.template_id}"
             )
-        problems = [p for slide in deck.slides for p in self._problems(slide, content)]
+        self.degradations = []
+        slides = [self._degrade(slide, content) for slide in deck.slides]
+        problems = [p for slide in slides for p in self._problems(slide, content)]
         if problems:
             raise WriterError("\n".join(problems))
 
         prs = _open_template(self.template_path)
         _drop_sample_slides(prs)
         layouts = self._layouts_by_id(prs)
-        for slide in deck.slides:
-            self._render_slide(prs, layouts[slide.layout_id], slide, content)
+        table_style = template_table_style(prs)
+        for slide in slides:
+            self._render_slide(prs, layouts[slide.layout_id], slide, content, table_style)
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         prs.save(str(out_path))  # type: ignore[attr-defined]
         return out_path
+
+    # --- деградация ------------------------------------------------------------
+
+    def _degrade(self, slide: SlideIR, content: ContentPackage | None) -> SlideIR:
+        """Цепочка §15: диаграмма, которую не построить, → таблица → буллеты.
+
+        Подменённый блок вписывается сразу, иначе писатель не знал бы, влезает ли он.
+        Каждая подмена записывается в `degradations`: молча данные не меняют вид.
+        """
+        layout = self.manifest.layout(slide.layout_id)
+        if layout is None or content is None:
+            return slide
+        blocks: list[Block] = []
+        report = dict(slide.fit_report)
+        for block in slide.blocks:
+            replaced: tuple[Block, FitResult] | None = None
+            where = f"{slide.slide_id}/{block.block_id}"
+            if isinstance(block, ChartBlock) and block.bbox is not None:
+                dataset = _dataset(content, block.dataset_ref)
+                reason = chart_problem(block.chart_type, dataset) if dataset else None
+                if dataset is not None and reason is not None:
+                    table = TableBlock(block_id=block.block_id, dataset_ref=block.dataset_ref,
+                                       **_coords(block.bbox))
+                    try:
+                        fit = fit_table(table, block.bbox, self.manifest, dataset=dataset,
+                                        fonts=self.fonts)
+                    except LayoutFitError:
+                        # Из этих данных не собрать и таблицу: оставляем диаграмму,
+                        # валидация назовёт причину.
+                        fit = None
+                    if fit is not None:
+                        replaced = (table, fit)
+                        self.degradations.append(f"{where}: диаграмма → таблица ({reason})")
+                        bullets = dataset_bullets(dataset)
+                        if fit.overflow and bullets:
+                            replaced = self._as_bullets(block.block_id, block.bbox, bullets,
+                                                        layout)
+                            self.degradations.append(f"{where}: таблица → буллеты (не влезла)")
+            elif isinstance(block, TableBlock) and block.bbox is not None:
+                table_fit = report.get(block.block_id)
+                dataset = _dataset(content, block.dataset_ref)
+                items = (
+                    dataset_bullets(dataset) if dataset is not None and not block.rows
+                    else [
+                        " — ".join(f"{h}: {v}" if h else v
+                                   for h, v in zip(block.header, row, strict=False))
+                        if block.header else " — ".join(row)
+                        for row in block.rows
+                    ]
+                )
+                if table_fit is not None and table_fit.overflow and items:
+                    replaced = self._as_bullets(block.block_id, block.bbox, items, layout)
+                    self.degradations.append(f"{where}: таблица → буллеты (не влезла)")
+            if replaced is None:
+                blocks.append(block)
+            else:
+                blocks.append(replaced[0])
+                report[block.block_id] = replaced[1]
+        return slide.model_copy(update={"blocks": blocks, "fit_report": report})
+
+    def _as_bullets(
+        self, block_id: str, box: BBox, items: list[str], layout: LayoutSpec
+    ) -> tuple[Block, FitResult]:
+        bullets = BulletsBlock(block_id=block_id, items=[BulletItem(text=t) for t in items],
+                               **_coords(box))
+        return bullets, fit_block(bullets, layout, self.manifest, fonts=self.fonts)
 
     def _layouts_by_id(self, prs: object) -> dict[str, object]:
         """`layout_id` → макет python-pptx через имя части пакета.
@@ -260,9 +414,15 @@ class PptxWriter:
         return out
 
     def _render_slide(
-        self, prs: object, layout: object, slide_ir: SlideIR, content: ContentPackage | None
+        self,
+        prs: object,
+        layout: object,
+        slide_ir: SlideIR,
+        content: ContentPackage | None,
+        table_style: str | None,
     ) -> None:
         slide = prs.slides.add_slide(layout)  # type: ignore[attr-defined]
+        text_color = _layout_text_color(layout)
         used: set[int] = set()
         for block in slide_ir.blocks:
             if isinstance(block, TextBlock | BulletsBlock):
@@ -271,11 +431,33 @@ class PptxWriter:
                     self._fill_placeholder(slide, layout, block, size_pt)
                     used.add(block.placeholder_idx)
                 else:
-                    self._add_textbox(slide, block, size_pt)
+                    self._add_textbox(slide, block, size_pt, text_color)
             elif isinstance(block, ImageBlock) and content is not None:
                 asset = content.asset(block.asset_ref or "")
                 if asset is not None:
                     add_image(slide, block, Path(asset.path))
+            elif isinstance(block, ChartBlock):
+                dataset = _dataset(content, block.dataset_ref)
+                if dataset is not None:
+                    add_chart(slide, block, dataset, self.manifest, text_color=text_color)
+            elif isinstance(block, TableBlock):
+                dataset = _dataset(content, block.dataset_ref)
+                cells = table_cells(block, dataset)
+                size_pt = slide_ir.fit_report[block.block_id].final_size_pt
+                body = self.manifest.typography(TextRole.BODY)
+                add_table(
+                    slide, block, cells, size_pt=size_pt, style_id=table_style,
+                    row_heights=table_row_heights(
+                        block, block.bbox, self.manifest, size_pt,  # type: ignore[arg-type]
+                        dataset=dataset, fonts=self.fonts,
+                    ),
+                    font_token=theme_font_token(body.font_ref) if body else None,
+                    has_header=table_has_header(block),
+                )
+            elif isinstance(block, KpiBlock):
+                self._add_kpi(
+                    slide, block, slide_ir.fit_report[block.block_id].final_size_pt, text_color
+                )
 
         # Пустой плейсхолдер в PowerPoint показывает «Введите текст» — такой слайд выглядит
         # недоделанным.
@@ -313,7 +495,13 @@ class PptxWriter:
         color = block.color_ref if isinstance(block, TextBlock) else None
         self._write_paragraphs(shape.text_frame, _paragraphs(block), size_pt, color, None, None)
 
-    def _add_textbox(self, slide: object, block: TextBlock | BulletsBlock, size_pt: float) -> None:
+    def _add_textbox(
+        self,
+        slide: object,
+        block: TextBlock | BulletsBlock,
+        size_pt: float,
+        text_color: ColorRef | None,
+    ) -> None:
         box: BBox = block.bbox  # type: ignore[assignment]
         step = self.manifest.typography(block.role)
         shape = slide.shapes.add_textbox(  # type: ignore[attr-defined]
@@ -326,10 +514,46 @@ class PptxWriter:
             shape.text_frame,
             _paragraphs(block),
             size_pt,
-            color or (step.color_ref if step else None),
+            color or text_color or (step.color_ref if step else None),
             theme_font_token(step.font_ref) if step else None,
             step.bold if step else None,
         )
+
+    def _add_kpi(
+        self, slide: object, block: KpiBlock, size_pt: float, text_color: ColorRef | None
+    ) -> None:
+        """Колонка на показатель: значение и подпись — ссылками на тему, кегли из шкалы."""
+        box: BBox = block.bbox  # type: ignore[assignment]
+        value_step = self.manifest.typography(TextRole.SUBTITLE) or self.manifest.typography(
+            TextRole.BODY
+        )
+        label_step = self.manifest.typography(TextRole.CAPTION) or self.manifest.typography(
+            TextRole.BODY
+        )
+        width = box.cx // len(block.items)
+        for i, item in enumerate(block.items):
+            shape = slide.shapes.add_textbox(  # type: ignore[attr-defined]
+                Emu(box.x + i * width), Emu(box.y), Emu(width), Emu(box.cy)
+            )
+            frame = shape.text_frame
+            frame.word_wrap = True
+            frame.clear()
+            value = frame.paragraphs[0]
+            value.text = item.value
+            _style_runs(
+                value, size_pt, item.color_ref or ColorRef.ACCENT1,
+                theme_font_token(value_step.font_ref) if value_step else None,
+                value_step.bold if value_step else None,
+            )
+            label = frame.add_paragraph()
+            label.text = item.label
+            _style_runs(
+                label,
+                label_step.size_pt if label_step else size_pt,
+                text_color or (label_step.color_ref if label_step else None),
+                theme_font_token(label_step.font_ref) if label_step else None,
+                None,
+            )
 
     @staticmethod
     def _write_paragraphs(
@@ -348,13 +572,29 @@ class PptxWriter:
             )
             paragraph.text = text
             paragraph.level = level
-            for run in paragraph.runs:
-                # Кегль явно: рендер обязан совпасть с расчётом `layout`, а наследованный
-                # кегль плейсхолдера может отличаться от кегля роли.
-                run.font.size = Pt(size_pt)
-                if color is not None:
-                    apply_theme_color(run.font, color)  # type: ignore[arg-type]
-                if font_token is not None:
-                    run.font.name = font_token
-                if bold is not None:
-                    run.font.bold = bold
+            _style_runs(paragraph, size_pt, color, font_token, bold)
+
+
+def _style_runs(
+    paragraph: object, size_pt: float, color: object, font_token: str | None, bold: bool | None
+) -> None:
+    for run in paragraph.runs:  # type: ignore[attr-defined]
+        # Кегль явно: рендер обязан совпасть с расчётом `layout`, а наследованный
+        # кегль плейсхолдера может отличаться от кегля роли.
+        run.font.size = Pt(size_pt)
+        if color is not None:
+            apply_theme_color(run.font, color)  # type: ignore[arg-type]
+        if font_token is not None:
+            run.font.name = font_token
+        if bold is not None:
+            run.font.bold = bold
+
+
+def _dataset(content: ContentPackage | None, dataset_ref: str | None) -> Dataset | None:
+    if content is None or not dataset_ref:
+        return None
+    return content.dataset(dataset_ref)
+
+
+def _coords(box: BBox) -> dict[str, int]:
+    return {"x": box.x, "y": box.y, "cx": box.cx, "cy": box.cy}

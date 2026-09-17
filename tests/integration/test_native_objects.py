@@ -16,20 +16,34 @@ from PIL import Image
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
-from deckforge.domain.content import Asset, Brief, ContentPackage
-from deckforge.domain.enums import ColorRef, ImageFit, ImageSource, LayoutKind, TextRole
+from deckforge.domain.content import Asset, Brief, ContentPackage, Dataset, Series
+from deckforge.domain.enums import (
+    ChartType,
+    ColorRef,
+    ImageFit,
+    ImageSource,
+    LayoutKind,
+    TextRole,
+)
 from deckforge.domain.slide import (
     BulletItem,
     BulletsBlock,
+    ChartBlock,
     DeckIR,
     FitResult,
     ImageBlock,
+    KpiBlock,
+    KpiItem,
     SlideIR,
+    TableBlock,
     TextBlock,
 )
 from deckforge.domain.template import TemplateManifest
+from deckforge.layout.fitting import fit_slide
+from deckforge.layout.fonts import FontLibrary
 from deckforge.parsing import TemplateParser
 from deckforge.rendering.writer import PptxWriter, WriterError
+from tests.unit.test_layout_fonts import make_font
 
 TWIN_ACCENT1 = "C2185B"
 POTX_CT = "application/vnd.openxmlformats-officedocument.presentationml.template.main+xml"
@@ -398,3 +412,259 @@ def test_manifest_from_another_file_is_caught_by_layout_names(
     with pytest.raises(WriterError, match="макет"):
         PptxWriter(template, renamed).write(deck_for(renamed), tmp_path / "x.pptx",
                                             content=content_with_image(tmp_path))
+
+
+# --- change (14): диаграммы, таблицы, KPI ------------------------------------------
+
+
+def chart_content(tmp_path: Path, *series: Series) -> ContentPackage:
+    return content_with_image(tmp_path).model_copy(update={"datasets": [Dataset(
+        dataset_id="d001", title="Выручка", categories=["2024", "2025", "2026"],
+        series=list(series) or [Series(name="Россия", values=[1.0, 2.0, 3.0]),
+                                Series(name="СНГ", values=[0.5, 0.7, 0.9])],
+        unit="млн ₽",
+    )]})
+
+
+def theme_fonts(tmp_path: Path, manifest: TemplateManifest) -> FontLibrary:
+    """Синтетические гарнитуры темы: вписывание подменённых блоков детерминировано."""
+    directory = tmp_path / "fonts"
+    directory.mkdir(exist_ok=True)
+    for family in {manifest.theme.fonts.major_latin, manifest.theme.fonts.minor_latin}:
+        make_font(directory, family, advance=500)
+        make_font(directory, family, advance=550, bold=True)
+    return FontLibrary([directory])
+
+
+def visual_deck(manifest: TemplateManifest, *blocks: object) -> DeckIR:
+    title_pt = next(s.size_pt for s in manifest.typography_scale if s.role is TextRole.TITLE)
+    body_pt = next(s.size_pt for s in manifest.typography_scale if s.role is TextRole.BODY)
+    sub_pt = next(s.size_pt for s in manifest.typography_scale if s.role is TextRole.SUBTITLE)
+    report = {"t": FitResult(final_size_pt=title_pt)}
+    for block in blocks:
+        if isinstance(block, TableBlock):
+            report[block.block_id] = FitResult(final_size_pt=body_pt)
+        elif isinstance(block, KpiBlock):
+            report[block.block_id] = FitResult(final_size_pt=sub_pt)
+    slide = SlideIR(
+        slide_id="s01", layout_id=layout_of(manifest, LayoutKind.TITLE), variant="A",
+        blocks=[TextBlock(block_id="t", placeholder_idx=0, role=TextRole.TITLE,
+                          text="Выручка выросла"), *blocks],  # type: ignore[list-item]
+        fit_report=report,
+    )
+    return DeckIR(deck_id="d", variant="A", template_id=manifest.template_id, seed=1,
+                  slides=[slide])
+
+
+def region(manifest: TemplateManifest, part: int, of: int) -> dict[str, int]:
+    box = manifest.content_bbox
+    height = box.cy // of
+    return {"x": box.x, "y": box.y + part * height, "cx": box.cx, "cy": height}
+
+
+def chart_parts(path: Path) -> dict[str, str]:
+    with zipfile.ZipFile(path) as z:
+        return {n: z.read(n).decode("utf-8") for n in z.namelist()
+                if re.fullmatch(r"ppt/charts/chart\d+\.xml", n)}
+
+
+def test_chart_table_and_kpi_are_native_objects(template: Path, tmp_path: Path) -> None:
+    manifest = parse(template, tmp_path)
+    deck = visual_deck(
+        manifest,
+        ChartBlock(block_id="c", chart_type=ChartType.CLUSTERED_COLUMN, dataset_ref="d001",
+                   **region(manifest, 1, 4)),
+        TableBlock(block_id="tb", dataset_ref="d001", **region(manifest, 2, 4)),
+        KpiBlock(block_id="k", items=[KpiItem(value="37 %", label="рост"),
+                                      KpiItem(value="×2", label="клиенты")],
+                 **region(manifest, 3, 4)),
+    )
+    out = PptxWriter(template, manifest).write(deck, tmp_path / "deck.pptx",
+                                               content=chart_content(tmp_path))
+    shapes = list(Presentation(str(out)).slides[0].shapes)
+    assert sum(1 for s in shapes if s.has_chart) == 1
+    assert sum(1 for s in shapes if s.has_table) == 1
+    texts = [s.text_frame.text for s in shapes if s.has_text_frame]
+    assert "37 %\nрост" in texts
+    table = next(s for s in shapes if s.has_table).table
+    assert [c.text for c in table.rows[1].cells] == ["2024", "1", "0,5"]
+    assert not any("srgbClr" in xml for xml in [*slide_xml(out).values(),
+                                               *chart_parts(out).values()])
+
+
+def test_switching_the_template_recolors_the_chart(template: Path, tmp_path: Path) -> None:
+    """Критерий change (14): диаграмма меняет палитру вместе с шаблоном без правки кода."""
+    twin = recolor_twin(template, tmp_path / "twin.pptx")
+    manifest, twin_manifest = parse(template, tmp_path), parse(twin, tmp_path)
+    chart = ChartBlock(block_id="c", chart_type=ChartType.CLUSTERED_COLUMN, dataset_ref="d001",
+                       **region(manifest, 1, 2))
+    content = chart_content(tmp_path)
+    first = PptxWriter(template, manifest).write(
+        visual_deck(manifest, chart), tmp_path / "a.pptx", content=content)
+    twin_deck = visual_deck(manifest, chart).model_copy(
+        update={"template_id": twin_manifest.template_id})
+    second = PptxWriter(twin, twin_manifest).write(twin_deck, tmp_path / "b.pptx",
+                                                   content=content)
+    assert chart_parts(first) == chart_parts(second)
+    assert '<a:schemeClr val="accent1"/>' in next(iter(chart_parts(first).values()))
+    assert parse(second, tmp_path).theme.colors.accent1 == f"#{TWIN_ACCENT1}"
+
+
+def test_impossible_chart_degrades_to_a_table(template: Path, tmp_path: Path) -> None:
+    manifest = parse(template, tmp_path)
+    pie = ChartBlock(block_id="c", chart_type=ChartType.PIE, dataset_ref="d001",
+                     **region(manifest, 1, 2))
+    writer = PptxWriter(template, manifest, fonts=theme_fonts(tmp_path, manifest))
+    out = writer.write(visual_deck(manifest, pie), tmp_path / "deck.pptx",
+                       content=chart_content(tmp_path))
+    shapes = list(Presentation(str(out)).slides[0].shapes)
+    assert not any(s.has_chart for s in shapes)
+    assert any(s.has_table for s in shapes)
+    assert writer.degradations == ["s01/c: диаграмма → таблица (у круговой диаграммы должна "
+                                   "быть одна серия)"]
+
+
+def test_table_that_does_not_fit_degrades_to_bullets(template: Path, tmp_path: Path) -> None:
+    """Кольцевая с отрицательной долей → таблица из 21 строки не влезает ни при каком кегле
+    шкалы → 20 коротких буллетов влезают."""
+    manifest = parse(template, tmp_path)
+    categories = [f"к{i}" for i in range(20)]
+    content = content_with_image(tmp_path).model_copy(update={"datasets": [Dataset(
+        dataset_id="d001", title="Доли", categories=categories,
+        series=[Series(name="Доля", values=[-1.0] + [1.0] * 19)],
+    )]})
+    ring = ChartBlock(block_id="c", chart_type=ChartType.DOUGHNUT, dataset_ref="d001",
+                      **region(manifest, 1, 2))
+    writer = PptxWriter(template, manifest, fonts=theme_fonts(tmp_path, manifest))
+    out = writer.write(visual_deck(manifest, ring), tmp_path / "deck.pptx", content=content)
+    shapes = list(Presentation(str(out)).slides[0].shapes)
+    assert not any(s.has_chart or s.has_table for s in shapes)
+    bullets = next(s for s in shapes if s.has_text_frame and "к0:" in s.text_frame.text)
+    assert [p.text for p in bullets.text_frame.paragraphs][:2] == ["к0: -1", "к1: 1"]
+    assert [d.split(": ", 1)[1].split(" (")[0] for d in writer.degradations] == [
+        "диаграмма → таблица", "таблица → буллеты"]
+
+
+def test_table_takes_the_template_default_style(template: Path, tmp_path: Path) -> None:
+    style = "{073A0DAA-6AF3-43AB-8588-CEC1D06C72B9}"
+    styled = rewrite_part(template, tmp_path / "styled.pptx", "ppt/tableStyles.xml",
+                          lambda xml: re.sub(r'def="\{[^}]+\}"', f'def="{style}"', xml))
+    manifest = parse(styled, tmp_path)
+    table = TableBlock(block_id="tb", header=["Год", "Выручка"], rows=[["2025", "2"]],
+                       **region(manifest, 1, 2))
+    out = PptxWriter(styled, manifest).write(visual_deck(manifest, table),
+                                             tmp_path / "deck.pptx")
+    assert any(f"<a:tableStyleId>{style}</a:tableStyleId>" in xml
+               for xml in slide_xml(out).values())
+
+
+def dark_title_layout(src: Path, dst: Path) -> Path:
+    """Макет, где заголовок светлый по ссылке на тему — как тёмные макеты шаблонов кейса,
+    у которых фон тёмный, а `clrMap` не переопределён."""
+    light = (
+        "<a:lstStyle><a:lvl1pPr><a:defRPr><a:solidFill><a:schemeClr val=\"lt1\"/>"
+        "</a:solidFill></a:defRPr></a:lvl1pPr></a:lstStyle>"
+    )
+    return rewrite_part(src, dst, "ppt/slideLayouts/slideLayout1.xml",
+                        lambda xml: xml.replace("<a:lstStyle/>", light, 1))
+
+
+def test_free_text_inherits_the_layout_text_color(template: Path, tmp_path: Path) -> None:
+    """Цвет роли из типошкалы на тёмном макете дал бы тёмный текст на тёмном фоне."""
+    dark = dark_title_layout(template, tmp_path / "dark.pptx")
+    manifest = parse(dark, tmp_path)
+    assert manifest.layout(layout_of(manifest, LayoutKind.TITLE)) is not None
+    body_pt = next(s.size_pt for s in manifest.typography_scale if s.role is TextRole.BODY)
+    box = region(manifest, 1, 2)
+    deck = visual_deck(
+        manifest,
+        KpiBlock(block_id="k", items=[KpiItem(value="37 %", label="рост")],
+                 **region(manifest, 1, 2)),
+    )
+    note = TextBlock(block_id="n", role=TextRole.BODY, text="Сноска",
+                     **{**box, "y": box["y"] + box["cy"] // 2, "cy": box["cy"] // 2})
+    slide = deck.slides[0]
+    deck = deck.model_copy(update={"slides": [slide.model_copy(update={
+        "blocks": [*slide.blocks, note],
+        "fit_report": {**slide.fit_report, "n": FitResult(final_size_pt=body_pt)},
+    })]})
+    out = PptxWriter(dark, manifest).write(deck, tmp_path / "deck.pptx")
+    shapes = {s.text_frame.text: s for s in Presentation(str(out)).slides[0].shapes
+              if s.has_text_frame and s.shape_type == MSO_SHAPE_TYPE.TEXT_BOX}
+    label_xml = shapes["37 %\nрост"]._element.xml
+    assert label_xml.count('<a:schemeClr val="lt1"/>') == 1, "подпись — цветом текста макета"
+    assert '<a:schemeClr val="accent1"/>' in label_xml, "значение — акцентом"
+    assert '<a:schemeClr val="lt1"/>' in shapes["Сноска"]._element.xml
+
+
+def accent_title_light_body(src: Path, dst: Path) -> Path:
+    """Заголовок акцентный, текст светлый — как на части макетов VK Education."""
+    def style(ref: str) -> str:
+        return (f"<a:lstStyle><a:lvl1pPr><a:defRPr><a:solidFill><a:schemeClr val=\"{ref}\"/>"
+                "</a:solidFill></a:defRPr></a:lvl1pPr></a:lstStyle>")
+
+    def transform(xml: str) -> str:
+        xml = xml.replace("<a:lstStyle/>", style("accent1"), 1)
+        return xml.replace("<a:lstStyle/>", style("lt1"), 1)
+
+    return rewrite_part(src, dst, "ppt/slideLayouts/slideLayout2.xml", transform)
+
+
+def test_free_text_takes_the_body_color_not_the_title_color(
+    template: Path, tmp_path: Path
+) -> None:
+    styled = accent_title_light_body(template, tmp_path / "styled.pptx")
+    manifest = parse(styled, tmp_path)
+    body_pt = next(s.size_pt for s in manifest.typography_scale if s.role is TextRole.BODY)
+    title_pt = next(s.size_pt for s in manifest.typography_scale if s.role is TextRole.TITLE)
+    box = region(manifest, 1, 2)
+    slide = SlideIR(
+        slide_id="s01", layout_id=layout_of(manifest, LayoutKind.BULLETS), variant="A",
+        blocks=[TextBlock(block_id="t", placeholder_idx=0, role=TextRole.TITLE, text="Итоги"),
+                TextBlock(block_id="n", role=TextRole.BODY, text="Сноска", **box)],
+        fit_report={"t": FitResult(final_size_pt=title_pt),
+                    "n": FitResult(final_size_pt=body_pt)},
+    )
+    deck = DeckIR(deck_id="d", variant="A", template_id=manifest.template_id, seed=1,
+                  slides=[slide])
+    out = PptxWriter(styled, manifest).write(deck, tmp_path / "deck.pptx")
+    note = next(s for s in Presentation(str(out)).slides[0].shapes
+                if s.has_text_frame and s.text_frame.text == "Сноска")
+    assert '<a:schemeClr val="lt1"/>' in note._element.xml
+
+
+def test_fitted_table_stays_inside_its_box_as_written(template: Path, tmp_path: Path) -> None:
+    """Вписывание и запись таблицы через настоящие `fit_slide` и шрифты, а не руками."""
+    manifest = parse(template, tmp_path)
+    fonts = theme_fonts(tmp_path, manifest)
+    box = region(manifest, 1, 2)
+    table = TableBlock(block_id="tb", header=["Показатель", "Значение"],
+                       rows=[["очень длинное описание показателя " * 3, "1"], ["б", "2"]],
+                       **box)
+    slide = SlideIR(slide_id="s01", layout_id=layout_of(manifest, LayoutKind.TITLE),
+                    variant="A",
+                    blocks=[TextBlock(block_id="t", placeholder_idx=0, role=TextRole.TITLE,
+                                      text="Итоги"), table])
+    slide = fit_slide(slide, manifest, fonts=fonts)
+    assert not slide.fit_report["tb"].overflow
+    deck = DeckIR(deck_id="d", variant="A", template_id=manifest.template_id, seed=1,
+                  slides=[slide])
+    out = PptxWriter(template, manifest, fonts=fonts).write(deck, tmp_path / "deck.pptx")
+    frame = next(s for s in Presentation(str(out)).slides[0].shapes if s.has_table)
+    heights = [row.height for row in frame.table.rows]
+    assert heights[1] > heights[2]
+    assert sum(heights) <= box["cy"]
+
+
+def test_empty_fallback_does_not_crash_the_writer(template: Path, tmp_path: Path) -> None:
+    """Датасет без категорий: ни таблицы, ни буллетов не построить — ошибка валидации,
+    а не исключение pydantic посреди записи."""
+    manifest = parse(template, tmp_path)
+    content = content_with_image(tmp_path).model_copy(update={"datasets": [Dataset(
+        dataset_id="d001", title="Пусто", categories=[], series=[Series(name="а", values=[])],
+    )]})
+    pie = ChartBlock(block_id="c", chart_type=ChartType.PIE, dataset_ref="d001",
+                     **region(manifest, 1, 2))
+    writer = PptxWriter(template, manifest, fonts=theme_fonts(tmp_path, manifest))
+    with pytest.raises(WriterError, match="категорий"):
+        writer.write(visual_deck(manifest, pie), tmp_path / "deck.pptx", content=content)

@@ -1,4 +1,4 @@
-"""Авто-кегль и стратегия вписывания. Change (12) `layout-fitting`.
+"""Авто-кегль и стратегия вписывания. Changes (12) `layout-fitting`, (14) таблицы и KPI.
 
 Порядок деградации (из METHOD прежнего проекта, переписано без брендовых констант):
 1. как есть → 2. ступень кегля вниз по шкале шаблона → 3. сокращение текста LLM →
@@ -11,13 +11,41 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 from deckforge.domain.base import BBox
+from deckforge.domain.content import ContentPackage, Dataset
 from deckforge.domain.enums import TextRole
 from deckforge.domain.rules import next_size_down
-from deckforge.domain.slide import BulletsBlock, FitResult, SlideIR, TextBlock
+from deckforge.domain.slide import (
+    BulletsBlock,
+    FitResult,
+    KpiBlock,
+    SlideIR,
+    TableBlock,
+    TextBlock,
+)
 from deckforge.domain.template import LayoutSpec, TemplateManifest, TypographyStep
+from deckforge.domain.units import TEXT_FRAME_INSET_Y_EMU
+from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fonts import FontLibrary
-from deckforge.layout.metrics import measure_text, split_paragraphs, usable_height_emu
+from deckforge.layout.metrics import (
+    line_height_emu,
+    measure_text,
+    split_paragraphs,
+    usable_height_emu,
+)
+from deckforge.layout.tabular import table_cells, table_has_header
+
+__all__ = [
+    "LayoutFitError",
+    "fit_block",
+    "fit_kpi",
+    "fit_slide",
+    "fit_table",
+    "fit_text",
+    "table_row_heights",
+]
 
 #: Во сколько раз текст может не влезать, чтобы его ещё имело смысл сокращать, а не делить
 #: слайд. 1,5 — срезать до трети: больше LLM теряет смысл, а не воду. Это политика
@@ -30,8 +58,39 @@ SHORTEN = "shorten"
 SPLIT = "split"
 
 
-class LayoutFitError(ValueError):
-    """IR нельзя вписать: макета или плейсхолдера нет, места под блоки не осталось."""
+def _sizes(manifest: TemplateManifest, start_pt: float, allow_shrink: bool) -> Iterator[float]:
+    """Кегли для перебора: старт, привязанный к шкале шаблона, и ступени вниз."""
+    ladder = manifest.size_ladder_pt
+    size: float | None = start_pt
+    if ladder and start_pt not in ladder:
+        # Кегль вне шкалы шаблона не используется даже как стартовый (ADR-002).
+        size = next_size_down(manifest, start_pt) or min(ladder)
+    while size is not None:
+        yield size
+        size = next_size_down(manifest, size) if allow_shrink else None
+
+
+def _fits(size: float, start_pt: float, lines: int, required: int) -> FitResult:
+    return FitResult(
+        final_size_pt=size,
+        overflow=False,
+        lines=lines,
+        required_cy_emu=required,
+        strategy=AS_IS if size == start_pt else SHRINK,
+    )
+
+
+def _overflow(
+    size: float, lines: int, required: int, available: int, splittable: bool
+) -> FitResult:
+    ratio = required / available if available else float("inf")
+    return FitResult(
+        final_size_pt=size,
+        overflow=True,
+        lines=lines,
+        required_cy_emu=required,
+        strategy=SPLIT if splittable and ratio > SHORTEN_MAX_OVERFLOW else SHORTEN,
+    )
 
 
 def fit_text(
@@ -49,38 +108,17 @@ def fit_text(
 ) -> FitResult:
     """Подбирает кегль по шкале шаблона; не влезло на нижней ступени — назначает стратегию."""
     available = usable_height_emu(box)
-    ladder = manifest.size_ladder_pt
-    size = start_size_pt
-    if ladder and size not in ladder:
-        # Кегль вне шкалы шаблона не используется даже как стартовый (ADR-002).
-        size = next_size_down(manifest, size) or min(ladder)
-    while True:
+    size, lines, required = start_size_pt, 0, 0
+    for size in _sizes(manifest, start_size_pt, allow_shrink):
         m = measure_text(
             text, font_family=font_family, size_pt=size, box=box,
             line_spacing=line_spacing, bold=bold, italic=italic, fonts=fonts,
         )
-        if m.height_emu <= available:
-            return FitResult(
-                final_size_pt=size,
-                overflow=False,
-                lines=m.lines,
-                required_cy_emu=m.height_emu,
-                strategy=AS_IS if size == start_size_pt else SHRINK,
-            )
-        smaller = next_size_down(manifest, size) if allow_shrink else None
-        if smaller is None:
-            break
-        size = smaller
-
-    ratio = m.height_emu / available if available else float("inf")
+        lines, required = m.lines, m.height_emu
+        if required <= available:
+            return _fits(size, start_size_pt, lines, required)
     splittable = allow_shrink and len(split_paragraphs(text)) > 1
-    return FitResult(
-        final_size_pt=size,
-        overflow=True,
-        lines=m.lines,
-        required_cy_emu=m.height_emu,
-        strategy=SPLIT if splittable and ratio > SHORTEN_MAX_OVERFLOW else SHORTEN,
-    )
+    return _overflow(size, lines, required, available, splittable)
 
 
 def _step_for(role: TextRole, manifest: TemplateManifest) -> TypographyStep:
@@ -88,6 +126,110 @@ def _step_for(role: TextRole, manifest: TemplateManifest) -> TypographyStep:
     if step is None:
         raise LayoutFitError(f"в типошкале шаблона нет ни роли {role}, ни основного текста")
     return step
+
+
+def _font_of(step: TypographyStep, manifest: TemplateManifest) -> str:
+    return manifest.theme.fonts.get(step.font_ref) or manifest.theme.fonts.minor_latin
+
+
+def _table_rows(
+    block: TableBlock,
+    box: BBox,
+    manifest: TemplateManifest,
+    size_pt: float,
+    dataset: Dataset | None,
+    fonts: FontLibrary | None,
+) -> list[tuple[int, int]]:
+    """(строк текста, высота в EMU) для каждой строки таблицы при данном кегле."""
+    cells = table_cells(block, dataset)
+    columns = max(len(row) for row in cells)
+    step = _step_for(TextRole.BODY, manifest)
+    font = _font_of(step, manifest)
+    column = BBox(x=box.x, y=box.y, cx=max(1, box.cx // columns), cy=box.cy)
+    header = block.first_row_header and table_has_header(block)
+    out = []
+    for index, row in enumerate(cells):
+        bold = step.bold or (header and index == 0)
+        lines = max(
+            max(1, measure_text(cell, font_family=font, size_pt=size_pt, box=column,
+                                bold=bold, fonts=fonts).lines)
+            for cell in row
+        )
+        out.append((lines, round(lines * line_height_emu(size_pt)) + 2 * TEXT_FRAME_INSET_Y_EMU))
+    return out
+
+
+def table_row_heights(
+    block: TableBlock,
+    box: BBox,
+    manifest: TemplateManifest,
+    size_pt: float,
+    *,
+    dataset: Dataset | None = None,
+    fonts: FontLibrary | None = None,
+) -> list[int]:
+    """Высоты строк, которые писатель обязан поставить таблице.
+
+    Без них python-pptx делит рамку на строки поровну, и строка с переносами вылезает
+    за рамку, хотя сумма высот в неё помещалась.
+    """
+    return [height for _, height in _table_rows(block, box, manifest, size_pt, dataset, fonts)]
+
+
+def fit_table(
+    block: TableBlock,
+    box: BBox,
+    manifest: TemplateManifest,
+    *,
+    dataset: Dataset | None = None,
+    fonts: FontLibrary | None = None,
+) -> FitResult:
+    """Таблица с колонками равной ширины: высота строки — самая высокая ячейка.
+
+    Поля ячейки PowerPoint по умолчанию совпадают с полями текстовой рамки, поэтому ячейка
+    меряется как рамка шириной в колонку. Кегль — от роли `body` вниз по шкале шаблона.
+    """
+    step = _step_for(TextRole.BODY, manifest)
+    rows_count = len(table_cells(block, dataset))
+    size, lines, required = step.size_pt, 0, 0
+    for size in _sizes(manifest, step.size_pt, allow_shrink=True):
+        rows = _table_rows(block, box, manifest, size, dataset, fonts)
+        lines = sum(n for n, _ in rows)
+        required = sum(h for _, h in rows)
+        if required <= box.cy:
+            return _fits(size, step.size_pt, lines, required)
+    return _overflow(size, lines, required, box.cy, splittable=rows_count > 2)
+
+
+def fit_kpi(
+    block: KpiBlock,
+    box: BBox,
+    manifest: TemplateManifest,
+    *,
+    fonts: FontLibrary | None = None,
+) -> FitResult:
+    """Показатели колонками: значение — одной строкой от кегля `subtitle` вниз по шкале,
+    подпись — кеглем `caption`. `final_size_pt` — кегль значения."""
+    value_step = manifest.typography(TextRole.SUBTITLE) or _step_for(TextRole.BODY, manifest)
+    label_step = manifest.typography(TextRole.CAPTION) or _step_for(TextRole.BODY, manifest)
+    column = BBox(x=box.x, y=box.y, cx=max(1, box.cx // len(block.items)), cy=box.cy)
+    available = usable_height_emu(box)
+
+    size, lines, required = value_step.size_pt, 0, 0
+    for size in _sizes(manifest, value_step.size_pt, allow_shrink=True):
+        one_line = True
+        required = lines = 0
+        for item in block.items:
+            value = measure_text(item.value, font_family=_font_of(value_step, manifest),
+                                 size_pt=size, box=column, bold=value_step.bold, fonts=fonts)
+            label = measure_text(item.label, font_family=_font_of(label_step, manifest),
+                                 size_pt=label_step.size_pt, box=column, fonts=fonts)
+            one_line = one_line and value.lines <= 1
+            lines = max(lines, value.lines + label.lines)
+            required = max(required, value.height_emu + label.height_emu)
+        if one_line and required <= available:
+            return _fits(size, value_step.size_pt, lines, required)
+    return _overflow(size, lines, required, available, splittable=False)
 
 
 def _box_for(block: TextBlock | BulletsBlock, layout: LayoutSpec) -> BBox:
@@ -113,14 +255,13 @@ def fit_block(
 ) -> FitResult:
     """Вписывает текстовый блок: кегль и гарнитура — из типошкалы его роли."""
     step = _step_for(block.role, manifest)
-    font = manifest.theme.fonts.get(step.font_ref) or manifest.theme.fonts.minor_latin
     text = block.text if isinstance(block, TextBlock) else "\n".join(i.text for i in block.items)
     return fit_text(
         text,
         box=_box_for(block, layout),
         manifest=manifest,
         start_size_pt=block.size_pt or step.size_pt,
-        font_family=font,
+        font_family=_font_of(step, manifest),
         allow_shrink=block.role is not TextRole.TITLE,
         bold=step.bold,
         italic=step.italic,
@@ -130,15 +271,33 @@ def fit_block(
 
 
 def fit_slide(
-    slide: SlideIR, manifest: TemplateManifest, *, fonts: FontLibrary | None = None
+    slide: SlideIR,
+    manifest: TemplateManifest,
+    *,
+    fonts: FontLibrary | None = None,
+    content: ContentPackage | None = None,
 ) -> SlideIR:
-    """Возвращает слайд с заполненным `fit_report` по всем текстовым блокам."""
+    """Возвращает слайд с заполненным `fit_report` по текстовым блокам, таблицам и KPI."""
     layout = manifest.layout(slide.layout_id)
     if layout is None:
         raise LayoutFitError(f"слайд {slide.slide_id}: макета {slide.layout_id} нет в манифесте")
-    report = {
-        block.block_id: fit_block(block, layout, manifest, fonts=fonts)
-        for block in slide.blocks
-        if isinstance(block, TextBlock | BulletsBlock)
-    }
+    report: dict[str, FitResult] = {}
+    for block in slide.blocks:
+        if isinstance(block, TextBlock | BulletsBlock):
+            report[block.block_id] = fit_block(block, layout, manifest, fonts=fonts)
+        elif isinstance(block, TableBlock | KpiBlock):
+            box = block.bbox
+            if box is None:
+                raise LayoutFitError(f"блок {block.block_id}: {block.type} требует координат")
+            if isinstance(block, TableBlock):
+                dataset = (
+                    content.dataset(block.dataset_ref)
+                    if content is not None and block.dataset_ref
+                    else None
+                )
+                report[block.block_id] = fit_table(
+                    block, box, manifest, dataset=dataset, fonts=fonts
+                )
+            else:
+                report[block.block_id] = fit_kpi(block, box, manifest, fonts=fonts)
     return slide.model_copy(update={"fit_report": report})

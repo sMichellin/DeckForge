@@ -16,7 +16,7 @@ from kiwisolver import Solver, UnsatisfiableConstraint, Variable
 
 from deckforge.domain.base import BBox
 from deckforge.domain.template import TemplateManifest
-from deckforge.layout.fitting import LayoutFitError
+from deckforge.layout.errors import LayoutFitError
 
 
 def _free_rect(content: BBox, fixed: list[BBox]) -> BBox | None:
