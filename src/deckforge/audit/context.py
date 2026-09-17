@@ -30,6 +30,11 @@ class AuditContext:
     content: ContentPackage | None = None
     previews: dict[str, bytes] = field(default_factory=dict)
     deck_path: Path | None = None
+
+    #: Клиент VLM для контекстуальных проверок (change 18). Протокол, а не конкретный
+    #: класс: судья тестируется подделкой, без поднятого инференса.
+    vlm: Any | None = None
+
     params: dict[str, Any] = field(default_factory=dict)
 
     def with_params(self, params: dict[str, Any]) -> AuditContext:

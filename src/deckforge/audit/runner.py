@@ -47,6 +47,7 @@ class AuditRunner:
         content: ContentPackage,
         previews: dict[str, bytes] | None = None,
         deck_path: Path | None = None,
+        vlm: object | None = None,
     ) -> AuditReport:
         started = time.perf_counter()
         specs = {spec.check_id: spec for spec in load_check_specs().checks}
@@ -56,13 +57,16 @@ class AuditRunner:
             content=content,
             previews=previews or {},
             deck_path=deck_path,
+            vlm=vlm,
         )
 
         findings: list[Finding] = []
         skipped: list[str] = []
         passed = 0
 
-        for registered in REGISTRY.deterministic():
+        # Порядок из ADR-004: сначала детерминированные — они дёшевы и чинятся
+        # автоматически, потом VLM — дорогие и чинятся через человека.
+        for registered in [*REGISTRY.deterministic(), *REGISTRY.semantic()]:
             spec = specs.get(registered.check_id)
             if not self._is_enabled(registered, spec):
                 skipped.append(registered.check_id)

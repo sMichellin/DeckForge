@@ -198,6 +198,7 @@ def context_for(
     content: ContentPackage | None = None,
     deck_path: Path | None = None,
     previews: dict[str, bytes] | None = None,
+    vlm: object | None = None,
     **overrides: float | int | str | bool,
 ) -> AuditContext:
     """Контекст с порогами **из `configs/audit_checks.yaml`**, а не придуманными в тесте.
@@ -216,6 +217,7 @@ def context_for(
         content=content,
         previews=previews or {},
         deck_path=deck_path,
+        vlm=vlm,
         params=params,
     )
 

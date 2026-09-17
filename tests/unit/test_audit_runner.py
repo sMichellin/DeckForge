@@ -89,13 +89,16 @@ async def test_clean_deck_produces_no_errors(manifest: TemplateManifest) -> None
     assert report.of_severity(Severity.ERROR) == []
 
 
-def test_all_deterministic_checks_are_implemented_in_this_change() -> None:
-    """Двадцать пять детерминированных проверок — область change (15).
+def test_deterministic_checks_cover_three_content_questions() -> None:
+    """Двадцать семь детерминированных проверок: 24 в `deterministic/` и три из `semantic/`.
 
-    Двадцать четыре живут в `audit/deterministic/`, двадцать пятая — `content.no_typos`
-    в `semantic/spelling.py`: папка отвечает на вопрос «про смысл ли проверка»,
-    а флаг `deterministic` — «одинаков ли результат на повторных запусках».
+    Папка отвечает на вопрос «про смысл ли проверка», а флаг `deterministic` —
+    «одинаков ли результат на повторных запусках». Три вопроса Приложения 1 уведены
+    из модели в код (change 18): опечатки — LanguageTool, числа — сверка с контент-пакетом,
+    язык — подсчёт букв. Каждый уведённый вопрос экономит 12 вызовов VLM на колоду.
     """
-    deterministic = REGISTRY.deterministic()
-    assert len(deterministic) == 25
-    assert "content.no_typos" in {c.check_id for c in deterministic}
+    deterministic = {c.check_id for c in REGISTRY.deterministic()}
+    assert len(deterministic) == 27
+    assert {"content.no_typos", "content.numbers_grounded", "content.single_language"} <= (
+        deterministic
+    )

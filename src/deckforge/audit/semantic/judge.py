@@ -1,21 +1,36 @@
-"""Одиннадцать вопросов Приложения 1 ТЗ как отдельные `content.*` проверки.
+"""Вопросы Приложения 1 ТЗ, на которые отвечает модель. Change (18) `audit-semantic`.
 
-Change (18) `audit-semantic`. Формат ответа строго `{"verdict": "yes"|"no", "reason": "…"}`
-через constrained decoding; снижение дисперсии — 3 прогона с разными seed и мажоритарное
-голосование (ARCHITECTURE.md §5.2).
+Формат ответа строго `{"verdict": "yes"|"no", "reason": "…"}` через constrained decoding.
 
-Из одиннадцати вопросов два здесь не живут:
-* «все цифры есть в исходных материалах» — `semantic/grounding.py`, там сверка детерминированная;
-* «текст без опечаток» — `semantic/spelling.py`, это LanguageTool, а не модель.
+Из одиннадцати вопросов ТЗ здесь живут восемь. Три уведены из модели, и каждый раз
+по одной причине — **модель не может знать ответ лучше кода**:
+
+* «все цифры есть в исходных материалах» → `semantic/grounding.py`: исходных материалов
+  модель не видит и может лишь согласиться с тем, что написано на слайде;
+* «текст без опечаток» → `semantic/spelling.py`: LanguageTool, опечатка либо есть, либо нет;
+* «вся колода на одном языке» → эта же проверка ниже, но без модели: язык определяется
+  по тексту, а не по картинке.
+
+Каждый уведённый вопрос — минус 12 вызовов VLM на колоду из 12 слайдов, при трёх
+прогонах минус 36. Замер бюджета в `docs/agents/kickoff-c-15.md`.
+
+**Голосование тратится на обвинения, а не на каждый вопрос.** Вердикт «yes» значит
+«претензий нет» и находки не порождает: цена ошибки здесь — пропущенная мелочь.
+Вердикт «no» порождает находку, которую увидит человек, поэтому он и переспрашивается
+тремя прогонами с разными seed. Так стоимость падает втрое там, где колода в порядке.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 
-from deckforge.audit.registry import CheckContext, check
+from deckforge.audit.findings import make_finding
+from deckforge.audit.geometry import slide_text
+from deckforge.audit.registry import CheckContext, CheckUnavailable, check
 from deckforge.domain.audit import Finding
 from deckforge.domain.enums import AutoFix, Severity
+from deckforge.registry import get_prompt_registry
 
 QUESTIONS: dict[str, str] = {
     "content.headline_is_conclusion": "Заголовок содержит вывод, а не просто называет тему?",
@@ -24,7 +39,6 @@ QUESTIONS: dict[str, str] = {
     "content.has_substance": "На слайде есть содержание, а не только заголовок?",
     "content.visuals_on_topic": "Картинки и иконки относятся к теме слайда?",
     "content.no_prompt_leftovers": "Нет служебного мусора: реплик спикера, кусков промпта?",
-    "content.single_language": "Вся колода на одном языке?",
     "content.table_rows_meaningful": "Все строки таблицы и элементы легенды работают на мысль?",
     "content.neighbours_connected": "Соседние слайды связаны между собой по логике?",
 }
@@ -38,13 +52,99 @@ _SEVERITY: dict[str, Severity] = {
     "content.has_substance": Severity.WARNING,
     "content.visuals_on_topic": Severity.WARNING,
     "content.no_prompt_leftovers": Severity.ERROR,
-    "content.single_language": Severity.WARNING,
     "content.table_rows_meaningful": Severity.INFO,
     "content.neighbours_connected": Severity.INFO,
 }
 _AUTO_FIX: dict[str, AutoFix] = {
     "content.headline_is_conclusion": AutoFix.REGENERATE_HEADLINE,
 }
+
+#: Вопрос про пару слайдов, а не про один: спрашивается по второму слайду пары,
+#: первый уходит в контекст текстом.
+_PAIRWISE = "content.neighbours_connected"
+
+
+@dataclass(frozen=True, slots=True)
+class Verdict:
+    """Ответ судьи после голосования."""
+
+    ok: bool
+    confidence: float
+    reason: str
+    votes: int
+
+    @property
+    def is_finding(self) -> bool:
+        return not self.ok
+
+
+def ask(
+    vlm: object,
+    *,
+    check_id: str,
+    question: str,
+    image_png: bytes,
+    language: str = "ru",
+    context: str = "",
+    votes: int = 3,
+) -> Verdict | None:
+    """Вердикт модели по одному вопросу. `None` — модель не дала ни одного годного ответа.
+
+    Первый прогон делается всегда. Если он говорит «претензий нет», на этом и
+    останавливаемся: переспрашивать согласие втрое дороже и ничего не меняет — находки
+    всё равно не будет. Обвинение переспрашивается: находку увидит человек, и ложная
+    стоит дороже пропущенной.
+
+    Ответ вне перечня `yes`/`no` голосом **не считается** — приём из change (5). Иначе
+    сбой разбора ответа превращался бы в уверенный вердикт.
+    """
+    bundle = get_prompt_registry().load("audit_judge")
+    system, user = bundle.render(
+        check_id=check_id, question=question, language=language, context=context
+    )
+
+    collected: list[tuple[str, str]] = []
+    for seed in range(max(1, votes)):
+        try:
+            data = vlm.ask_image(  # type: ignore[attr-defined]
+                system=system,
+                user=user,
+                image_png=image_png,
+                schema=bundle.response_schema,
+                seed=seed,
+            )
+        except Exception:
+            break
+
+        verdict = str(data.get("verdict", "")).strip().lower()
+        if verdict not in ("yes", "no"):
+            continue
+        collected.append((verdict, str(data.get("reason", "")).strip()))
+        if seed == 0 and verdict == "yes":
+            break
+
+    if not collected:
+        return None
+
+    no_votes = [reason for verdict, reason in collected if verdict == "no"]
+    ok = len(no_votes) * 2 <= len(collected)
+    agreeing = len(collected) - len(no_votes) if ok else len(no_votes)
+    reason = "" if ok else (no_votes[0] if no_votes else "")
+    return Verdict(
+        ok=ok,
+        confidence=agreeing / len(collected),
+        reason=reason,
+        votes=len(collected),
+    )
+
+
+def _previews_for(ctx: CheckContext) -> dict[str, bytes]:
+    previews = ctx.previews
+    if not previews:
+        raise CheckUnavailable("превью слайдов нет: судье нечего показать")
+    if ctx.vlm is None:
+        raise CheckUnavailable("VLM-клиент не передан: спросить некого")
+    return previews
 
 
 def _make_check(check_id: str, question: str) -> None:
@@ -59,17 +159,115 @@ def _make_check(check_id: str, question: str) -> None:
         title=question,
     )
     def _check(ctx: CheckContext) -> Iterable[Finding]:
-        raise NotImplementedError("change (18) audit-semantic")
+        previews = _previews_for(ctx)
+        vlm = ctx.vlm
+        votes = int(ctx.param("vlm_votes", 3))
+        threshold = ctx.param("vlm_confidence_threshold", 0.6)
+        language = getattr(ctx.deck, "language", None) or "ru"
+        slides = list(ctx.deck.slides)
+
+        for index, slide in enumerate(slides):
+            image = previews.get(slide.slide_id)
+            if image is None:
+                continue
+
+            context_text = ""
+            if check_id == _PAIRWISE:
+                if index == 0:
+                    continue  # первому слайду не с чем соседствовать
+                context_text = f"Предыдущий слайд: {slide_text(slides[index - 1])[:600]}"
+
+            verdict = ask(
+                vlm,
+                check_id=check_id,
+                question=question,
+                image_png=image,
+                language=language,
+                context=context_text,
+                votes=votes,
+            )
+            # Модель промолчала или не уверена — это не «всё хорошо».
+            # Такой слайд просто остаётся без вердикта, и находки по нему нет.
+            if verdict is None or verdict.ok or verdict.confidence < threshold:
+                continue
+
+            yield make_finding(
+                check_id=check_id,
+                slide_id=slide.slide_id,
+                reason=f"verdict:{check_id}",
+                message=f"{question} — нет. {verdict.reason}".strip(),
+                evidence={
+                    "confidence": f"{verdict.confidence:.2f}",
+                    "votes": str(verdict.votes),
+                    "question": question,
+                },
+            )
 
 
 for _check_id, _question in QUESTIONS.items():
     _make_check(_check_id, _question)
 
 
-async def ask(check_id: str, preview_png: bytes, votes: int = 3) -> tuple[bool, float, str]:
-    """Мажоритарное голосование по `votes` прогонам с разными seed.
+#: Доля букв одной письменности, начиная с которой слайд считается набранным на ней.
+#: Простое большинство не годится: «Переходим на Kubernetes и PostgreSQL» — русская
+#: фраза, в которой латинских букв больше, чем кириллических.
+_SCRIPT_SHARE = 0.7
 
-    Возвращает (вердикт, уверенность, причина). Уверенность ниже порога из конфига
-    означает, что проверка промолчала, а не что слайд хорош.
+
+def dominant_script(text: str, share: float = _SCRIPT_SHARE) -> str | None:
+    """Письменность текста: `cyrillic`, `latin` или `None`, если ясного перевеса нет.
+
+    `None` возвращается и когда букв нет вовсе, и когда ни одна письменность не набрала
+    нужной доли: смесь — это ещё не смена языка, а термины и названия продуктов.
     """
-    raise NotImplementedError("change (18) audit-semantic")
+    cyrillic = sum(1 for ch in text if "Ѐ" <= ch <= "ӿ")
+    latin = sum(1 for ch in text if "a" <= ch.lower() <= "z")
+    total = cyrillic + latin
+    if total == 0:
+        return None
+    if cyrillic / total >= share:
+        return "cyrillic"
+    if latin / total >= share:
+        return "latin"
+    return None
+
+
+@check(id="content.single_language", deterministic=True, severity=Severity.WARNING,
+       title="Вся колода на одном языке")
+def single_language(ctx: CheckContext) -> Iterable[Finding]:
+    """Вся колода на одном языке.
+
+    Без модели: язык виден по тексту, а не по картинке, и спрашивать об этом VLM —
+    двенадцать вызовов ради того, что считается сравнением двух счётчиков.
+
+    Судим по преобладающей письменности слайда, а не по отдельным словам: названия
+    продуктов, единицы и термины латиницей — норма для русской колоды, а не смена языка.
+    """
+    scripts: dict[str, str] = {}
+    for slide in ctx.deck.slides:
+        script = dominant_script(slide_text(slide))
+        if script is not None:
+            scripts[slide.slide_id] = script
+
+    if len(set(scripts.values())) < 2:
+        return
+
+    # Большинство задаёт язык колоды, меньшинство — нарушители.
+    counts: dict[str, int] = {}
+    for script in scripts.values():
+        counts[script] = counts.get(script, 0) + 1
+    main = max(counts, key=lambda key: counts[key])
+
+    for slide_id, script in scripts.items():
+        if script == main:
+            continue
+        yield make_finding(
+            check_id="content.single_language",
+            slide_id=slide_id,
+            reason=f"script:{script}",
+            message=(
+                f"Слайд набран другой письменностью ({script}), чем остальная колода ({main}): "
+                "колода должна быть на одном языке"
+            ),
+            evidence={"script": script, "deck_script": main},
+        )
