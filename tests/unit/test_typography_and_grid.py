@@ -5,7 +5,14 @@ from __future__ import annotations
 import pytest
 
 from deckforge.domain.enums import ColorRef, FontRef, LayoutKind, TextRole
-from deckforge.domain.template import LayoutCapacity, LayoutSpec, PlaceholderSpec, SlideSize, Theme
+from deckforge.domain.template import (
+    LayoutCapacity,
+    LayoutSpec,
+    Margins,
+    PlaceholderSpec,
+    SlideSize,
+    Theme,
+)
 from deckforge.parsing.grid import cluster_positions, extract_guides, infer_grid, infer_margins
 from deckforge.parsing.ooxml.theme import parse_theme
 from deckforge.parsing.typography import TypographyObservation, derive_scale
@@ -119,14 +126,18 @@ def test_no_view_props_means_guides_must_be_inferred() -> None:
     assert extract_guides(empty) is None
 
 
-def layout(*boxes: tuple[int, int, int, int], role: TextRole | None = TextRole.BODY) -> LayoutSpec:
+def layout(
+    *boxes: tuple[int, int, int, int],
+    role: TextRole | None = TextRole.BODY,
+    kind: LayoutKind = LayoutKind.BULLETS,
+) -> LayoutSpec:
     return LayoutSpec(
         layout_id="L00",
         name="проба",
         master="M01",
         part_name="ppt/slideLayouts/slideLayout1.xml",
         index=0,
-        kind=LayoutKind.BULLETS,
+        kind=kind,
         kind_confidence=0.8,
         kind_source="heuristic",
         capacity=LayoutCapacity(max_bullets=0, max_chars_body=0, max_chars_title=0),
@@ -152,6 +163,44 @@ def test_full_bleed_placeholders_do_not_zero_out_margins() -> None:
 def test_margins_fall_back_when_every_placeholder_is_full_bleed() -> None:
     margins = infer_margins([layout((0, 0, SLIDE.cx_emu, SLIDE.cy_emu))], SLIDE)
     assert margins.left == 0
+
+
+# --- поля, когда в шаблоне нет ни одного макета с телом контента -----------
+
+
+def test_margins_fall_back_when_no_layout_has_a_body_kind() -> None:
+    """Шаблон из одних обложек и разделителей: единственный источник геометрии
+    декоративный, и разные оси по-разному "врут" на нём (см. docstring
+    `infer_margins`). Правильный ответ здесь — обычные поля, а не подсчёт
+    по декоративным макетам."""
+    layouts = [
+        layout((429_253, 424_691, 7_827_311, 1_167_572), kind=LayoutKind.TITLE),
+        layout((429_253, 2_546_255, 7_827_335, 1_876_890), kind=LayoutKind.IMAGE_FULL),
+        layout((429_254, 1_609_196, 4_803_146, 1_876_890), kind=LayoutKind.SECTION),
+    ]
+    margins = infer_margins(layouts, SLIDE)
+
+    assert margins.left == margins.right, "запасные поля симметричны по X"
+    assert margins.top == margins.bottom, "запасные поля симметричны по Y"
+    # Геометрия декоративных макетов эту оценку не участвует вовсе.
+    assert margins.top not in (424_691, 2_546_255, 1_609_196)
+
+
+def test_a_single_body_layout_is_enough_to_use_real_geometry() -> None:
+    """Одного макета с телом контента достаточно, чтобы не уходить в запасной вариант:
+    поля по-прежнему считаются по геометрии плейсхолдеров, а не по доле слайда."""
+    layouts = [
+        layout((600_000, 400_000, 8_000_000, 3_000_000), kind=LayoutKind.BULLETS),
+        layout((429_253, 2_546_255, 7_827_335, 1_876_890), kind=LayoutKind.IMAGE_FULL),
+    ]
+    fallback = infer_margins(
+        [layout((0, 0, 1, 1), kind=LayoutKind.TITLE)], SLIDE
+    )  # для сравнения: чем должен НЕ стать результат
+    margins = infer_margins(layouts, SLIDE)
+    assert margins.top == 400_000, "минимум по Y берётся из плейсхолдеров, а не из доли слайда"
+    assert margins != Margins(
+        left=fallback.left, right=fallback.left, top=fallback.top, bottom=fallback.top
+    )
 
 
 def test_grid_prefers_explicit_guides_and_records_the_source() -> None:

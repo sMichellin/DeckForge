@@ -11,6 +11,7 @@ from itertools import pairwise
 
 from lxml import etree
 
+from deckforge.domain.enums import LayoutKind
 from deckforge.domain.template import Grid, LayoutSpec, Margins, PlaceholderSpec, SlideSize
 from deckforge.domain.units import EMU_PER_GUIDE_UNIT
 
@@ -24,6 +25,18 @@ _MIN_SUPPORT = 2
 
 #: Доля слайда, начиная с которой плейсхолдер считается сделанным «в край».
 _FULL_BLEED_SHARE = 0.95
+
+#: Виды макетов, чья геометрия годится в основание сетки: у них плейсхолдер
+#: действительно несёт тело контента, а не декоративный заголовок обложки/раздела.
+_BODY_KINDS = frozenset({
+    LayoutKind.BULLETS, LayoutKind.TWO_COLUMN, LayoutKind.CHART,
+    LayoutKind.TABLE, LayoutKind.KPI, LayoutKind.CUSTOM,
+})
+
+#: Запасные поля, когда в шаблоне вообще нет макета с телом контента (§ниже).
+#: Ориентир — обычные поля презентации, не подогнанные под конкретный шаблон.
+_FALLBACK_MARGIN_SHARE_X = 0.07
+_FALLBACK_MARGIN_SHARE_Y = 0.10
 
 
 def extract_guides(view_props_xml: bytes | None) -> tuple[list[int], list[int]] | None:
@@ -82,7 +95,28 @@ def infer_margins(layouts: list[LayoutSpec], slide_size: SlideSize) -> Margins:
     Из расчёта исключены плейсхолдеры «в край»: макет с полноэкранной картинкой или
     цветной плашкой — это осознанный приём шаблона, а не отмена полей для текста.
     Без этого исключения поля почти любого реального шаблона схлопываются в ноль.
+
+    Если в шаблоне нет ни одного макета с телом контента (`_BODY_KINDS`) — только
+    обложки и разделители, — эта же логика ломается иначе: единственный источник
+    геометрии тогда декоративный, а декоративные макеты по двум осям выбивают
+    отступы в разные стороны. На шаблоне из одних title-only макетов вертикально
+    центрированная обложка утягивает нижнее поле почти на треть высоты слайда, а
+    исключение этого макета из выборки делает поле уже противоположно неверным —
+    вместо чрезмерно щедрого получается втрое теснее, чем нужно (проверено на VK
+    WorkSpace: 15 из 15 макетов — обложки/заголовки/разделители без тела). Разные
+    оси при этом ломаются в противоположные стороны, поэтому подрезка одного
+    выброса не работает: это не шум одной оси, а отсутствие сигнала как такового.
+    В этом случае — и только в нём — берутся обычные поля презентации, не
+    подогнанные под конкретный шаблон, а не геометрия декоративных макетов.
     """
+    if layouts and not any(layout.kind in _BODY_KINDS for layout in layouts):
+        return Margins(
+            left=round(slide_size.cx_emu * _FALLBACK_MARGIN_SHARE_X),
+            right=round(slide_size.cx_emu * _FALLBACK_MARGIN_SHARE_X),
+            top=round(slide_size.cy_emu * _FALLBACK_MARGIN_SHARE_Y),
+            bottom=round(slide_size.cy_emu * _FALLBACK_MARGIN_SHARE_Y),
+        )
+
     boxes = [
         ph.bbox
         for layout in layouts
