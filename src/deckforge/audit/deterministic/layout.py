@@ -2,15 +2,35 @@
 
 out_of_bounds, overlap, text_overflow, text_clipped, off_guides, margin_violation,
 image_aspect_distorted.
+
+Все семь — чистые функции над `SlideIR` и манифестом: на одном и том же слайде
+результат всегда один. Пороги приходят из `configs/audit_checks.yaml` через `ctx.params`.
+
+Блок, у которого рамку определить не удалось, проверки пропускают: отсутствие сведений
+о геометрии — не то же самое, что блок в нулевых координатах (см. `audit/geometry.py`).
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 
-from deckforge.audit.registry import CheckContext, check
+from deckforge.audit.findings import make_finding
+from deckforge.audit.geometry import (
+    FULL_BLEED_SHARE,
+    block_bbox,
+    block_text,
+    carries_text,
+    covers,
+    layout_of,
+    positioned_blocks,
+)
+from deckforge.audit.registry import CheckContext, CheckUnavailable, check
 from deckforge.domain.audit import Finding
-from deckforge.domain.enums import AutoFix, Severity
+from deckforge.domain.base import BBox
+from deckforge.domain.enums import AutoFix, Severity, TextRole
+from deckforge.domain.slide import BulletsBlock, TextBlock
+from deckforge.domain.template import ShapeKind
+from deckforge.domain.units import emu_to_cm
 
 
 @check(
@@ -20,7 +40,25 @@ from deckforge.domain.enums import AutoFix, Severity
     title="Элемент вышел за границы слайда",
 )
 def out_of_bounds(ctx: CheckContext) -> Iterable[Finding]:
-    raise NotImplementedError("change (15) audit-deterministic")
+    """Элемент вышел за границы слайда."""
+    slide_box = ctx.manifest.slide_size.bbox
+    for slide in ctx.deck.slides:
+        for block, bbox in positioned_blocks(slide, ctx.manifest):
+            if slide_box.contains(bbox):
+                continue
+            yield make_finding(
+                check_id="layout.out_of_bounds",
+                slide_id=slide.slide_id,
+                block_id=block.block_id,
+                bbox=bbox,
+                reason="outside",
+                message=(
+                    f"Блок {block.block_id} выходит за границы слайда: "
+                    f"правый край {emu_to_cm(bbox.right):.1f} см, "
+                    f"нижний {emu_to_cm(bbox.bottom):.1f} см при холсте "
+                    f"{emu_to_cm(slide_box.cx):.1f}×{emu_to_cm(slide_box.cy):.1f} см"
+                ),
+            )
 
 
 @check(
@@ -30,7 +68,71 @@ def out_of_bounds(ctx: CheckContext) -> Iterable[Finding]:
     title="Два блока наложились друг на друга",
 )
 def overlap(ctx: CheckContext) -> Iterable[Finding]:
-    raise NotImplementedError("change (15) audit-deterministic")
+    """Два блока наложились друг на друга."""
+    threshold = ctx.param("min_overlap_ratio", 0.05)
+    slide_box = ctx.manifest.slide_size.bbox
+    for slide in ctx.deck.slides:
+        placed = positioned_blocks(slide, ctx.manifest)
+        layout = layout_of(slide, ctx.manifest)
+
+        # Фигуры макета, несущие содержание: плашка с текстом, врезанная диаграмма,
+        # таблица. Блок, легший поверх такой фигуры, перекрывает чужое содержание —
+        # это то же наложение, только второй участник приехал из шаблона, а не из плана.
+        # Картинки и декоративные фигуры сюда не входят: ими занимается template.decor_moved.
+        occupied = [
+            shape
+            for shape in (layout.shapes if layout is not None else [])
+            if shape.kind in (ShapeKind.TEXT, ShapeKind.CHART, ShapeKind.TABLE)
+            and not covers(shape.bbox, slide_box, FULL_BLEED_SHARE)
+        ]
+        for block, bbox in placed:
+            if covers(bbox, slide_box, FULL_BLEED_SHARE):
+                continue
+            for shape in occupied:
+                smaller = min(bbox.area, shape.bbox.area)
+                if smaller <= 0:
+                    continue
+                ratio = bbox.intersection_area(shape.bbox) / smaller
+                if ratio < threshold:
+                    continue
+                yield make_finding(
+                    check_id="layout.overlap",
+                    slide_id=slide.slide_id,
+                    block_id=block.block_id,
+                    bbox=bbox,
+                    reason=f"shape:{shape.shape_id}",
+                    message=(
+                        f"Блок {block.block_id} лёг поверх фигуры макета "
+                        f"{shape.shape_id} на {ratio:.0%} её площади"
+                    ),
+                    evidence={"shape_id": shape.shape_id, "ratio": f"{ratio:.3f}"},
+                )
+
+        for index, (block, bbox) in enumerate(placed):
+            for other, other_bbox in placed[index + 1 :]:
+                # Подложка во весь слайд лежит под контентом по замыслу, а не по ошибке.
+                if covers(bbox, slide_box, FULL_BLEED_SHARE) or covers(
+                    other_bbox, slide_box, FULL_BLEED_SHARE
+                ):
+                    continue
+                smaller = min(bbox.area, other_bbox.area)
+                if smaller <= 0:
+                    continue
+                ratio = bbox.intersection_area(other_bbox) / smaller
+                if ratio < threshold:
+                    continue
+                yield make_finding(
+                    check_id="layout.overlap",
+                    slide_id=slide.slide_id,
+                    block_id=block.block_id,
+                    bbox=bbox,
+                    reason=f"overlap:{other.block_id}",
+                    message=(
+                        f"Блоки {block.block_id} и {other.block_id} перекрываются "
+                        f"на {ratio:.0%} площади меньшего"
+                    ),
+                    evidence={"other_block_id": other.block_id, "ratio": f"{ratio:.3f}"},
+                )
 
 
 @check(
@@ -41,7 +143,53 @@ def overlap(ctx: CheckContext) -> Iterable[Finding]:
     title="Текст не помещается в свою рамку",
 )
 def text_overflow(ctx: CheckContext) -> Iterable[Finding]:
-    raise NotImplementedError("change (15) audit-deterministic")
+    """Текст не помещается в свою рамку."""
+    for slide in ctx.deck.slides:
+        layout = layout_of(slide, ctx.manifest)
+        for block in slide.blocks:
+            if not isinstance(block, TextBlock | BulletsBlock):
+                continue
+
+            # Если вёрстка уже померила блок (change 12), верим измерению, а не оценке.
+            measured = slide.fit_report.get(block.block_id)
+            if measured is not None:
+                if measured.overflow:
+                    yield make_finding(
+                        check_id="layout.text_overflow",
+                        slide_id=slide.slide_id,
+                        block_id=block.block_id,
+                        bbox=block_bbox(block, layout),
+                        reason="measured",
+                        message=(
+                            f"Текст блока {block.block_id} не помещается в рамку "
+                            f"на кегле {measured.final_size_pt:g} pt"
+                        ),
+                        evidence={"source": "fit_report"},
+                    )
+                continue
+
+            if layout is None:
+                continue
+            limit = (
+                layout.capacity.max_chars_title
+                if block.role is TextRole.TITLE
+                else layout.capacity.max_chars_body
+            )
+            length = len(block_text(block))
+            if limit <= 0 or length <= limit:
+                continue
+            yield make_finding(
+                check_id="layout.text_overflow",
+                slide_id=slide.slide_id,
+                block_id=block.block_id,
+                bbox=block_bbox(block, layout),
+                reason="capacity",
+                message=(
+                    f"Текст блока {block.block_id}: {length} знаков при вместимости "
+                    f"макета {limit}"
+                ),
+                evidence={"source": "capacity", "chars": str(length), "limit": str(limit)},
+            )
 
 
 @check(
@@ -51,7 +199,24 @@ def text_overflow(ctx: CheckContext) -> Iterable[Finding]:
     title="Текст обрезан краем слайда",
 )
 def text_clipped(ctx: CheckContext) -> Iterable[Finding]:
-    raise NotImplementedError("change (15) audit-deterministic")
+    """Текст обрезан краем слайда."""
+    slide_box = ctx.manifest.slide_size.bbox
+    for slide in ctx.deck.slides:
+        for block, bbox in positioned_blocks(slide, ctx.manifest):
+            if not carries_text(block):
+                continue
+            # Обрезка — это когда часть блока на слайде, а часть за краем.
+            # Блок целиком снаружи ловит `layout.out_of_bounds`.
+            if slide_box.contains(bbox) or slide_box.intersection_area(bbox) == 0:
+                continue
+            yield make_finding(
+                check_id="layout.text_clipped",
+                slide_id=slide.slide_id,
+                block_id=block.block_id,
+                bbox=bbox,
+                reason="clipped",
+                message=f"Текст блока {block.block_id} обрезан краем слайда",
+            )
 
 
 @check(
@@ -62,7 +227,37 @@ def text_clipped(ctx: CheckContext) -> Iterable[Finding]:
     title="Блоки не выровнены по направляющим макета",
 )
 def off_guides(ctx: CheckContext) -> Iterable[Finding]:
-    raise NotImplementedError("change (15) audit-deterministic")
+    """Блоки не выровнены по направляющим макета."""
+    grid = ctx.manifest.grid
+    tolerance = int(ctx.param("tolerance_emu", 0))
+    if tolerance <= 0 or not (grid.guides_x_emu or grid.guides_y_emu):
+        # Направляющих у шаблона нет — сравнивать не с чем, и выдумывать их нельзя.
+        raise CheckUnavailable("в манифесте нет направляющих: выравнивать не по чему")
+
+    for slide in ctx.deck.slides:
+        for block, bbox in positioned_blocks(slide, ctx.manifest):
+            for axis, value, guides in (
+                ("x", bbox.x, grid.guides_x_emu),
+                ("y", bbox.y, grid.guides_y_emu),
+            ):
+                if not guides:
+                    continue
+                distance = min(abs(guide - value) for guide in guides)
+                # Ноль — блок стоит на направляющей. Больше допуска — стоит намеренно
+                # в стороне. Нарушение ровно между: промах руки, а не замысел.
+                if 0 < distance <= tolerance:
+                    yield make_finding(
+                        check_id="layout.off_guides",
+                        slide_id=slide.slide_id,
+                        block_id=block.block_id,
+                        bbox=bbox,
+                        reason=f"off:{axis}",
+                        message=(
+                            f"Блок {block.block_id} не дотянут до направляющей по {axis} "
+                            f"на {emu_to_cm(distance):.2f} см"
+                        ),
+                        evidence={"axis": axis, "distance_emu": str(distance)},
+                    )
 
 
 @check(
@@ -72,7 +267,28 @@ def off_guides(ctx: CheckContext) -> Iterable[Finding]:
     title="Контент заходит в поля у краёв",
 )
 def margin_violation(ctx: CheckContext) -> Iterable[Finding]:
-    raise NotImplementedError("change (15) audit-deterministic")
+    """Контент заходит в поля у краёв."""
+    content_box = ctx.manifest.content_bbox
+    slide_box = ctx.manifest.slide_size.bbox
+    for slide in ctx.deck.slides:
+        for block, bbox in positioned_blocks(slide, ctx.manifest):
+            # Полноэкранная плашка или картинка в край — приём шаблона (см. `covers`).
+            if covers(bbox, slide_box, FULL_BLEED_SHARE):
+                continue
+            if content_box.contains(bbox):
+                continue
+            yield make_finding(
+                check_id="layout.margin_violation",
+                slide_id=slide.slide_id,
+                block_id=block.block_id,
+                bbox=bbox,
+                reason="margin",
+                message=(
+                    f"Блок {block.block_id} заходит в поля: контентная область "
+                    f"{emu_to_cm(content_box.x):.1f}–{emu_to_cm(content_box.right):.1f} см "
+                    f"по горизонтали"
+                ),
+            )
 
 
 @check(
@@ -82,4 +298,60 @@ def margin_violation(ctx: CheckContext) -> Iterable[Finding]:
     title="Картинка растянута, пропорции нарушены",
 )
 def image_aspect_distorted(ctx: CheckContext) -> Iterable[Finding]:
-    raise NotImplementedError("change (15) audit-deterministic")
+    """Картинка растянута, пропорции нарушены.
+
+    Проверка идёт по готовому файлу, а не по IR, и это вынужденно: в `SlideIR`
+    растяжение невыразимо. `ImageFit` знает только `cover` и `contain`, а оба режима
+    кадрируют, сохраняя пропорции. Растянуть картинку может лишь рендерер, записав
+    рамку с пропорцией, отличной от исходной, — увидеть это можно только в `.pptx`.
+
+    Ловить растяжение надо **до** экспорта в pdf и png: после растеризации любая
+    картинка выглядит честной, мыло уже запечено внутрь.
+    """
+    path = ctx.deck_path
+    if path is None:
+        raise CheckUnavailable("файла колоды ещё нет: растяжение видно только в .pptx")
+    max_delta = ctx.param("max_aspect_delta", 0.02)
+
+    try:
+        from pptx import Presentation
+        from pptx.util import Emu
+    except ImportError:  # pragma: no cover — библиотека в зависимостях проекта
+        return
+
+    try:
+        presentation = Presentation(str(path))
+    except Exception:
+        return
+
+    slide_ids = [slide.slide_id for slide in ctx.deck.slides]
+    for number, pptx_slide in enumerate(presentation.slides):
+        slide_id = slide_ids[number] if number < len(slide_ids) else None
+        for shape in pptx_slide.shapes:
+            image = getattr(shape, "image", None)
+            if image is None or not shape.width or not shape.height:
+                continue
+            native_cx, native_cy = image.size
+            if not native_cx or not native_cy:
+                continue
+            natural = native_cx / native_cy
+            drawn = shape.width / shape.height
+            delta = abs(drawn - natural) / natural
+            if delta <= max_delta:
+                continue
+            yield make_finding(
+                check_id="layout.image_aspect_distorted",
+                slide_id=slide_id,
+                reason=f"aspect:{shape.shape_id}",
+                message=(
+                    f"Картинка на слайде {number + 1} растянута: пропорция {drawn:.2f} "
+                    f"против исходной {natural:.2f}"
+                ),
+                bbox=BBox(
+                    x=int(Emu(shape.left or 0)),
+                    y=int(Emu(shape.top or 0)),
+                    cx=int(Emu(shape.width)),
+                    cy=int(Emu(shape.height)),
+                ),
+                evidence={"natural": f"{natural:.3f}", "drawn": f"{drawn:.3f}"},
+            )

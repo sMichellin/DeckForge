@@ -1,0 +1,101 @@
+"""Прогон аудита: воспроизводимость, пропуски, сводка. Change (15)."""
+
+from __future__ import annotations
+
+import pytest
+
+from deckforge.audit import REGISTRY, AuditRunner
+from deckforge.audit import deterministic as _deterministic  # регистрация проверок
+from deckforge.audit import semantic as _semantic  # регистрация проверок
+from deckforge.audit.semantic import spelling
+from deckforge.domain.content import Brief, ContentPackage
+from deckforge.domain.enums import Severity
+from deckforge.domain.template import TemplateManifest
+from tests.unit._audit_builders import body, bullets, deck, slide, title
+
+_ = (_deterministic, _semantic)
+
+
+def _content() -> ContentPackage:
+    return ContentPackage(
+        brief=Brief(purpose="report", audience="правление", target_slides=12)
+    )
+
+
+async def test_run_finds_violations_and_counts_them(manifest: TemplateManifest) -> None:
+    colony = deck(slide(title(), body("а" * 500, box=(30, 1, 10, 3))))
+    report = await AuditRunner().run(colony, manifest, _content())
+
+    assert report.deck_id == colony.deck_id
+    assert report.has_errors
+    ids = {finding.check_id for finding in report.findings}
+    assert "layout.out_of_bounds" in ids
+    assert report.summary.errors == len(report.of_severity(Severity.ERROR))
+
+
+async def test_run_is_reproducible(manifest: TemplateManifest) -> None:
+    """Два прогона на одной колоде дают один и тот же отчёт — иначе их не сравнить."""
+    colony = deck(slide(title(), body("а" * 500)))
+    first = await AuditRunner().run(colony, manifest, _content())
+    second = await AuditRunner().run(colony, manifest, _content())
+
+    assert [f.finding_id for f in first.findings] == [f.finding_id for f in second.findings]
+    assert [f.check_id for f in first.findings] == [f.check_id for f in second.findings]
+
+
+async def test_findings_are_sorted_by_slide_and_check(manifest: TemplateManifest) -> None:
+    colony = deck(
+        slide(title(), body("а" * 500), slide_id="s02"),
+        slide(title(), body("б" * 500), slide_id="s01"),
+    )
+    report = await AuditRunner().run(colony, manifest, _content())
+    keys = [(f.slide_id or "", f.check_id, f.finding_id) for f in report.findings]
+    assert keys == sorted(keys)
+
+
+async def test_unavailable_checks_are_skipped_not_passed(
+    manifest: TemplateManifest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Проверке нечего смотреть — она попадает в пропущенные, а не в пройденные.
+
+    Без готового файла нечего открывать (`integrity.file_opens`) и негде увидеть
+    растяжение картинки; без LanguageTool нечем проверить орфографию; без направляющих
+    не с чем сверять выравнивание. «Не запускалась» и «прошла» — разные состояния.
+    """
+    monkeypatch.setattr(spelling, "checker_factory", lambda language, url: None)
+    colony = deck(slide(title(), bullets("первое", "второе")))
+    runner = AuditRunner()
+    await runner.run(colony, manifest, _content())
+
+    assert "content.no_typos" in runner.skipped_checks
+    assert "integrity.file_opens" in runner.skipped_checks
+    assert "layout.image_aspect_distorted" in runner.skipped_checks
+    assert "layout.off_guides" in runner.skipped_checks
+
+
+async def test_enabled_checks_narrow_the_run(manifest: TemplateManifest) -> None:
+    colony = deck(slide(title(), body("а" * 500, box=(30, 1, 10, 3))))
+    runner = AuditRunner(enabled_checks=["layout.out_of_bounds"])
+    report = await runner.run(colony, manifest, _content())
+
+    assert {f.check_id for f in report.findings} == {"layout.out_of_bounds"}
+    assert "layout.overlap" in runner.skipped_checks
+
+
+async def test_clean_deck_produces_no_errors(manifest: TemplateManifest) -> None:
+    """Аккуратно собранный слайд не должен давать ошибок — иначе отчёту перестают верить."""
+    colony = deck(slide(title("Выручка выросла на треть"), bullets("первое", "второе")))
+    report = await AuditRunner().run(colony, manifest, _content())
+    assert report.of_severity(Severity.ERROR) == []
+
+
+def test_all_deterministic_checks_are_implemented_in_this_change() -> None:
+    """Двадцать пять детерминированных проверок — область change (15).
+
+    Двадцать четыре живут в `audit/deterministic/`, двадцать пятая — `content.no_typos`
+    в `semantic/spelling.py`: папка отвечает на вопрос «про смысл ли проверка»,
+    а флаг `deterministic` — «одинаков ли результат на повторных запусках».
+    """
+    deterministic = REGISTRY.deterministic()
+    assert len(deterministic) == 25
+    assert "content.no_typos" in {c.check_id for c in deterministic}

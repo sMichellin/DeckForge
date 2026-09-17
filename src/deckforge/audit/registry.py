@@ -15,7 +15,11 @@ from deckforge.domain.enums import AutoFix, Severity
 
 
 class CheckContext(Protocol):
-    """Всё, что доступно проверке. Детерминированные используют только IR и манифест."""
+    """Всё, что доступно проверке. Детерминированные используют только IR и манифест.
+
+    `previews` и `deck_path` появляются лишь после сборки файла (changes 13 и 6):
+    до этого проверки, которым нужен готовый `.pptx`, попадают в пропущенные.
+    """
 
     @property
     def manifest(self) -> Any: ...
@@ -26,10 +30,33 @@ class CheckContext(Protocol):
     @property
     def previews(self) -> dict[str, bytes]: ...
     @property
+    def deck_path(self) -> Any: ...
+    @property
     def params(self) -> dict[str, Any]: ...
+
+    def param(self, name: str, default: float) -> float:
+        """Числовой порог из `configs/audit_checks.yaml`."""
+        ...
+
+    def text_param(self, name: str, default: str) -> str:
+        """Строковый параметр из `configs/audit_checks.yaml`."""
+        ...
 
 
 CheckFn = Callable[[CheckContext], Iterable[Finding]]
+
+
+class CheckUnavailable(Exception):
+    """Проверке нечего смотреть: нет файла, нет превью, нет внешнего сервиса.
+
+    Это не ошибка и не «нарушений не найдено». Молчаливый пустой список означал бы,
+    что слайд проверен и чист, — а он не проверялся вовсе. Прогон ловит это исключение
+    и записывает проверку в пропущенные.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 @dataclass(frozen=True, slots=True)
