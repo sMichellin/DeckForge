@@ -1,4 +1,5 @@
-"""Авто-кегль и стратегия вписывания. Changes (12) `layout-fitting`, (14) таблицы и KPI.
+"""Авто-кегль и стратегия вписывания. Changes (12) `layout-fitting`, (14) таблицы и KPI,
+(21) составные компоненты.
 
 Порядок деградации (из METHOD прежнего проекта, переписано без брендовых констант):
 1. как есть → 2. ступень кегля вниз по шкале шаблона → 3. сокращение текста LLM →
@@ -22,11 +23,13 @@ from deckforge.domain.slide import (
     FitResult,
     KpiBlock,
     SlideIR,
+    SmartArtBlock,
     TableBlock,
     TextBlock,
 )
 from deckforge.domain.template import LayoutSpec, TemplateManifest, TypographyStep
 from deckforge.domain.units import TEXT_FRAME_INSET_Y_EMU
+from deckforge.layout.diagram import SUPPORTED_PATTERNS, diagram_geometry
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fonts import FontLibrary
 from deckforge.layout.metrics import (
@@ -42,6 +45,7 @@ __all__ = [
     "fit_block",
     "fit_kpi",
     "fit_slide",
+    "fit_smartart",
     "fit_table",
     "fit_text",
     "table_row_heights",
@@ -232,6 +236,44 @@ def fit_kpi(
     return _overflow(size, lines, required, available, splittable=False)
 
 
+def fit_smartart(
+    block: SmartArtBlock,
+    box: BBox,
+    manifest: TemplateManifest,
+    *,
+    fonts: FontLibrary | None = None,
+) -> FitResult:
+    """Все подписи компонента одним кеглем: от `body` вниз по шкале, пока каждая не влезет
+    в свою рамку из `diagram_geometry`. Разный кегль у соседних шагов выглядит ошибкой.
+
+    Рамки узлов узкие, и слово в них рвётся по знакам: высота при этом влезает, но «Прове/рка»
+    в узле — брак вёрстки. Поэтому подпись влезла, только если и каждое её слово встало
+    в строку целиком."""
+    step = _step_for(TextRole.BODY, manifest)
+    font = _font_of(step, manifest)
+    labels = diagram_geometry(block.pattern, len(block.items), box).labels
+    available = min(usable_height_emu(label) for label in labels)
+
+    size, lines, required = step.size_pt, 0, 0
+    for size in _sizes(manifest, step.size_pt, allow_shrink=True):
+        measured = [
+            measure_text(text, font_family=font, size_pt=size, box=label, bold=step.bold,
+                         fonts=fonts)
+            for text, label in zip(block.items, labels, strict=True)
+        ]
+        lines = max(m.lines for m in measured)
+        required = max(m.height_emu for m in measured)
+        whole_words = all(
+            measure_text(word, font_family=font, size_pt=size, box=label, bold=step.bold,
+                         fonts=fonts).lines <= 1
+            for text, label in zip(block.items, labels, strict=True)
+            for word in text.split()
+        )
+        if required <= available and whole_words:
+            return _fits(size, step.size_pt, lines, required)
+    return _overflow(size, lines, required, available, splittable=False)
+
+
 def _box_for(block: TextBlock | BulletsBlock, layout: LayoutSpec) -> BBox:
     if block.bbox is not None:
         return block.bbox
@@ -277,7 +319,9 @@ def fit_slide(
     fonts: FontLibrary | None = None,
     content: ContentPackage | None = None,
 ) -> SlideIR:
-    """Возвращает слайд с заполненным `fit_report` по текстовым блокам, таблицам и KPI."""
+    """Возвращает слайд с заполненным `fit_report` по текстовым блокам, таблицам, KPI
+    и составным компонентам. Неподдерживаемый паттерн не вписывается: писатель заменит его
+    буллетами и впишет их сам."""
     layout = manifest.layout(slide.layout_id)
     if layout is None:
         raise LayoutFitError(f"слайд {slide.slide_id}: макета {slide.layout_id} нет в манифесте")
@@ -285,6 +329,12 @@ def fit_slide(
     for block in slide.blocks:
         if isinstance(block, TextBlock | BulletsBlock):
             report[block.block_id] = fit_block(block, layout, manifest, fonts=fonts)
+        elif isinstance(block, SmartArtBlock):
+            if block.pattern not in SUPPORTED_PATTERNS:
+                continue
+            if block.bbox is None:
+                raise LayoutFitError(f"блок {block.block_id}: smartart требует координат")
+            report[block.block_id] = fit_smartart(block, block.bbox, manifest, fonts=fonts)
         elif isinstance(block, TableBlock | KpiBlock):
             box = block.bbox
             if box is None:

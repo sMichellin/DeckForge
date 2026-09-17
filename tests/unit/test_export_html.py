@@ -1,4 +1,4 @@
-"""Экспорт .html из IR. Change (22) `export-html`."""
+"""Экспорт .html из IR. Changes (22) `export-html`, (21) составные компоненты и иконки."""
 
 from __future__ import annotations
 
@@ -16,10 +16,12 @@ from deckforge.domain.slide import (
     ChartBlock,
     DeckIR,
     FitResult,
+    IconBlock,
     ImageBlock,
     KpiBlock,
     KpiItem,
     SlideIR,
+    SmartArtBlock,
     TableBlock,
     TextBlock,
 )
@@ -83,7 +85,7 @@ def deck(manifest: TemplateManifest, *extra: object) -> DeckIR:
     if extra:
         report = {"t": FitResult(final_size_pt=title_pt)}
         for block in extra:
-            if isinstance(block, TableBlock | KpiBlock):
+            if isinstance(block, TableBlock | KpiBlock | SmartArtBlock):
                 report[block.block_id] = FitResult(final_size_pt=body_pt)
         slides.append(
             SlideIR(
@@ -286,3 +288,80 @@ def test_table_keeps_its_own_height(manifest: TemplateManifest, tmp_path: Path) 
     rule = re.search(r"\.block table \{([^}]*)\}", html)
     assert rule is not None
     assert "height" not in rule.group(1)
+
+
+# --- change (21) ---------------------------------------------------------------------
+
+
+def block_html(html: str, block_id: str) -> str:
+    return html.split(f'data-block="{block_id}"', 1)[1].split('<div class="block', 1)[0]
+
+
+def test_smartart_nodes_labels_and_arrows(manifest: TemplateManifest, tmp_path: Path) -> None:
+    process = SmartArtBlock(block_id="sa", pattern="process", items=["Сбор", "Анализ", "Итог"],
+                            color_refs=[ColorRef.ACCENT3], **half(manifest, 1))
+    block = block_html(html_of(manifest, tmp_path, process), "sa")
+    assert 'class="block smartart"' in html_of(manifest, tmp_path, process)
+    assert block.count('class="node"') == 3
+    assert "background: var(--accent3)" in block
+    labels = re.findall(r'class="label[^"]*"[^>]*>([^<]*)<', block)
+    assert labels == ["Сбор", "Анализ", "Итог"]
+    # На светлом accent3 текст тёмный — тот же выбор, что в pptx.
+    assert "color: var(--dk1)" in block
+    assert block.count("<line ") == 2
+    assert block.count("marker-end=") == 2
+    # Слово в узле не рвётся: `fit_smartart` это уже гарантировал, браузер не должен ломать.
+    assert "overflow-wrap: normal" in html_of(manifest, tmp_path, process)
+    body_pt = manifest.typography(TextRole.BODY).size_pt  # type: ignore[union-attr]
+    width = manifest.slide_size.cx_emu
+    assert f"font-size: {body_pt * EMU_PER_PT / width * 100:.4f}cqw" in block
+
+
+def test_timeline_markers_are_round_and_its_axis_has_no_arrow(
+    manifest: TemplateManifest, tmp_path: Path
+) -> None:
+    cycle = SmartArtBlock(block_id="cy", pattern="cycle", items=["а", "б", "в"],
+                          **half(manifest, 0))
+    timeline = SmartArtBlock(block_id="tl", pattern="timeline", items=["2024", "2025"],
+                             **half(manifest, 1))
+    html = html_of(manifest, tmp_path, cycle, timeline)
+    assert "border-radius: 50%" in block_html(html, "tl")
+    assert block_html(html, "cy").count("marker-end=") == 3
+    axis = block_html(html, "tl")
+    assert axis.count("<line ") == 1 and "marker-end=" not in axis
+    assert 'class="label top"' in axis
+
+
+def test_unsupported_pattern_degrades_to_bullets_like_in_pptx(
+    manifest: TemplateManifest, tmp_path: Path
+) -> None:
+    pyramid = SmartArtBlock(block_id="py", pattern="pyramid", items=["Верх", "Низ"],
+                            **half(manifest, 1))
+    block = block_html(html_of(manifest, tmp_path, pyramid), "py")
+    assert "<li" in block and "Верх" in block
+
+
+def test_icon_is_inline_lucide_svg_in_the_theme_color(
+    manifest: TemplateManifest, tmp_path: Path
+) -> None:
+    icon = IconBlock(block_id="ic", query="ShieldCheck", color_ref=ColorRef.ACCENT2,
+                     **{**half(manifest, 1), "cx": half(manifest, 1)["cy"]})
+    block = block_html(html_of(manifest, tmp_path, icon), "ic")
+    assert 'viewBox="0 0 24 24"' in block
+    assert "color: var(--accent2)" in block
+    assert 'stroke="currentColor"' in block
+    assert block.count("<path ") == 2
+
+
+def test_arrow_markers_have_unique_safe_ids(manifest: TemplateManifest, tmp_path: Path) -> None:
+    """Id из `slide_id` и `block_id` ломался на пробеле (`url(#arrow-s02-шаг 1)`) и совпадал
+    у `a-b`/`c` и `a`/`b-c`."""
+    first = SmartArtBlock(block_id="шаг 1", pattern="process", items=["а", "б"],
+                          **half(manifest, 0))
+    second = SmartArtBlock(block_id="шаг 2", pattern="cycle", items=["а", "б", "в"],
+                           **half(manifest, 1))
+    html = html_of(manifest, tmp_path, first, second)
+    ids = re.findall(r'<marker id="([^"]+)"', html)
+    assert len(ids) == len(set(ids)) == 2
+    assert all(re.fullmatch(r"[\w-]+", marker, flags=re.ASCII) for marker in ids)
+    assert set(re.findall(r'marker-end="url\(#([^)]+)\)"', html)) == set(ids)

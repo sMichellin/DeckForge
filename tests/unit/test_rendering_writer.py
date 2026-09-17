@@ -17,6 +17,7 @@ from deckforge.domain.slide import (
     ChartBlock,
     DeckIR,
     FitResult,
+    IconBlock,
     ImageBlock,
     KpiBlock,
     KpiItem,
@@ -26,6 +27,7 @@ from deckforge.domain.slide import (
     TextBlock,
 )
 from deckforge.domain.template import PlaceholderSpec, TemplateManifest
+from deckforge.layout.fonts import FontLibrary
 from deckforge.rendering.images import contain_box, cover_crop
 from deckforge.rendering.theme_binding import (
     THEME_COLORS,
@@ -33,7 +35,8 @@ from deckforge.rendering.theme_binding import (
     resolve_font,
     theme_font_token,
 )
-from deckforge.rendering.writer import PptxWriter, WriterError
+from deckforge.rendering.writer import PptxWriter, SlideDegrader, WriterError
+from tests.unit.test_layout_fonts import make_font
 
 # --- theme_binding -----------------------------------------------------------
 
@@ -300,10 +303,109 @@ def test_size_outside_the_template_scale_is_rejected(writer: PptxWriter) -> None
     assert "13" in problems(writer, ok_slide(fit_report={"t": fit(40), "b": fit(13)}))
 
 
-def test_unsupported_block_names_the_change_that_adds_it(writer: PptxWriter) -> None:
-    smartart = SmartArtBlock(block_id="s", pattern="process", items=["а", "б"])
-    slide = ok_slide(blocks=[title(), smartart], fit_report={"t": fit(40)})
-    assert "(21)" in problems(writer, slide)
+# --- change (21): составные компоненты и иконки ----------------------------------------
+
+
+def smartart(
+    manifest: TemplateManifest, pattern: str = "process", **update: object
+) -> SmartArtBlock:
+    fields: dict[str, object] = {"items": ["Сбор", "Анализ"], **box_of(manifest), **update}
+    return SmartArtBlock(block_id="s", pattern=pattern, **fields)  # type: ignore[arg-type]
+
+
+def icon(manifest: TemplateManifest, query: str = "shield-check") -> IconBlock:
+    b = manifest.content_bbox
+    return IconBlock(block_id="i", query=query, x=b.x, y=b.y, cx=b.cy // 4, cy=b.cy // 4)
+
+
+def test_smartart_with_coordinates_and_fit_passes(
+    writer: PptxWriter, manifest: TemplateManifest
+) -> None:
+    slide = ok_slide(blocks=[title(), smartart(manifest)], fit_report={"t": fit(40), "s": fit()})
+    writer.validate(slide)
+
+
+def test_smartart_needs_coordinates_and_fit(writer: PptxWriter) -> None:
+    block = SmartArtBlock(block_id="s", pattern="cycle", items=["а", "б"])
+    message = problems(writer, ok_slide(blocks=[title(), block], fit_report={"t": fit(40)}))
+    assert "без координат" in message
+    assert "fit_report" in message
+
+
+def test_smartart_with_an_empty_item_is_rejected(
+    writer: PptxWriter, manifest: TemplateManifest
+) -> None:
+    block = smartart(manifest, items=["Сбор", " "])
+    slide = ok_slide(blocks=[title(), block], fit_report={"t": fit(40), "s": fit()})
+    assert "пуст" in problems(writer, slide)
+
+
+def test_unsupported_pattern_left_undegraded_is_rejected(
+    writer: PptxWriter, manifest: TemplateManifest
+) -> None:
+    slide = ok_slide(blocks=[title(), smartart(manifest, "matrix")], fit_report={"t": fit(40)})
+    assert "matrix" in problems(writer, slide)
+
+
+def test_icon_with_coordinates_passes(writer: PptxWriter, manifest: TemplateManifest) -> None:
+    writer.validate(ok_slide(blocks=[title(), icon(manifest)], fit_report={"t": fit(40)}))
+
+
+def test_unknown_icon_and_icon_without_coordinates_are_rejected(
+    writer: PptxWriter, manifest: TemplateManifest
+) -> None:
+    lost = IconBlock(block_id="j", query="shield-check")
+    slide = ok_slide(blocks=[title(), icon(manifest, "нет-такой"), lost],
+                     fit_report={"t": fit(40)})
+    message = problems(writer, slide)
+    assert "нет-такой" in message
+    assert "без координат" in message
+
+
+@pytest.fixture
+def fonts(tmp_path: Path, manifest: TemplateManifest) -> FontLibrary:
+    make_font(tmp_path, manifest.theme.fonts.major_latin, advance=500, bold=True)
+    make_font(tmp_path, manifest.theme.fonts.minor_latin, advance=500)
+    return FontLibrary([tmp_path])
+
+
+def test_unsupported_pattern_degrades_to_fitted_bullets(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    degrader = SlideDegrader(manifest, fonts)
+    slide = degrader.degrade(
+        ok_slide(blocks=[title(), smartart(manifest, "hierarchy")], fit_report={"t": fit(40)}),
+        None,
+    )
+    bullets = slide.blocks[1]
+    assert isinstance(bullets, BulletsBlock)
+    assert [item.text for item in bullets.items] == ["Сбор", "Анализ"]
+    assert bullets.bbox == smartart(manifest).bbox
+    assert not slide.fit_report["s"].overflow
+    assert degrader.degradations == [
+        "s01/s: smartart hierarchy → буллеты (паттерн не поддерживается)"
+    ]
+
+
+def test_smartart_that_does_not_fit_degrades_to_bullets(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    degrader = SlideDegrader(manifest, fonts)
+    slide = ok_slide(blocks=[title(), smartart(manifest)],
+                     fit_report={"t": fit(40), "s": fit(12, overflow=True)})
+    degraded = degrader.degrade(slide, None)
+    assert isinstance(degraded.blocks[1], BulletsBlock)
+    assert degrader.degradations == ["s01/s: smartart process → буллеты (не влез)"]
+
+
+def test_unknown_icon_is_dropped_with_a_record(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    degrader = SlideDegrader(manifest, fonts)
+    slide = ok_slide(blocks=[title(), icon(manifest, "нет-такой")], fit_report={"t": fit(40)})
+    degraded = degrader.degrade(slide, None)
+    assert [b.block_id for b in degraded.blocks] == ["t"]
+    assert degrader.degradations == ["s01/i: иконки «нет-такой» нет в Lucide — блок убран"]
 
 
 def data_content(**dataset_update: object) -> ContentPackage:
@@ -404,3 +506,17 @@ def test_invalid_slide_anywhere_prevents_the_file(
     with pytest.raises(WriterError, match="s02"):
         writer.write(deck, out)
     assert not out.exists()
+
+
+def test_overflowing_table_degrades_to_bullets_without_content(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Строки таблицы лежат в самом IR — пакет контента для подмены не нужен."""
+    table = TableBlock(block_id="tb", header=["Год", "Выручка"], rows=[["2025", "2"]],
+                       **box_of(manifest))
+    degrader = SlideDegrader(manifest, fonts)
+    slide = ok_slide(blocks=[title(), table],
+                     fit_report={"t": fit(40), "tb": fit(12, overflow=True)})
+    bullets = degrader.degrade(slide, None).blocks[1]
+    assert isinstance(bullets, BulletsBlock)
+    assert [item.text for item in bullets.items] == ["Год: 2025 — Выручка: 2"]

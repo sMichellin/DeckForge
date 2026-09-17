@@ -1,4 +1,5 @@
-"""`SlideIR` → .pptx. Changes (13) `pptx-writer`, (14) диаграммы, таблицы, KPI.
+"""`SlideIR` → .pptx. Changes (13) `pptx-writer`, (14) диаграммы, таблицы, KPI,
+(21) составные компоненты и иконки.
 
 Инварианты рендерера (ADR-002):
 * слайд создаётся **только** на макете из шаблона — по части пакета, а не по позиции
@@ -32,13 +33,16 @@ from deckforge.domain.slide import (
     ChartBlock,
     DeckIR,
     FitResult,
+    IconBlock,
     ImageBlock,
     KpiBlock,
     SlideIR,
+    SmartArtBlock,
     TableBlock,
     TextBlock,
 )
 from deckforge.domain.template import LayoutSpec, TemplateManifest
+from deckforge.layout.diagram import SUPPORTED_PATTERNS
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fitting import fit_block, fit_table, table_row_heights
 from deckforge.layout.fonts import FontLibrary
@@ -46,18 +50,14 @@ from deckforge.layout.tabular import dataset_bullets, table_cells, table_has_hea
 from deckforge.parsing.ooxml.layouts import resolve_placeholders
 from deckforge.parsing.package import TemplatePackage
 from deckforge.rendering.charts import add_chart, chart_problem
+from deckforge.rendering.icons import add_icon, icon_nodes
 from deckforge.rendering.images import add_image
+from deckforge.rendering.smartart import add_smartart
 from deckforge.rendering.tables import add_table, template_table_style
 from deckforge.rendering.theme_binding import apply_theme_color, theme_font_token
 
 #: Плейсхолдеры, в которые текст не кладётся: там ждут картинку, диаграмму, таблицу.
 _NON_TEXT_PLACEHOLDERS = frozenset({"PIC", "CHART", "TBL", "MEDIA", "CLIPART", "DGM", "SLDIMG"})
-
-#: Какой change добавит блок, который писатель пока не умеет.
-_PENDING_BLOCKS = {
-    "smartart": "(21) smartart-icons",
-    "icon": "(21) smartart-icons",
-}
 
 _COLOR_REFS = {ref.value: ref for ref in ColorRef}
 #: Элементы свойств текста: цвет внутри них — цвет букв, а не заливки фигуры.
@@ -171,10 +171,7 @@ class SlideValidator:
                 if idx in taken:
                     out.append(f"{where}: плейсхолдер idx={idx} уже занят другим блоком")
                 taken.add(idx)
-            if block.type in _PENDING_BLOCKS:
-                pending = _PENDING_BLOCKS[block.type]
-                out.append(f"{where}: блок {block.type} добавит change {pending}")
-            elif isinstance(block, TextBlock | BulletsBlock):
+            if isinstance(block, TextBlock | BulletsBlock):
                 out += self._text_problems(where, block, layout, slide)
             elif isinstance(block, ImageBlock):
                 out += self._image_problems(where, block, content)
@@ -190,6 +187,18 @@ class SlideValidator:
             elif isinstance(block, KpiBlock):
                 out += self._box_problems(where, block.bbox, block.type)
                 out += self._fit_problems(where, block.block_id, slide)
+            elif isinstance(block, SmartArtBlock):
+                out += self._box_problems(where, block.bbox, block.type)
+                if block.pattern not in SUPPORTED_PATTERNS:
+                    out.append(f"{where}: паттерн {block.pattern.value} не строится, "
+                               "а в буллеты не заменён")
+                if not all(item.strip() for item in block.items):
+                    out.append(f"{where}: пустой элемент компонента")
+                out += self._fit_problems(where, block.block_id, slide)
+            elif isinstance(block, IconBlock):
+                out += self._box_problems(where, block.bbox, block.type)
+                if icon_nodes(block.query) is None:
+                    out.append(f"{where}: иконки «{block.query}» нет в Lucide")
         return out
 
     def _box_problems(self, where: str, box: BBox | None, kind: str) -> list[str]:
@@ -274,7 +283,8 @@ class SlideValidator:
 
 
 class SlideDegrader:
-    """Цепочка §15 «диаграмма → таблица → буллеты» — общая для pptx и html."""
+    """Цепочки §15 — общие для pptx и html: «диаграмма → таблица → буллеты»,
+    «составной компонент → буллеты», неизвестная иконка убирается."""
 
     def __init__(self, manifest: TemplateManifest, fonts: FontLibrary | None = None) -> None:
         self.manifest = manifest
@@ -289,7 +299,7 @@ class SlideDegrader:
         Каждая подмена записывается в `degradations`: молча данные не меняют вид.
         """
         layout = self.manifest.layout(slide.layout_id)
-        if layout is None or content is None:
+        if layout is None:
             return slide
         blocks: list[Block] = []
         report = dict(slide.fit_report)
@@ -332,6 +342,24 @@ class SlideDegrader:
                 if table_fit is not None and table_fit.overflow and items:
                     replaced = self._as_bullets(block.block_id, block.bbox, items, layout)
                     self.degradations.append(f"{where}: таблица → буллеты (не влезла)")
+            elif isinstance(block, SmartArtBlock) and block.bbox is not None:
+                smartart_fit = report.get(block.block_id)
+                reason = (
+                    "паттерн не поддерживается" if block.pattern not in SUPPORTED_PATTERNS
+                    else "не влез" if smartart_fit is not None and smartart_fit.overflow
+                    else None
+                )
+                if reason is not None:
+                    replaced = self._as_bullets(block.block_id, block.bbox, block.items, layout)
+                    self.degradations.append(
+                        f"{where}: smartart {block.pattern.value} → буллеты ({reason})"
+                    )
+            elif isinstance(block, IconBlock) and icon_nodes(block.query) is None:
+                # Иконка — украшение: без неё слайд цел, а ошибка записи потеряла бы колоду.
+                self.degradations.append(
+                    f"{where}: иконки «{block.query}» нет в Lucide — блок убран"
+                )
+                continue
             if replaced is None:
                 blocks.append(block)
             else:
@@ -476,6 +504,14 @@ class PptxWriter:
                 self._add_kpi(
                     slide, block, slide_ir.fit_report[block.block_id].final_size_pt, text_color
                 )
+            elif isinstance(block, SmartArtBlock):
+                add_smartart(
+                    slide, block, self.manifest,
+                    size_pt=slide_ir.fit_report[block.block_id].final_size_pt,
+                    text_color=text_color,
+                )
+            elif isinstance(block, IconBlock):
+                add_icon(slide, block)
 
         # Пустой плейсхолдер в PowerPoint показывает «Введите текст» — такой слайд выглядит
         # недоделанным.

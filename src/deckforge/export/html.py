@@ -1,4 +1,4 @@
-"""Экспорт .html из `DeckIR`. Change (22) `export-html`.
+"""Экспорт .html из `DeckIR`. Changes (22) `export-html`, (21) составные компоненты и иконки.
 
 Собирается из IR, а не конвертацией pptx: так html наследует те же цвета и типошкалу темы,
 а объекты остаются текстом и векторами (C3, C4).
@@ -29,17 +29,22 @@ from deckforge.domain.slide import (
     BulletsBlock,
     ChartBlock,
     DeckIR,
+    IconBlock,
     ImageBlock,
     KpiBlock,
     SlideIR,
+    SmartArtBlock,
     TableBlock,
     TextBlock,
 )
 from deckforge.domain.template import TemplateManifest, TypographyStep
 from deckforge.domain.units import EMU_PER_PT, TEXT_FRAME_INSET_X_EMU, TEXT_FRAME_INSET_Y_EMU
+from deckforge.layout.diagram import ROUND_RECT_RADIUS, diagram_geometry
 from deckforge.layout.fonts import FontLibrary
 from deckforge.layout.metrics import LINE_HEIGHT_RATIO
 from deckforge.layout.tabular import format_number, table_cells, table_has_header
+from deckforge.rendering.icons import ICON_STROKE_WIDTH, ICON_VIEWBOX, icon_nodes
+from deckforge.rendering.smartart import LINK_WEIGHT, node_colors, text_on
 from deckforge.rendering.writer import SlideDegrader, SlideValidator, WriterError
 
 _ACCENTS = [
@@ -85,6 +90,8 @@ class _HtmlDeck:
         self.content = content
         self.cx = manifest.slide_size.cx_emu
         self.cy = manifest.slide_size.cy_emu
+        #: Счётчик маркеров стрелок: id из `slide_id` и `block_id` ломался на пробелах.
+        self.markers = 0
 
     # --- единицы ----------------------------------------------------------------
 
@@ -149,7 +156,13 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
 .kpi-row {{ display: flex; width: 100%; }} .kpi-row > div {{ flex: 1; }}
 .block img {{ width: 100%; height: 100%; display: block; }}
 .block svg {{ width: 100%; height: 100%; display: block; overflow: visible; }}
-.image {{ padding: 0; }}
+.image, .smartart, .icon {{ padding: 0; }}
+.smartart > div {{ position: absolute; box-sizing: border-box; }}
+.smartart .label {{ display: flex; align-items: center; justify-content: center;
+  text-align: center; white-space: pre-wrap; overflow-wrap: normal;
+  padding: {self.cqw(TEXT_FRAME_INSET_Y_EMU)} {self.cqw(TEXT_FRAME_INSET_X_EMU)}; }}
+.smartart .label.top {{ align-items: flex-start; }}
+.smartart svg {{ position: absolute; inset: 0; }}
 @media print {{ body {{ background: none; padding: 0; }} .slide {{ margin: 0; width: 100vw; }} }}
 """
 
@@ -210,6 +223,15 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
             return (
                 f'<div class="block kpi" {head} style="{self.place(box)}">'
                 f"{self.kpi(block, size or 0)}</div>"
+            )
+        if isinstance(block, SmartArtBlock):
+            return (
+                f'<div class="block smartart" {head} style="{self.place(box)}">'
+                f"{self.smartart(block, box, size or 0)}</div>"
+            )
+        if isinstance(block, IconBlock):
+            return (
+                f'<div class="block icon" {head} style="{self.place(box)}">{self.icon(block)}</div>'
             )
         if isinstance(block, ChartBlock):
             dataset = self.dataset(block.dataset_ref)
@@ -283,6 +305,83 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
         return (
             f'<div class="kpi-row" style="font-size: {self.font_size(size_pt)}; '
             f'font-weight: {weight}">{columns}</div>'
+        )
+
+    def smartart(self, block: SmartArtBlock, box: BBox, size_pt: float) -> str:
+        """Та же раскладка, что в pptx: узлы и подписи — в процентах от рамки блока,
+        коннекторы — SVG в EMU рамки (пропорции рамки и блока совпадают)."""
+        geometry = diagram_geometry(block.pattern, len(block.items), box)
+        step = self.step(TextRole.BODY)
+        on_background = _var(step.color_ref if step else None)
+        weight = "bold" if step and step.bold else "normal"
+        font = f"font-size: {self.font_size(size_pt)}; font-weight: {weight}"
+
+        def inside(part: BBox) -> str:
+            return (
+                f"left: {_pct(part.x - box.x, box.cx)}; top: {_pct(part.y - box.y, box.cy)}; "
+                f"width: {_pct(part.cx, box.cx)}; height: {_pct(part.cy, box.cy)}"
+            )
+
+        self.markers += 1
+        marker = f"arrow-{self.markers}"
+        lines = "".join(
+            f'<line x1="{link.x1 - box.x}" y1="{link.y1 - box.y}" x2="{link.x2 - box.x}" '
+            f'y2="{link.y2 - box.y}" style="stroke: {on_background}; stroke-width: '
+            f'{size_pt * EMU_PER_PT * LINK_WEIGHT:.0f}"'
+            + (f' marker-end="url(#{marker})"' if geometry.arrows else "")
+            + "/>"
+            for link in geometry.links
+        )
+        arrow = (
+            f'<defs><marker id="{marker}" viewBox="0 0 10 10" refX="10" refY="5" '
+            'markerWidth="3" markerHeight="3" orient="auto">'
+            f'<path d="M0 0L10 5L0 10z" style="fill: {on_background}"/></marker></defs>'
+            if geometry.arrows else ""
+        )
+        svg = (
+            f'<svg viewBox="0 0 {box.cx} {box.cy}" xmlns="http://www.w3.org/2000/svg" '
+            f'aria-hidden="true">{arrow}{lines}</svg>'
+        )
+
+        parts = [svg]
+        for text, node, label, fill in zip(
+            block.items, geometry.nodes, geometry.labels, node_colors(block), strict=True
+        ):
+            radius = (
+                "50%" if geometry.round_nodes
+                else self.cqw(min(node.cx, node.cy) * ROUND_RECT_RADIUS)
+            )
+            parts.append(
+                f'<div class="node" style="{inside(node)}; background: {_var(fill)}; '
+                f'border-radius: {radius}"></div>'
+            )
+            if geometry.text_inside:
+                color = _var(text_on(fill, self.manifest))
+                parts.append(
+                    f'<div class="label" style="{inside(label)}; color: {color}; {font}">'
+                    f"{escape(text)}</div>"
+                )
+            else:
+                parts.append(
+                    f'<div class="label top" style="{inside(label)}; color: {on_background}; '
+                    f'{font}">{escape(text)}</div>'
+                )
+        return "".join(parts)
+
+    def icon(self, block: IconBlock) -> str:
+        """Элементы Lucide как есть: линия `currentColor`, цвет — переменная темы."""
+        nodes = "".join(
+            f"<{tag} "
+            + " ".join(f'{name}="{escape(value, quote=True)}"' for name, value in attrs.items())
+            + "/>"
+            for tag, attrs in icon_nodes(block.query) or []
+        )
+        return (
+            f'<svg viewBox="0 0 {ICON_VIEWBOX} {ICON_VIEWBOX}" xmlns="http://www.w3.org/2000/svg" '
+            f'fill="none" stroke="currentColor" stroke-width="{ICON_STROKE_WIDTH}" '
+            'stroke-linecap="round" stroke-linejoin="round" '
+            f'style="color: {_var(block.color_ref or ColorRef.ACCENT1)}" '
+            f'aria-hidden="true">{nodes}</svg>'
         )
 
     def chart(self, block: ChartBlock, dataset: Dataset, box: BBox) -> str:

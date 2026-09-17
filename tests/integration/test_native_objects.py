@@ -31,10 +31,12 @@ from deckforge.domain.slide import (
     ChartBlock,
     DeckIR,
     FitResult,
+    IconBlock,
     ImageBlock,
     KpiBlock,
     KpiItem,
     SlideIR,
+    SmartArtBlock,
     TableBlock,
     TextBlock,
 )
@@ -668,3 +670,72 @@ def test_empty_fallback_does_not_crash_the_writer(template: Path, tmp_path: Path
     writer = PptxWriter(template, manifest, fonts=theme_fonts(tmp_path, manifest))
     with pytest.raises(WriterError, match="категорий"):
         writer.write(visual_deck(manifest, pie), tmp_path / "deck.pptx", content=content)
+
+
+# --- change (21): составные компоненты и иконки ------------------------------------------
+
+
+def components_deck(manifest: TemplateManifest, fonts: FontLibrary) -> DeckIR:
+    """Процесс, цикл и шкала времени с иконкой — вписаны настоящим `fit_slide`."""
+    slides = []
+    for i, pattern in enumerate(["process", "cycle", "timeline"], 1):
+        box = region(manifest, 1, 2)
+        side = box["cy"] // 3
+        blocks: list[object] = [
+            TextBlock(block_id="t", placeholder_idx=0, role=TextRole.TITLE, text="Как мы работаем"),
+            SmartArtBlock(block_id="sa", pattern=pattern,
+                          items=["Сбор данных", "Анализ", "Решение", "Контроль"], **box),
+            IconBlock(block_id="ic", query="shield-check", color_ref=ColorRef.ACCENT2,
+                      x=box["x"], y=box["y"] - side, cx=side, cy=side),
+        ]
+        slide = SlideIR(slide_id=f"s{i:02d}", layout_id=layout_of(manifest, LayoutKind.TITLE),
+                        variant="A", blocks=blocks)  # type: ignore[arg-type]
+        slides.append(fit_slide(slide, manifest, fonts=fonts))
+    return DeckIR(deck_id="d", variant="A", template_id=manifest.template_id, seed=1,
+                  slides=slides)
+
+
+def test_components_and_icons_are_native_editable_shapes(template: Path, tmp_path: Path) -> None:
+    manifest = parse(template, tmp_path)
+    fonts = theme_fonts(tmp_path, manifest)
+    deck = components_deck(manifest, fonts)
+    assert not any(fit.overflow for s in deck.slides for fit in s.fit_report.values())
+    writer = PptxWriter(template, manifest, fonts=fonts)
+    out = writer.write(deck, tmp_path / "deck.pptx")
+    assert writer.degradations == []
+
+    for slide in Presentation(str(out)).slides:
+        groups = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.GROUP]
+        assert len(groups) == 1
+        texts = [s.text_frame.text for s in groups[0].shapes if s.has_text_frame]
+        assert [t for t in texts if t] == ["Сбор данных", "Анализ", "Решение", "Контроль"]
+        icon = next(s for s in slide.shapes if s.name == "Иконка shield-check")
+        assert "<a:custGeom>" in icon._element.xml
+    for xml in slide_xml(out).values():
+        assert "srgbClr" not in xml
+        assert "<p:pic>" not in xml
+
+
+def test_switching_the_template_recolors_components_and_icons(
+    template: Path, tmp_path: Path
+) -> None:
+    twin = recolor_twin(template, tmp_path / "twin.pptx")
+    manifest, twin_manifest = parse(template, tmp_path), parse(twin, tmp_path)
+    fonts = theme_fonts(tmp_path, manifest)
+    deck = components_deck(manifest, fonts)
+    first = PptxWriter(template, manifest).write(deck, tmp_path / "a.pptx")
+    twin_deck = deck.model_copy(update={"template_id": twin_manifest.template_id})
+    second = PptxWriter(twin, twin_manifest).write(twin_deck, tmp_path / "b.pptx")
+
+    node_fill = re.compile(r'prst="(?:roundRect|ellipse)">.*?<a:solidFill><a:schemeClr val="(\w+)"')
+
+    def fills(path: Path) -> set[str]:
+        return {ref for xml in slide_xml(path).values() for ref in node_fill.findall(xml)}
+
+    # Заливка узлов — ссылка на accent1 в обоих файлах: цвет меняет тема, а не код.
+    assert fills(first) == fills(second) == {"accent1"}
+    # Цвет текста на заливке выбирается по контрасту с цветом этой темы — единственное,
+    # что может отличаться между двойниками, и это тоже ссылка на тему.
+    strip = re.compile(r'<a:schemeClr val="(?:dk1|lt1)"/>')
+    assert ([strip.sub("", x) for x in slide_xml(first).values()]
+            == [strip.sub("", x) for x in slide_xml(second).values()])

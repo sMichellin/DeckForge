@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from pptx.dml.fill import FillFormat
+from pptx.dml.line import LineFormat
 from pptx.enum.dml import MSO_THEME_COLOR
 from pptx.text.text import Font
 
@@ -51,8 +52,10 @@ def apply_theme_color(font_or_fill: object, ref: ColorRef) -> None:
     elif isinstance(font_or_fill, FillFormat):
         font_or_fill.solid()  # type: ignore[no-untyped-call]
         font_or_fill.fore_color.theme_color = theme_color
+    elif isinstance(font_or_fill, LineFormat):
+        font_or_fill.color.theme_color = theme_color
     else:
-        raise TypeError(f"цвет темы ставится шрифту или заливке, а не {type(font_or_fill)}")
+        raise TypeError(f"цвет темы ставится шрифту, заливке или линии, а не {type(font_or_fill)}")
 
 
 def theme_font_token(ref: FontRef) -> str:
