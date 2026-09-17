@@ -1,12 +1,36 @@
-"""Экспорт .pptx. Change (16) `export-pptx-pdf`."""
+"""Экспорт .pptx. Change (16) `export-pptx-pdf`.
+
+Тонкий адаптер над `PptxWriter`: проверки IR и цепочка деградации — там. Здесь — одно:
+отдаётся только файл, который открывается.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
+from pptx import Presentation
+
+from deckforge.domain.content import ContentPackage
 from deckforge.domain.slide import DeckIR
 from deckforge.domain.template import TemplateManifest
+from deckforge.export.pdf import ExportError
+from deckforge.layout.fonts import FontLibrary
+from deckforge.rendering.writer import PptxWriter
 
 
-def export_pptx(deck: DeckIR, manifest: TemplateManifest, template_path: Path, out: Path) -> Path:
-    raise NotImplementedError("change (16) export-pptx-pdf")
+def export_pptx(
+    deck: DeckIR,
+    manifest: TemplateManifest,
+    template_path: Path,
+    out: Path,
+    content: ContentPackage | None = None,
+    fonts: FontLibrary | None = None,
+) -> Path:
+    path = PptxWriter(template_path, manifest, fonts=fonts).write(deck, out, content=content)
+    try:
+        Presentation(str(path))
+    except Exception as exc:
+        # python-pptx на битом пакете бросает что угодно — от BadZipFile до KeyError.
+        path.unlink(missing_ok=True)
+        raise ExportError(f"записанный файл {path.name} не открывается: {exc}") from exc
+    return path

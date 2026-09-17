@@ -296,11 +296,20 @@ VK Education общий кегль заголовка 60 pt не входит в
 **Незакрыто:** поля сетки VK WorkSpace выведены неверно (запрос тимлиду), равная ширина
 колонок таблицы, подписи данных у точечной диаграммы. Подробно — в proposal.
 
-### (16) `export-pptx-pdf` ☐ → (22) `export-html` ☐
+### (16) `export-pptx-pdf` — готово, ждёт мержа (12)–(14)
 
-`export/{pptx,pdf,html}.py`. pdf — через готовый `rendering.soffice.SofficeRenderer`.
-html собирается из IR, а не конвертацией pptx. Здесь включается
-`tests/e2e/test_cold_template.py`.
+Файлы: `export/{pptx,pdf}.py`, `tests/e2e/test_cold_template.py` включён.
+
+- pptx — через `PptxWriter` с проверкой, что файл открывается; pdf — через
+  `SofficeRenderer.to_pdf` во временный каталог.
+- **`to_pdf` не работает на Windows**: требует ненужный `pdftoppm` и передаёт профиль как
+  `file://C:\…` (LibreOffice молча не конвертирует; `Path.as_uri()` работает) — запрос тимлиду.
+
+**Незакрыто:** в `cold/` нет шаблона — тест пропускается с причиной.
+
+### (22) `export-html` ☐
+
+`export/html.py`. html собирается из IR, а не конвертацией pptx.
 
 ### (21) `smartart-icons` ☐ — последняя, кандидат на дескоуп
 
