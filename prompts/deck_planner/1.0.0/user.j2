@@ -2,16 +2,31 @@
 Назначение: {{ brief.purpose }}
 Аудитория: {{ brief.audience }}
 Целевое число слайдов: {{ brief.target_slides }}
+{% if brief.tone %}Тон: {{ brief.tone }}{% endif %}
 {% if brief.key_message %}Ключевое сообщение: {{ brief.key_message }}{% endif %}
 
 ## Факты
 {% for f in facts %}
-- [{{ f.fact_id }}] {{ f.text }}{% if f.numbers %} (числа: {% for n in f.numbers %}{{ n.raw or n.value }}{{ " " ~ n.unit if n.unit }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}
+- [{{ f.fact_id }}] {{ f.text }}{% if f.numbers %} (числа: {% for n in f.numbers %}{{ n.raw or n.value }}{{ " " ~ n.unit if n.unit }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}{% if f.source_ref %} [источник: {{ f.source_ref }}]{% endif %}
 {% endfor %}
 
 ## Наборы данных
 {% for d in datasets %}
 - [{{ d.dataset_id }}] {{ d.title }} — категории: {{ d.categories | join(", ") }}; серий: {{ d.series | length }}{% if d.unit %}; единица: {{ d.unit }}{% endif %}
 {% endfor %}
+{% if not datasets %}
+Наборов данных нет: диаграммы не планируй, опирайся на факты.
+{% endif %}
 
-Спланируй колоду из {{ brief.target_slides }} слайдов. Seed: {{ seed }}.
+## Задание
+
+Спланируй колоду из {{ brief.target_slides }} слайдов по каркасу для назначения
+«{{ brief.purpose }}» и профилю «{{ variant.name }}».
+
+Проверь себя перед ответом:
+- последний слайд говорит, что должно произойти после презентации;
+- каждый заголовок — вывод и не длиннее 10 слов;
+- ни одна роль не занимает больше половины колоды;
+- все числа в заголовках взяты из фактов выше, ничего не придумано.
+
+Seed: {{ seed }}.
