@@ -46,7 +46,9 @@ tenacity    = "^9.0"
 
 # --- оркестрация ---
 langgraph   = "^1.2"
-langgraph-checkpoint-sqlite = "^2.0"
+# 2.x не работает с langgraph 1.2: сериализатор чекпойнтов 4.x лишился `dumps`,
+# и `AsyncSqliteSaver` падает на первой же записи. 3.1 — первая совместимая ветка.
+langgraph-checkpoint-sqlite = "^3.1"
 
 # --- сервис ---
 fastapi     = ">=0.133.0,<0.137.0"

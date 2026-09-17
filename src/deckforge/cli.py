@@ -52,9 +52,56 @@ def generate(
     config: Path = typer.Option(Path("configs/default.yaml"), "--config", "-c"),
     variant: str = typer.Option("A", "--variant", help="A, B, C или all"),
     out_dir: Path = typer.Option(Path("artifacts"), "--out-dir"),
+    seed: int = typer.Option(-1, "--seed", help="По умолчанию — seed из конфига (C11)"),
+    checkpoint: Path = typer.Option(
+        None, "--checkpoint", help="Файл sqlite: прогон переживает перезапуск"
+    ),
 ) -> None:
     """End-to-end: шаблон + контент → колода (change 17)."""
-    raise NotImplementedError("change (17) pipeline-orchestration")
+    import asyncio
+
+    from deckforge.config import get_settings, load_run_config
+    from deckforge.pipeline.run import (
+        build_deps,
+        collect_content_paths,
+        generate_variant,
+        load_brief,
+        variants_for,
+    )
+
+    run = load_run_config(config_path=config)
+    names = run.variants if variant.lower() == "all" else [variant]
+    profiles = variants_for(names)
+    paths = collect_content_paths(content)
+    cache_dir = Path(get_settings().artifacts_dir) / "template-cache"
+
+    for profile in profiles:
+        target = out_dir / profile.variant_id
+        deps = build_deps(
+            load_brief(brief),
+            run,
+            target,
+            cache_dir=cache_dir,
+            asset_dir=target / "assets",
+        )
+        result = asyncio.run(
+            generate_variant(
+                template,
+                paths,
+                profile,
+                deps,
+                seed=run.seed if seed < 0 else seed,
+                checkpoint_path=checkpoint,
+            )
+        )
+        report = result.report()
+        result.write_report()
+        typer.echo(
+            f"вариант {profile.variant_id}: слайдов {report['slides']}, "
+            f"{report['total_s']} с, форматы {', '.join(report['exports']) or '—'}"
+        )
+        for line in [*report["degradations"], *report["errors"]]:
+            typer.echo(f"  ! {line}")
 
 
 @app.command()
