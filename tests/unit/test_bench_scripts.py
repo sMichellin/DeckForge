@@ -1,0 +1,141 @@
+"""Скрипты замера. Запрос из #26 и долг change (17).
+
+Скрипт без теста гниёт молча: `bench_time_budget.py` пролежал заглушкой весь change (17)
+и никто этого не заметил. Здесь проверяется не красота чисел, а то, что замер что-то
+меряет и называет то, чего не померил.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import bench_audit_calibration as audit_bench  # noqa: E402
+import bench_time_budget as time_bench  # noqa: E402
+from deckforge.domain.slide import BulletsBlock, TextBlock  # noqa: E402
+from deckforge.domain.template import TemplateManifest  # noqa: E402
+from deckforge.layout.fonts import FontLibrary  # noqa: E402
+from deckforge.pipeline.run import RunResult  # noqa: E402
+
+# --- замер аудита -------------------------------------------------------------
+
+
+def test_bench_deck_is_built_from_template_layouts(manifest: TemplateManifest) -> None:
+    deck, skipped = audit_bench.build_deck(manifest, None)
+    used = {slide.layout_id for slide in deck.slides}
+    assert used <= {layout.layout_id for layout in manifest.layouts}
+    assert deck.slides, f"колода пуста, пропущено: {skipped}"
+
+
+def test_every_slide_gets_its_own_text(manifest: TemplateManifest) -> None:
+    """Одинаковый текст на всех слайдах дал бы находку про дубли — и замер мерил бы себя."""
+    deck, _ = audit_bench.build_deck(manifest, None)
+    headlines = [
+        block.text
+        for slide in deck.slides
+        for block in slide.blocks
+        if isinstance(block, TextBlock)
+    ]
+    assert len(set(headlines)) == len(headlines)
+
+
+def test_bench_text_has_no_numbers(manifest: TemplateManifest) -> None:
+    """Иначе `content.numbers_grounded` справедливо ругался бы на выдуманные числа."""
+    deck, _ = audit_bench.build_deck(manifest, None)
+    texts = [
+        block.text if isinstance(block, TextBlock) else " ".join(i.text for i in block.items)
+        for slide in deck.slides
+        for block in slide.blocks
+        if isinstance(block, TextBlock | BulletsBlock)
+    ]
+    assert not any(ch.isdigit() for text in texts for ch in text)
+
+
+def test_non_text_placeholders_are_not_filled_with_text(manifest: TemplateManifest) -> None:
+    layout = manifest.layouts[1]
+    title_idx, body_idx = audit_bench.text_placeholders(layout)
+    non_text = {p.idx for p in layout.placeholders if p.ph_type in audit_bench.NON_TEXT}
+    assert title_idx not in non_text and body_idx not in non_text
+
+
+def test_measurement_counts_per_slide() -> None:
+    m = audit_bench.Measurement(template="t", slides=4, findings=6, errors=2)
+    assert m.per_slide == pytest.approx(1.5)
+    assert m.errors_per_slide == pytest.approx(0.5)
+
+
+def test_empty_deck_does_not_divide_by_zero() -> None:
+    m = audit_bench.Measurement(template="t", slides=0, findings=0, errors=0)
+    assert m.per_slide == 0.0 and m.errors_per_slide == 0.0
+
+
+def test_bench_measures_something_on_a_real_package(tmp_path: Path) -> None:
+    """Главное свойство замера: он обязан выполнить проверки, а не показать чистый ноль.
+
+    Ровно здесь скрипт и поймал, что прогон аудита не наполнял реестр.
+    """
+    from tests.integration.test_native_objects import build_template
+
+    template = build_template(tmp_path / "t.pptx")
+    measurement = audit_bench.measure(template, FontLibrary.default(), tmp_path / "cache")
+
+    assert measurement.slides > 0
+    # Либо находки, либо явно названные пропуски — «тихий ноль» означает, что не мерили.
+    assert measurement.findings > 0 or measurement.skipped_checks
+
+
+def test_skipped_checks_are_named(tmp_path: Path) -> None:
+    """Без VLM смысловые проверки не запускаются, и замер обязан это сказать."""
+    from tests.integration.test_native_objects import build_template
+
+    template = build_template(tmp_path / "t.pptx")
+    measurement = audit_bench.measure(template, None, tmp_path / "cache")
+    assert any(check.startswith("content.") for check in measurement.skipped_checks)
+
+
+# --- замер бюджета ------------------------------------------------------------
+
+
+def test_percentile_of_one_run_is_that_run() -> None:
+    assert time_bench.percentile([42.0], 0.95) == 42.0
+
+
+def test_percentile_takes_the_worst_of_three() -> None:
+    """На трёх прогонах p95 — это худший: интерполяция дала бы число, которого не было."""
+    assert time_bench.percentile([10.0, 20.0, 30.0], 0.95) == 30.0
+    assert time_bench.percentile([10.0, 20.0, 30.0], 0.5) == 20.0
+
+
+def test_percentile_of_nothing_is_zero() -> None:
+    assert time_bench.percentile([], 0.95) == 0.0
+
+
+def fake_result(timings: dict[str, float]) -> RunResult:
+    return RunResult(
+        variant="A",
+        run_id="r1",
+        out_dir=Path("."),
+        state={"stage_timings_s": timings, "seed": 1},  # type: ignore[typeddict-item]
+    )
+
+
+def test_stage_timings_are_collected_across_runs() -> None:
+    per_stage = time_bench.table([fake_result({"plan": 1.0}), fake_result({"plan": 3.0})])
+    assert per_stage["plan"] == [1.0, 3.0]
+
+
+def test_report_says_no_when_the_budget_is_blown(capsys: pytest.CaptureFixture[str]) -> None:
+    ok = time_bench.report([fake_result({"plan": 400.0})], budget_s=300)
+    assert ok is False
+    assert "p95" in capsys.readouterr().out
+
+
+def test_report_says_yes_within_budget(capsys: pytest.CaptureFixture[str]) -> None:
+    ok = time_bench.report([fake_result({"plan": 10.0, "compose": 20.0})], budget_s=300)
+    assert ok is True
+    capsys.readouterr()
