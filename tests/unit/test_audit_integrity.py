@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import random
 from pathlib import Path
 
 import pytest
@@ -118,6 +120,72 @@ def test_chart_labels_missing_silent_on_a_labelled_chart(manifest: TemplateManif
     colony = deck(slide(chart(axis_titles={"value": "млн ₽", "category": "Квартал"})))
     context = context_for("integrity.chart_labels_missing", colony, manifest)
     assert list(chart_labels_missing(context)) == []
+
+
+def _png(seed: int) -> bytes:
+    """Превью, различимое перцептивным хешом. Одно зерно — одна и та же картинка.
+
+    Простые фигуры для такого теста не годятся: хеш строится на низких частотах,
+    и «левая половина чёрная» против «верхняя половина чёрная» дают расстояние 4
+    при пороге 6 — то есть считаются одним изображением. Одноцветные заливки
+    неразличимы тем более. Поэтому здесь детерминированный шум: разные зёрна дают
+    заведомо разные картинки, одинаковые — побайтово совпадающие.
+    """
+    image_mod = pytest.importorskip("PIL.Image")
+    rng = random.Random(seed)
+    pixels = bytes(rng.getrandbits(8) for _ in range(64 * 64 * 3))
+    buffer = io.BytesIO()
+    image_mod.frombytes("RGB", (64, 64), pixels).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def test_duplicate_slides_catches_the_same_picture_under_different_text(
+    manifest: TemplateManifest,
+) -> None:
+    """Одна фотография с разными подписями — дубль по смыслу, по словам непохожий."""
+    picture = _png(1)
+    colony = deck(
+        slide(title("Выручка выросла на треть"), slide_id="s01"),
+        slide(title("Затраты снизились вдвое"), slide_id="s02"),
+    )
+    context = context_for(
+        "integrity.duplicate_slides",
+        colony,
+        manifest,
+        previews={"s01": picture, "s02": picture},
+    )
+    findings = list(duplicate_slides(context))
+    assert [f.evidence["other_slide_id"] for f in findings] == ["s01"]
+    assert findings[0].evidence["compared"] == "изображение"
+
+
+def test_duplicate_slides_silent_when_pictures_differ(manifest: TemplateManifest) -> None:
+    """Одинаковый текст на разных макетах выглядит по-разному и дублем не является."""
+    text = "Выручка выросла на треть за счёт одного канала"
+    colony = deck(
+        slide(title(text), slide_id="s01"),
+        slide(title(text), slide_id="s02", layout_id="L01"),
+    )
+    context = context_for(
+        "integrity.duplicate_slides",
+        colony,
+        manifest,
+        previews={"s01": _png(1), "s02": _png(2)},
+    )
+    assert list(duplicate_slides(context)) == []
+
+
+def test_duplicate_slides_admits_the_comparison_was_partial(
+    manifest: TemplateManifest,
+) -> None:
+    """Превью нет — сравниваем текст и говорим об этом в находке, а не молчим."""
+    text = "Выручка выросла на треть за счёт одного канала"
+    colony = deck(slide(title(text), slide_id="s01"), slide(title(text), slide_id="s02"))
+    findings = list(
+        duplicate_slides(context_for("integrity.duplicate_slides", colony, manifest))
+    )
+    assert findings[0].evidence["compared"] == "только текст"
+    assert "неполное" in findings[0].message
 
 
 def test_duplicate_slides_catches_a_repeated_slide(manifest: TemplateManifest) -> None:

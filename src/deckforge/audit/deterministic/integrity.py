@@ -174,26 +174,89 @@ def _cosine(left: Counter[str], right: Counter[str]) -> float:
     return numerator / norm if norm else 0.0
 
 
+def _perceptual_hashes(previews: dict[str, bytes]) -> dict[str, object]:
+    """Перцептивные хеши превью: `slide_id` → хеш. Пусто, если считать нечем.
+
+    Импорт внутри функции: без превью библиотека не нужна вовсе, а её отсутствие
+    не должно ронять реестр проверок при импорте модуля.
+    """
+    if not previews:
+        return {}
+    try:
+        import io
+
+        import imagehash
+        from PIL import Image
+    except ImportError:
+        return {}
+
+    hashes: dict[str, object] = {}
+    for slide_id, raw in previews.items():
+        try:
+            with Image.open(io.BytesIO(raw)) as image:
+                hashes[slide_id] = imagehash.phash(image)
+        except Exception:
+            continue
+    return hashes
+
+
 @check(id="integrity.duplicate_slides", deterministic=True, severity=Severity.WARNING,
        title="Два слайда дублируют друг друга")
 def duplicate_slides(ctx: CheckContext) -> Iterable[Finding]:
-    """Два слайда дублируют друг друга."""
-    threshold = ctx.param("text_cosine", 0.92)
+    """Два слайда дублируют друг друга.
+
+    Текст и картинка отвечают на разные вопросы, поэтому решают вместе.
+
+    Два слайда с одной фотографией во весь слайд и разными подписями — дубль по смыслу,
+    но по словам непохожи: текстовое сравнение их пропустит. Обратное тоже бывает:
+    одинаковый текст на разных макетах выглядит по-разному и дублем не является.
+
+    Превью приходят из change (6) и есть не всегда: в CI LibreOffice не поднимается.
+    Тогда проверка не молчит и не падает — она сравнивает тексты и честно говорит
+    в находке, что сравнение было неполным.
+    """
+    text_threshold = ctx.param("text_cosine", 0.92)
+    hash_threshold = int(ctx.param("phash_distance", 6))
     slides = list(ctx.deck.slides)
     vectors = {slide.slide_id: _text_vector(slide) for slide in slides}
+    hashes = _perceptual_hashes(ctx.previews)
+    visual = len(hashes) >= 2
 
     for index, slide in enumerate(slides):
         for other in slides[index + 1 :]:
             similarity = _cosine(vectors[slide.slide_id], vectors[other.slide_id])
-            if similarity < threshold:
+            distance: int | None = None
+            left, right = hashes.get(slide.slide_id), hashes.get(other.slide_id)
+            if left is not None and right is not None:
+                distance = int(left - right)  # type: ignore[operator]
+
+            if distance is not None:
+                # Есть на что смотреть: решает картинка. Одинаковый текст на разных
+                # макетах даёт разные слайды, и дублем это не считается.
+                same = distance <= hash_threshold
+                why = f"изображения совпадают (расстояние {distance})"
+                note = ""
+            else:
+                same = similarity >= text_threshold
+                why = f"совпадение текста {similarity:.0%}"
+                note = (
+                    " Сравнение неполное: превью слайдов недоступны, "
+                    "картинки не сравнивались."
+                    if not visual
+                    else ""
+                )
+            if not same:
                 continue
+
             yield make_finding(
                 check_id="integrity.duplicate_slides",
                 slide_id=other.slide_id,
                 reason=f"duplicate:{slide.slide_id}",
-                message=(
-                    f"Слайд {other.slide_id} повторяет {slide.slide_id}: "
-                    f"совпадение текста {similarity:.0%}"
-                ),
-                evidence={"other_slide_id": slide.slide_id, "cosine": f"{similarity:.3f}"},
+                message=f"Слайд {other.slide_id} повторяет {slide.slide_id}: {why}.{note}",
+                evidence={
+                    "other_slide_id": slide.slide_id,
+                    "cosine": f"{similarity:.3f}",
+                    "phash_distance": str(distance) if distance is not None else "нет превью",
+                    "compared": "изображение" if distance is not None else "только текст",
+                },
             )
