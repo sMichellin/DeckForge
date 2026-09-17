@@ -61,6 +61,12 @@ def generate_json(
     image_png: bytes | None = None,
 ) -> tuple[dict[str, Any], Completion]:
     """Ответ модели, разобранный в словарь. Кэш прозрачен для вызывающего."""
+    # Строгий режим требуется провайдерам ещё до модели, поэтому приведение делается
+    # здесь, а не в generate_model: так покрыты оба пути — схема, выведенная из доменной
+    # модели, и готовая из `prompts/<скилл>/<версия>/schema.json`.
+    if response_schema is not None:
+        response_schema = strict_schema(response_schema)
+
     messages = build_messages(system=system, user=user, image_png=image_png)
 
     if cache is not None and cache.enabled:
@@ -132,6 +138,126 @@ def generate_model[T: BaseModel](
     )
 
 
+def strict_schema(schema: dict[str, Any], defs: dict[str, Any] | None = None
+                  ) -> dict[str, Any]:
+    """Привести схему Pydantic к строгому режиму провайдера.
+
+    Провайдеры со строгой проверкой (Groq, OpenAI) требуют, чтобы `required` перечислял
+    **все** свойства объекта. Pydantic же помечает обязательными только те, у которых нет
+    значения по умолчанию, — и запрос отвергается ещё до модели:
+
+        400 `required` is required to be supplied and to be an array including every key
+        in properties
+
+    Поэтому необязательные поля переносятся в `required`, но им разрешается `null`:
+    смысл «поле можно не заполнять» сохраняется, а форма схемы устраивает провайдера.
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    out = dict(schema)
+    defs = defs if defs is not None else (out.get("$defs") or out.get("definitions") or {})
+
+    for key in ("$defs", "definitions", "properties", "patternProperties"):
+        if isinstance(out.get(key), dict):
+            out[key] = {n: strict_schema(v, defs) for n, v in out[key].items()}
+    for key in ("allOf", "prefixItems"):
+        if isinstance(out.get(key), list):
+            out[key] = [strict_schema(v, defs) for v in out[key]]
+    if isinstance(out.get("items"), dict):
+        out["items"] = strict_schema(out["items"], defs)
+
+    if isinstance(out.get("anyOf"), list):
+        out = _collapse_nullable(out, defs)
+        if isinstance(out.get("anyOf"), list):
+            out["anyOf"] = [strict_schema(_inline(v, defs), defs) for v in out["anyOf"]]
+    if isinstance(out.get("oneOf"), list):
+        # Ссылку внутри ветви строгий режим не разворачивает и требует
+        # `additionalProperties: false` на самой ветви — встраиваем определение.
+        out["oneOf"] = [strict_schema(_inline(v, defs), defs) for v in out["oneOf"]]
+
+    # Строгий режим требует запрета лишних ключей на каждом объекте, включая словари
+    # вида `dict[str, X]`, которые Pydantic описывает через additionalProperties-схему.
+    if out.get("type") == "object" and "additionalProperties" not in out:
+        out["additionalProperties"] = False
+    elif isinstance(out.get("additionalProperties"), dict):
+        out["additionalProperties"] = strict_schema(out["additionalProperties"], defs)
+
+    properties = out.get("properties")
+    if isinstance(properties, dict) and properties:
+        was_required = set(out.get("required") or ())
+        out["required"] = list(properties)
+        out["properties"] = {
+            name: prop if name in was_required else _allow_null(prop)
+            for name, prop in properties.items()
+        }
+
+    return out
+
+
+def _inline(branch: dict[str, Any], defs: dict[str, Any]) -> dict[str, Any]:
+    """Подставить определение вместо ссылки, если ветвь — голый `$ref`."""
+    if isinstance(branch, dict) and set(branch) == {"$ref"}:
+        name = branch["$ref"].rsplit("/", 1)[-1]
+        return dict(defs.get(name, branch))
+    return branch
+
+
+def _collapse_nullable(prop: dict[str, Any], defs: dict[str, Any]) -> dict[str, Any]:
+    """Свернуть `X | None` в одно поле, если `X` — перечисление.
+
+    Pydantic описывает `ColorRef | None` как `anyOf: [{$ref: ColorRef}, {type: null}]`.
+    Строгий режим такую пару отвергает: ветви `anyOf` он требует различать либо
+    дискриминатором, либо непересекающимся набором ключей, а ссылка на enum и `null`
+    не дают ни того, ни другого:
+
+        anyOf branches must be disambiguated via a required discriminator (const/enum)
+        or by key-set exclusion with additionalProperties:false
+
+    Разворачиваем ссылку и добавляем `null` прямо в перечисление — смысл тот же,
+    а ветвление исчезает.
+    """
+    branches = prop["anyOf"]
+    if len(branches) != 2 or not all(isinstance(b, dict) for b in branches):
+        return prop
+    nulls = [b for b in branches if b.get("type") == "null"]
+    others = [b for b in branches if b.get("type") != "null"]
+    if len(nulls) != 1 or len(others) != 1:
+        return prop
+
+    target = others[0]
+    ref = target.get("$ref")
+    if ref:
+        name = ref.rsplit("/", 1)[-1]
+        target = defs.get(name, target)
+    if "enum" not in target:
+        return prop
+
+    rest = {k: v for k, v in prop.items() if k != "anyOf"}
+    return {
+        **rest,
+        "type": [target.get("type", "string"), "null"],
+        "enum": [*target["enum"], None],
+    }
+
+
+def _allow_null(prop: dict[str, Any]) -> dict[str, Any]:
+    """Разрешить `null` там, где поле было необязательным."""
+    if not isinstance(prop, dict):
+        return prop
+    if "null" in str(prop.get("type", "")) or any(
+        isinstance(v, dict) and v.get("type") == "null" for v in prop.get("anyOf", [])
+    ):
+        return prop
+    if "anyOf" in prop:
+        return {**prop, "anyOf": [*prop["anyOf"], {"type": "null"}]}
+    if "type" in prop:
+        kind = prop["type"]
+        return {**prop, "type": [*kind, "null"] if isinstance(kind, list) else [kind, "null"]}
+    # Ссылка на $defs или пустая схема: оборачиваем, не ломая исходное описание.
+    return {"anyOf": [prop, {"type": "null"}]}
+
+
 def _repair_hint(exc: Exception) -> str:
     if isinstance(exc, ValidationError):
         problems = "\n".join(
@@ -169,3 +295,13 @@ def build_messages(
         }
     )
     return messages
+
+
+#: Что строгий режим провайдера выразить не может, сколько схему ни приводи.
+#: Проверено на Groq 17.09: `dict[str, X]` он требует снабдить
+#: `additionalProperties: false`, а это противоречит самой идее словаря с открытым
+#: набором ключей. В нашем IR так описаны `SlideIR.fit_report` и `ChartBlock.axis_titles`.
+#: Оба поля модель заполнять и не должна: `fit_report` считает слой `layout`, единицы осей
+#: берутся из датасета. Схему ответа скилла надо сужать до того, что модель действительно
+#: производит, а не выводить целиком из доменной модели.
+STRICT_MODE_UNSUPPORTED = ("объекты с открытым набором ключей: dict[str, X]",)
