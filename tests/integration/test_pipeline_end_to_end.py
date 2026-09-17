@@ -166,7 +166,14 @@ async def test_template_and_content_become_a_deck(workspace: dict[str, Path]) ->
     assert len(result.state["deck"].slides) == SLIDES_IN_PLAN
     assert result.exports["pptx"].is_file()
     assert result.exports["html"].is_file()
-    assert result.state["audit"] is not None
+
+    # «Отчёт есть» — недостаточное утверждение: пустой реестр проверок давал отчёт,
+    # неотличимый от чистой колоды. Здесь это ловится не полностью: в общем прогоне
+    # pytest реестр успевают наполнить импорты соседних тестов, поэтому настоящий страж —
+    # `test_runner_populates_the_registry_itself`, который запускает чистый процесс.
+    audit = result.state["audit"]
+    summary = audit.summary
+    assert summary.passed + len(audit.findings) > 0, "аудит не выполнил ни одной проверки"
 
 
 async def test_every_stage_is_measured(workspace: dict[str, Path]) -> None:

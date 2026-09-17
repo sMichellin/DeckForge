@@ -102,3 +102,24 @@ def test_deterministic_checks_cover_three_content_questions() -> None:
     assert {"content.no_typos", "content.numbers_grounded", "content.single_language"} <= (
         deterministic
     )
+
+
+def test_runner_populates_the_registry_itself() -> None:
+    """Проверки заводятся импортом своего модуля, и прогон обязан это обеспечить сам.
+
+    Потребитель, импортировавший только `AuditRunner` (узел графа change 17), получал
+    пустой реестр — ноль находок, ноль пройденных, ноль пропущенных. Отчёт при этом
+    неотличим от чистой колоды: «аудит прошёл, нарушений нет».
+    """
+    import subprocess
+    import sys
+
+    probe = (
+        "from deckforge.audit.runner import AuditRunner;"
+        "from deckforge.audit.registry import REGISTRY;"
+        "print(len(REGISTRY))"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
+    assert int(out.stdout.strip()) > 0, "импорта прогона не хватило, чтобы завести проверки"

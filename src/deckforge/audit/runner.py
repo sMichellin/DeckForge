@@ -12,6 +12,11 @@
 **Пропуск отличается от прохождения.** Проверка, которой нечего смотреть (нет файла,
 нет превью) или которая ещё не реализована соседним change, попадает в `skipped_checks`,
 а не растворяется в «нарушений не найдено».
+
+**Реестр наполняет сам прогон.** Проверки заводятся побочным эффектом импорта своего
+модуля, и потребитель, который импортировал только `AuditRunner`, получал пустой реестр:
+ноль находок, ноль пройденных, ноль пропущенных — отчёт, неотличимый от чистой колоды.
+Помнить об этом импорте обязан не каждый вызывающий, а прогон.
 """
 
 from __future__ import annotations
@@ -19,6 +24,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from deckforge.audit import deterministic as _deterministic  # noqa: F401  регистрация
+from deckforge.audit import semantic as _semantic  # noqa: F401  регистрация
 from deckforge.audit.context import AuditContext
 from deckforge.audit.registry import REGISTRY, CheckUnavailable, RegisteredCheck
 from deckforge.domain.audit import AuditReport, AuditSummary, Finding
