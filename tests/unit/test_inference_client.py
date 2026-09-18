@@ -215,3 +215,43 @@ def test_truncated_prose_without_a_schema_is_accepted() -> None:
     result = client.complete([{"role": "user", "content": "x"}], max_tokens=100)
     assert result.text.startswith("длинный")
     assert len(fake.calls) == 1
+
+
+# --- `pattern` там, где его не компилируют (замер 18.09) ----------------------
+
+
+def test_patterns_are_stripped_for_backends_that_choke_on_them() -> None:
+    """llama.cpp переводит схему в грамматику и на `^s\\d{2,}$` отвечает 400.
+
+    Отдать форму без одного ограничения лучше, чем не отдать формы вовсе: без схемы
+    модель возвращает свою структуру. `pattern` при этом остаётся в доменной модели
+    и проверяется Pydantic.
+    """
+    from deckforge.inference.client import without_patterns
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "slide_id": {"type": "string", "pattern": r"^s\d{2,}$"},
+            "nested": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z]$"}},
+        },
+        "required": ["slide_id"],
+    }
+    import json as _json
+
+    cleaned = without_patterns(schema)
+    assert "pattern" not in _json.dumps(cleaned)
+    assert cleaned["properties"]["slide_id"]["type"] == "string", "форма обязана уцелеть"
+    assert cleaned["required"] == ["slide_id"]
+
+
+def test_patterns_survive_for_backends_that_support_them() -> None:
+    from deckforge.inference.client import without_patterns
+
+    schema = {"type": "string", "pattern": "^x$"}
+    assert without_patterns({"a": schema}) == {"a": {"type": "string"}}
+    # Сама функция ничего не решает — решает флаг реестра; проверяем, что он читается.
+    from deckforge.registry.models import ModelSpec
+
+    spec = ModelSpec(hf_id="x/y", license="apache-2.0", params_total_b=1.0, role="r")
+    assert spec.supports_schema_patterns is True

@@ -53,6 +53,21 @@ class InferenceError(RuntimeError):
     """Модель не дала пригодного ответа. Отдельный тип, чтобы отличать от сетевых сбоев."""
 
 
+def without_patterns(schema: Any) -> Any:
+    """Схема без `pattern` на любой глубине.
+
+    `pattern` — ограничение на **значение**, а не на форму ответа, и Pydantic проверяет
+    его в любом случае. Провайдеру, который компилирует схему в грамматику, оно может
+    оказаться не по зубам, и тогда запрос отвергается целиком: лучше отдать форму
+    без одного ограничения, чем не отдать ничего.
+    """
+    if isinstance(schema, dict):
+        return {k: without_patterns(v) for k, v in schema.items() if k != "pattern"}
+    if isinstance(schema, list):
+        return [without_patterns(item) for item in schema]
+    return schema
+
+
 class InferenceTransportError(InferenceError):
     """Отказ провайдера: 404, 400, неверный эндпоинт, модель не поднята.
 
@@ -219,6 +234,8 @@ class InferenceClient:
         # Провайдер без поддержки JSON Schema отвергнет запрос целиком, поэтому схема
         # в таком случае остаётся только в тексте промпта, а форму держит цикл починки.
         if response_schema is not None and self.spec.supports_structured_output:
+            if not self.spec.supports_schema_patterns:
+                response_schema = without_patterns(response_schema)
             params["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {

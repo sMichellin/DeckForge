@@ -40,23 +40,29 @@ models:
     params_total_b: 26.9
     role: "composition,bulk"
     endpoint_ref: "vlm"
-    # Замер 18.09: сквозной прогон падает на стадии плана —
-    #   400 'Failed to initialize samplers: failed to parse grammar'
-    # llama.cpp переводит JSON Schema в GBNF-грамматику и на схеме `DeckPlan` этого
-    # не осиливает. Схема уходит в текст промпта, форму держит цикл починки
-    # (inference/client.py). У судьи схема из двух полей, она компилируется — поэтому
-    # выключено только здесь, а не у всех ролей: дело в схеме, а не в модели.
+    # Замер 18.09, уточнён тем же вечером. Сквозной прогон падал на стадии плана
+    # с `400 Failed to initialize samplers: failed to parse grammar`, и сначала мы
+    # выключили structured output целиком. Проверка вариантов схемы показала, что дело
+    # не в схеме `DeckPlan` как таковой, а **в двух полях с `pattern`**: без них та же
+    # схема компилируется. Поэтому structured output вернулся, а `pattern` не шлётся —
+    # его всё равно проверяет Pydantic. Отдать форму без одного ограничения лучше,
+    # чем не отдать формы вовсе: без неё модель возвращает свою структуру.
+    supports_schema_patterns: false
     notes: >-
       Веса: DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NEO-CODER-MAX-MTP-GGUF,
       квантование IQ4_XS, 16.6 ГБ. Родословная проверена: единственный предок —
       Qwen/Qwen3.8-27B, тоже apache-2.0, чужих лицензий в мерже нет.
-    supports_structured_output: false
   vlm_judge:
     hf_id: "/home/joni/Downloads/Qwen3.8-27B-TurboFCFusion-735-882-Here-Uncen-NEO-CODER-MAX-IQ4_XS.gguf"
     license: "apache-2.0"
     params_total_b: 26.9
     role: "audit,layout-classification"
     endpoint_ref: "vlm"
+    # Тот же сервер, что у llm_fast: неспособность собрать грамматику с `pattern` —
+    # свойство бэкенда, а не роли. Схема судьи из двух полей его не содержит и работает
+    # (141 вызов в замере стабильности), но объявляем честно — иначе первая же проверка
+    # с `pattern` отвалится с 400 и искать причину будем заново.
+    supports_schema_patterns: false
     notes: >-
       Картинки принимает, JSON Schema держит. Размышляет: пустой ответ при
       finish_reason=length означает нехватку бюджета токенов, а не отказ — клиент

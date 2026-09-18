@@ -29,6 +29,16 @@ class ModelSpec(BaseModel):
         default=True,
         description="Держит ли бэкенд JSON Schema. Если нет, схема уходит в текст промпта.",
     )
+    supports_schema_patterns: bool = Field(
+        default=True,
+        description=(
+            "Переваривает ли бэкенд `pattern` внутри схемы. llama.cpp переводит JSON Schema "
+            "в GBNF-грамматику и на регулярном выражении вида `^s\\d{2,}$` отвечает "
+            "`400 failed to parse grammar` — отвергая запрос целиком. Замер 18.09: та же "
+            "схема без `pattern` собирается. Выключать structured output ради этого не нужно: "
+            "довольно не слать одно поле."
+        ),
+    )
     notes: str | None = None
 
     @property
