@@ -1,0 +1,1995 @@
+{
+  "template_id": "sha256:9ef2323ed5f49f464aee5ae7065f1f57bb92c8be3a635be507d59819e285cfe0",
+  "source_name": "Шаблон презентации VK Education.pptx",
+  "slide_size": {
+    "cx_emu": 12192000,
+    "cy_emu": 6858000,
+    "aspect": "16:9"
+  },
+  "theme": {
+    "colors": {
+      "dk1": "#000000",
+      "lt1": "#EBF3F9",
+      "dk2": "#0077FF",
+      "lt2": "#FFFFFF",
+      "accent1": "#0077FF",
+      "accent2": "#FF3885",
+      "accent3": "#7CEDF8",
+      "accent4": "#EBF3F9",
+      "accent5": "#D8FAFD",
+      "accent6": "#FFEBF3",
+      "hlink": "#0077FF",
+      "folHlink": "#005EFF"
+    },
+    "fonts": {
+      "major_latin": "Arial",
+      "minor_latin": "Arial",
+      "major_cs": null,
+      "minor_cs": null
+    }
+  },
+  "typography_scale": [
+    {
+      "role": "title",
+      "size_pt": 60.0,
+      "font_ref": "major_latin",
+      "bold": false,
+      "italic": false,
+      "color_ref": "dk1",
+      "line_spacing": null
+    },
+    {
+      "role": "subtitle",
+      "size_pt": 39.0,
+      "font_ref": "minor_latin",
+      "bold": false,
+      "italic": false,
+      "color_ref": "dk2",
+      "line_spacing": null
+    },
+    {
+      "role": "body",
+      "size_pt": 20.0,
+      "font_ref": "minor_latin",
+      "bold": false,
+      "italic": false,
+      "color_ref": "dk1",
+      "line_spacing": null
+    },
+    {
+      "role": "caption",
+      "size_pt": 18.0,
+      "font_ref": "minor_latin",
+      "bold": false,
+      "italic": false,
+      "color_ref": "dk2",
+      "line_spacing": null
+    }
+  ],
+  "grid": {
+    "margins_emu": {
+      "left": 603172,
+      "right": 632334,
+      "top": 167981,
+      "bottom": 620712
+    },
+    "guides_x_emu": [
+      654597,
+      1739901,
+      3361705,
+      3858126,
+      4836696,
+      5277685,
+      5671457,
+      5804504,
+      6096570,
+      6862058,
+      10850631,
+      11532546,
+      12192000
+    ],
+    "guides_y_emu": [
+      827904,
+      167981,
+      409418,
+      692150,
+      1336391,
+      1798432,
+      2036163,
+      2487931,
+      2916090,
+      4078624,
+      4533815,
+      4728001,
+      4959566,
+      5281999,
+      5461908,
+      6205966,
+      6858000
+    ],
+    "columns": 12,
+    "gutter_emu": 133047,
+    "guides_source": "inferred"
+  },
+  "layouts": [
+    {
+      "layout_id": "L00",
+      "name": "2_Финальный с QR + подпись",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout20.xml",
+      "index": 0,
+      "kind": "quote",
+      "kind_confidence": 0.5,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 3,
+        "max_chars_body": 18,
+        "max_chars_title": 13,
+        "supports_chart": false,
+        "supports_table": false,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 620713,
+          "y": 2483712,
+          "cx": 5475287,
+          "cy": 1477328,
+          "font_family": "Play",
+          "size_pt": 60.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 658813,
+          "y": 4161565,
+          "cx": 5437187,
+          "cy": 355600,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        },
+        {
+          "idx": 2,
+          "ph_type": "PIC",
+          "role": null,
+          "x": 658813,
+          "y": 692150,
+          "cx": 1081088,
+          "cy": 1081088,
+          "font_family": null,
+          "size_pt": null,
+          "bold": null
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s5",
+          "kind": "picture",
+          "x": 658813,
+          "y": 5711140,
+          "cx": 2772300,
+          "cy": 489635,
+          "z": 5,
+          "text": null
+        },
+        {
+          "shape_id": "s6",
+          "kind": "picture",
+          "x": 6033157,
+          "y": 699157,
+          "cx": 6166658,
+          "cy": 6166658,
+          "z": 6,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L01",
+      "name": "1_Титульный слайд раздела",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout22.xml",
+      "index": 1,
+      "kind": "title",
+      "kind_confidence": 0.6,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 0,
+        "max_chars_body": 0,
+        "max_chars_title": 11,
+        "supports_chart": false,
+        "supports_table": false,
+        "supports_image": false
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 603172,
+          "y": 692150,
+          "cx": 4621372,
+          "cy": 1181862,
+          "font_family": "Play",
+          "size_pt": 48.0,
+          "bold": false
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s3",
+          "kind": "picture",
+          "x": 6033225,
+          "y": 699157,
+          "cx": 6166658,
+          "cy": 6166658,
+          "z": 3,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L02",
+      "name": "4_Финальный с QR + подпись",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout21.xml",
+      "index": 2,
+      "kind": "quote",
+      "kind_confidence": 0.5,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 3,
+        "max_chars_body": 18,
+        "max_chars_title": 13,
+        "supports_chart": false,
+        "supports_table": false,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 620713,
+          "y": 2483712,
+          "cx": 5475287,
+          "cy": 1477328,
+          "font_family": "Play",
+          "size_pt": 60.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 658813,
+          "y": 4161565,
+          "cx": 5437187,
+          "cy": 355600,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        },
+        {
+          "idx": 2,
+          "ph_type": "PIC",
+          "role": null,
+          "x": 658813,
+          "y": 692150,
+          "cx": 1081088,
+          "cy": 1081088,
+          "font_family": null,
+          "size_pt": null,
+          "bold": null
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s5",
+          "kind": "picture",
+          "x": 658813,
+          "y": 5711140,
+          "cx": 2772300,
+          "cy": 489635,
+          "z": 5,
+          "text": null
+        },
+        {
+          "shape_id": "s6",
+          "kind": "picture",
+          "x": 8794220,
+          "y": 0,
+          "cx": 3397780,
+          "cy": 6858000,
+          "z": 6,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L03",
+      "name": "Заголовок + объект",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout24.xml",
+      "index": 3,
+      "kind": "bullets",
+      "kind_confidence": 0.8,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 14,
+        "max_chars_body": 1120,
+        "max_chars_title": 0,
+        "supports_chart": true,
+        "supports_table": true,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 677334,
+          "y": 692150,
+          "cx": 10855854,
+          "cy": 644241,
+          "font_family": "Play",
+          "size_pt": 36.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 658813,
+          "y": 1773238,
+          "cx": 10874375,
+          "cy": 4447949,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        }
+      ],
+      "shapes": [],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L04",
+      "name": "3_Титульный слайд раздела",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout23.xml",
+      "index": 4,
+      "kind": "title",
+      "kind_confidence": 0.6,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 0,
+        "max_chars_body": 0,
+        "max_chars_title": 11,
+        "supports_chart": false,
+        "supports_table": false,
+        "supports_image": false
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 603172,
+          "y": 692150,
+          "cx": 4621372,
+          "cy": 1181862,
+          "font_family": "Play",
+          "size_pt": 48.0,
+          "bold": false
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s3",
+          "kind": "picture",
+          "x": 8807980,
+          "y": 0,
+          "cx": 3394294,
+          "cy": 6858000,
+          "z": 3,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L05",
+      "name": "1_Титульный слайд",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout1.xml",
+      "index": 5,
+      "kind": "quote",
+      "kind_confidence": 0.5,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 1,
+        "max_chars_body": 36,
+        "max_chars_title": 25,
+        "supports_chart": false,
+        "supports_table": false,
+        "supports_image": false
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 622261,
+          "y": 2921912,
+          "cx": 10220325,
+          "cy": 1661993,
+          "font_family": "Play",
+          "size_pt": 60.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 658813,
+          "y": 4866865,
+          "cx": 5012644,
+          "cy": 553998,
+          "font_family": "Play",
+          "size_pt": 20.0,
+          "bold": false
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s2",
+          "kind": "picture",
+          "x": 6033157,
+          "y": 699157,
+          "cx": 6166658,
+          "cy": 6166658,
+          "z": 2,
+          "text": null
+        },
+        {
+          "shape_id": "s6",
+          "kind": "picture",
+          "x": 658813,
+          "y": 692150,
+          "cx": 2772297,
+          "cy": 489635,
+          "z": 6,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L06",
+      "name": "3_Титульный слайд",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout2.xml",
+      "index": 6,
+      "kind": "quote",
+      "kind_confidence": 0.5,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 1,
+        "max_chars_body": 36,
+        "max_chars_title": 25,
+        "supports_chart": false,
+        "supports_table": false,
+        "supports_image": false
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 622261,
+          "y": 2598003,
+          "cx": 10220325,
+          "cy": 1661993,
+          "font_family": "Play",
+          "size_pt": 60.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 658813,
+          "y": 4728001,
+          "cx": 5012644,
+          "cy": 553998,
+          "font_family": "Play",
+          "size_pt": 20.0,
+          "bold": false
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s5",
+          "kind": "picture",
+          "x": 658813,
+          "y": 692150,
+          "cx": 2772297,
+          "cy": 489635,
+          "z": 5,
+          "text": null
+        },
+        {
+          "shape_id": "s6",
+          "kind": "picture",
+          "x": 8803845,
+          "y": 0,
+          "cx": 3397780,
+          "cy": 6858000,
+          "z": 6,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L07",
+      "name": "2_Титульный слайд",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout3.xml",
+      "index": 7,
+      "kind": "quote",
+      "kind_confidence": 0.5,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 1,
+        "max_chars_body": 76,
+        "max_chars_title": 25,
+        "supports_chart": false,
+        "supports_table": false,
+        "supports_image": false
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 622261,
+          "y": 2921912,
+          "cx": 10220325,
+          "cy": 1661993,
+          "font_family": "Play",
+          "size_pt": 60.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 658813,
+          "y": 4866865,
+          "cx": 10224000,
+          "cy": 553998,
+          "font_family": "Play",
+          "size_pt": 20.0,
+          "bold": false
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s5",
+          "kind": "picture",
+          "x": 658813,
+          "y": 692150,
+          "cx": 2772300,
+          "cy": 489635,
+          "z": 5,
+          "text": null
+        },
+        {
+          "shape_id": "s6",
+          "kind": "picture",
+          "x": 6033157,
+          "y": 699157,
+          "cx": 6166658,
+          "cy": 6166658,
+          "z": 6,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L08",
+      "name": "4_Титульный слайд",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout4.xml",
+      "index": 8,
+      "kind": "quote",
+      "kind_confidence": 0.5,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 1,
+        "max_chars_body": 36,
+        "max_chars_title": 25,
+        "supports_chart": false,
+        "supports_table": false,
+        "supports_image": false
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 622261,
+          "y": 2598003,
+          "cx": 10220325,
+          "cy": 1661993,
+          "font_family": "Play",
+          "size_pt": 60.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 658813,
+          "y": 4728001,
+          "cx": 5012644,
+          "cy": 553998,
+          "font_family": "Play",
+          "size_pt": 20.0,
+          "bold": false
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s3",
+          "kind": "picture",
+          "x": 658813,
+          "y": 692150,
+          "cx": 2772300,
+          "cy": 489635,
+          "z": 3,
+          "text": null
+        },
+        {
+          "shape_id": "s6",
+          "kind": "picture",
+          "x": 8794220,
+          "y": 0,
+          "cx": 3397780,
+          "cy": 6858000,
+          "z": 6,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L09",
+      "name": "Заголовок в 2 строки + объект",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout9.xml",
+      "index": 9,
+      "kind": "bullets",
+      "kind_confidence": 0.8,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 13,
+        "max_chars_body": 507,
+        "max_chars_title": 13,
+        "supports_chart": true,
+        "supports_table": true,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 677334,
+          "y": 692150,
+          "cx": 5418666,
+          "cy": 1081088,
+          "font_family": "Play",
+          "size_pt": 36.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 671513,
+          "y": 2040889,
+          "cx": 5424487,
+          "cy": 4159886,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s4",
+          "kind": "shape",
+          "x": 6096000,
+          "y": 0,
+          "cx": 6096000,
+          "cy": 6858000,
+          "z": 4,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L10",
+      "name": "1 фото",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout26.xml",
+      "index": 10,
+      "kind": "two_column",
+      "kind_confidence": 0.75,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 35,
+        "max_chars_body": 1397,
+        "max_chars_title": 11,
+        "supports_chart": true,
+        "supports_table": true,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 677334,
+          "y": 692150,
+          "cx": 4663017,
+          "cy": 1081088,
+          "font_family": "Play",
+          "size_pt": 36.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 671514,
+          "y": 2018599,
+          "cx": 4649786,
+          "cy": 4182176,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        },
+        {
+          "idx": 2,
+          "ph_type": "PIC",
+          "role": null,
+          "x": 6096000,
+          "y": 0,
+          "cx": 6096000,
+          "cy": 6858000,
+          "font_family": null,
+          "size_pt": null,
+          "bold": null
+        }
+      ],
+      "shapes": [],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L11",
+      "name": "Заголовок + 2 объекта",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout25.xml",
+      "index": 11,
+      "kind": "two_column",
+      "kind_confidence": 0.85,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 28,
+        "max_chars_body": 1064,
+        "max_chars_title": 0,
+        "supports_chart": true,
+        "supports_table": true,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 677334,
+          "y": 692150,
+          "cx": 10855854,
+          "cy": 644241,
+          "font_family": "Play",
+          "size_pt": 36.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 677334,
+          "y": 1773238,
+          "cx": 5317065,
+          "cy": 4427537,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        },
+        {
+          "idx": 2,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 6197604,
+          "y": 1773238,
+          "cx": 5317062,
+          "cy": 4427537,
+          "font_family": null,
+          "size_pt": null,
+          "bold": null
+        }
+      ],
+      "shapes": [],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L12",
+      "name": "1 фото + подпись",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout28.xml",
+      "index": 12,
+      "kind": "custom",
+      "kind_confidence": 0.3,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 27,
+        "max_chars_body": 975,
+        "max_chars_title": 11,
+        "supports_chart": true,
+        "supports_table": true,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 677334,
+          "y": 692150,
+          "cx": 4663017,
+          "cy": 1081088,
+          "font_family": "Play",
+          "size_pt": 36.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 6096000,
+          "y": 5147214,
+          "cx": 5449888,
+          "cy": 352811,
+          "font_family": "Play",
+          "size_pt": 18.0,
+          "bold": false
+        },
+        {
+          "idx": 2,
+          "ph_type": "PIC",
+          "role": null,
+          "x": 6096000,
+          "y": 692151,
+          "cx": 5437188,
+          "cy": 4182176,
+          "font_family": null,
+          "size_pt": null,
+          "bold": null
+        },
+        {
+          "idx": 3,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 6096000,
+          "y": 5553075,
+          "cx": 5449888,
+          "cy": 684213,
+          "font_family": null,
+          "size_pt": null,
+          "bold": null
+        },
+        {
+          "idx": 4,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 671514,
+          "y": 2018599,
+          "cx": 4649786,
+          "cy": 4182176,
+          "font_family": null,
+          "size_pt": null,
+          "bold": null
+        }
+      ],
+      "shapes": [],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L13",
+      "name": "1_1 фото",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout27.xml",
+      "index": 13,
+      "kind": "two_column",
+      "kind_confidence": 0.75,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 35,
+        "max_chars_body": 1397,
+        "max_chars_title": 11,
+        "supports_chart": true,
+        "supports_table": true,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 6870171,
+          "y": 692150,
+          "cx": 4663017,
+          "cy": 1081088,
+          "font_family": "Play",
+          "size_pt": 36.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 6864351,
+          "y": 2018599,
+          "cx": 4649786,
+          "cy": 4182176,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        },
+        {
+          "idx": 2,
+          "ph_type": "PIC",
+          "role": null,
+          "x": 0,
+          "y": 0,
+          "cx": 6096000,
+          "cy": 6858000,
+          "font_family": null,
+          "size_pt": null,
+          "bold": null
+        }
+      ],
+      "shapes": [],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L14",
+      "name": "Слайд со спикером",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout5.xml",
+      "index": 14,
+      "kind": "two_column",
+      "kind_confidence": 0.75,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 28,
+        "max_chars_body": 1190,
+        "max_chars_title": 15,
+        "supports_chart": true,
+        "supports_table": true,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 658813,
+          "y": 692150,
+          "cx": 6192838,
+          "cy": 1380285,
+          "font_family": "Play",
+          "size_pt": 48.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 658813,
+          "y": 2357767,
+          "cx": 5142954,
+          "cy": 2142466,
+          "font_family": "Play",
+          "size_pt": 20.0,
+          "bold": false
+        },
+        {
+          "idx": 2,
+          "ph_type": "PIC",
+          "role": null,
+          "x": 6096000,
+          "y": 0,
+          "cx": 6096000,
+          "cy": 6858000,
+          "font_family": null,
+          "size_pt": null,
+          "bold": null
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s4",
+          "kind": "picture",
+          "x": 658813,
+          "y": 5711140,
+          "cx": 2772297,
+          "cy": 489635,
+          "z": 4,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L15",
+      "name": "Заголовок",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout6.xml",
+      "index": 15,
+      "kind": "title",
+      "kind_confidence": 0.6,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 0,
+        "max_chars_body": 0,
+        "max_chars_title": 0,
+        "supports_chart": false,
+        "supports_table": false,
+        "supports_image": false
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 677334,
+          "y": 692150,
+          "cx": 10855854,
+          "cy": 644241,
+          "font_family": "Play",
+          "size_pt": 36.0,
+          "bold": false
+        }
+      ],
+      "shapes": [],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L16",
+      "name": "Титульный слайд раздела",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout7.xml",
+      "index": 16,
+      "kind": "title",
+      "kind_confidence": 0.6,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 0,
+        "max_chars_body": 0,
+        "max_chars_title": 11,
+        "supports_chart": false,
+        "supports_table": false,
+        "supports_image": false
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 603172,
+          "y": 692150,
+          "cx": 4621372,
+          "cy": 1181862,
+          "font_family": "Play",
+          "size_pt": 48.0,
+          "bold": false
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s3",
+          "kind": "picture",
+          "x": 6033225,
+          "y": 691342,
+          "cx": 6166658,
+          "cy": 6166658,
+          "z": 3,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L17",
+      "name": "2_Титульный слайд раздела",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout8.xml",
+      "index": 17,
+      "kind": "title",
+      "kind_confidence": 0.6,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 0,
+        "max_chars_body": 0,
+        "max_chars_title": 11,
+        "supports_chart": false,
+        "supports_table": false,
+        "supports_image": false
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 603172,
+          "y": 692150,
+          "cx": 4621372,
+          "cy": 1181862,
+          "font_family": "Play",
+          "size_pt": 48.0,
+          "bold": false
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s3",
+          "kind": "picture",
+          "x": 8807980,
+          "y": 0,
+          "cx": 3394294,
+          "cy": 6858000,
+          "z": 3,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L18",
+      "name": "Цитата без фото",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout11.xml",
+      "index": 18,
+      "kind": "custom",
+      "kind_confidence": 0.3,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 9,
+        "max_chars_body": 540,
+        "max_chars_title": 0,
+        "supports_chart": true,
+        "supports_table": true,
+        "supports_image": false
+      },
+      "placeholders": [
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 3359150,
+          "y": 692151,
+          "cx": 8174038,
+          "cy": 1609616,
+          "font_family": "Play",
+          "size_pt": 44.0,
+          "bold": false
+        },
+        {
+          "idx": 2,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 3359150,
+          "y": 5738829,
+          "cx": 8200516,
+          "cy": 461946,
+          "font_family": "Play",
+          "size_pt": 24.0,
+          "bold": null
+        },
+        {
+          "idx": 3,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 3366814,
+          "y": 2459421,
+          "cx": 8174038,
+          "cy": 1609617,
+          "font_family": "Play",
+          "size_pt": 24.0,
+          "bold": false
+        },
+        {
+          "idx": 11,
+          "ph_type": "FTR",
+          "role": "caption",
+          "x": 671513,
+          "y": 167981,
+          "cx": 10874375,
+          "cy": 241437,
+          "font_family": "Arial",
+          "size_pt": 18.0,
+          "bold": null
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s5",
+          "kind": "text",
+          "x": 544512,
+          "y": 0,
+          "cx": 2058988,
+          "cy": 4478149,
+          "z": 5,
+          "text": "«"
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L19",
+      "name": "2 фактоида + текст",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout10.xml",
+      "index": 19,
+      "kind": "custom",
+      "kind_confidence": 0.3,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 20,
+        "max_chars_body": 752,
+        "max_chars_title": 0,
+        "supports_chart": true,
+        "supports_table": true,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 677334,
+          "y": 692150,
+          "cx": 10855854,
+          "cy": 644241,
+          "font_family": "Play",
+          "size_pt": 36.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 671514,
+          "y": 1773238,
+          "cx": 5135728,
+          "cy": 4427537,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        },
+        {
+          "idx": 2,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 6097339,
+          "y": 3864033,
+          "cx": 5417327,
+          "cy": 1080000,
+          "font_family": "Play",
+          "size_pt": 88.0,
+          "bold": true
+        },
+        {
+          "idx": 3,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 6097338,
+          "y": 5058095,
+          "cx": 5417327,
+          "cy": 356617,
+          "font_family": null,
+          "size_pt": 18.0,
+          "bold": null
+        },
+        {
+          "idx": 4,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 6096000,
+          "y": 1773238,
+          "cx": 5417327,
+          "cy": 1080000,
+          "font_family": "Play",
+          "size_pt": 88.0,
+          "bold": true
+        },
+        {
+          "idx": 5,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 6096000,
+          "y": 2967300,
+          "cx": 5417327,
+          "cy": 356617,
+          "font_family": null,
+          "size_pt": 18.0,
+          "bold": null
+        },
+        {
+          "idx": 11,
+          "ph_type": "FTR",
+          "role": "caption",
+          "x": 671513,
+          "y": 167981,
+          "cx": 10874375,
+          "cy": 241437,
+          "font_family": "Arial",
+          "size_pt": 18.0,
+          "bold": false
+        }
+      ],
+      "shapes": [],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L20",
+      "name": "Мокап телефона",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout13.xml",
+      "index": 20,
+      "kind": "bullets",
+      "kind_confidence": 0.8,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 29,
+        "max_chars_body": 779,
+        "max_chars_title": 13,
+        "supports_chart": true,
+        "supports_table": true,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 677334,
+          "y": 692150,
+          "cx": 5418666,
+          "cy": 1081088,
+          "font_family": "Play",
+          "size_pt": 36.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 671514,
+          "y": 2055970,
+          "cx": 5418666,
+          "cy": 4144805,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        },
+        {
+          "idx": 2,
+          "ph_type": "PIC",
+          "role": null,
+          "x": 7951157,
+          "y": 814745,
+          "cx": 2430752,
+          "cy": 5260770,
+          "font_family": null,
+          "size_pt": null,
+          "bold": null
+        },
+        {
+          "idx": 11,
+          "ph_type": "FTR",
+          "role": "caption",
+          "x": 671513,
+          "y": 167981,
+          "cx": 10874375,
+          "cy": 241437,
+          "font_family": "Arial",
+          "size_pt": 18.0,
+          "bold": null
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s5",
+          "kind": "picture",
+          "x": 7582421,
+          "y": 452282,
+          "cx": 3174791,
+          "cy": 5991381,
+          "z": 5,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L21",
+      "name": "2_Заголовок + текст в две колонки",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout12.xml",
+      "index": 21,
+      "kind": "two_column",
+      "kind_confidence": 0.85,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 28,
+        "max_chars_body": 1064,
+        "max_chars_title": 0,
+        "supports_chart": true,
+        "supports_table": true,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 677334,
+          "y": 692150,
+          "cx": 10855854,
+          "cy": 644241,
+          "font_family": "Play",
+          "size_pt": 36.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 677334,
+          "y": 1773238,
+          "cx": 5304365,
+          "cy": 4427537,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        },
+        {
+          "idx": 2,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 6228824,
+          "y": 1773239,
+          "cx": 5304364,
+          "cy": 4427537,
+          "font_family": null,
+          "size_pt": null,
+          "bold": null
+        }
+      ],
+      "shapes": [],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L22",
+      "name": "Заголовок + текст",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout15.xml",
+      "index": 22,
+      "kind": "bullets",
+      "kind_confidence": 0.8,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 14,
+        "max_chars_body": 1120,
+        "max_chars_title": 0,
+        "supports_chart": true,
+        "supports_table": true,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 677334,
+          "y": 692150,
+          "cx": 10855854,
+          "cy": 644241,
+          "font_family": "Play",
+          "size_pt": 36.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 671513,
+          "y": 1773238,
+          "cx": 10861675,
+          "cy": 4464049,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        }
+      ],
+      "shapes": [],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L23",
+      "name": "Заголовок + скриншот (1)",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout14.xml",
+      "index": 23,
+      "kind": "custom",
+      "kind_confidence": 0.3,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 30,
+        "max_chars_body": 1092,
+        "max_chars_title": 11,
+        "supports_chart": true,
+        "supports_table": true,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 677334,
+          "y": 692150,
+          "cx": 4663017,
+          "cy": 1081088,
+          "font_family": "Play",
+          "size_pt": 36.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 6096000,
+          "y": 692150,
+          "cx": 5437187,
+          "cy": 5508625,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        },
+        {
+          "idx": 2,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 671514,
+          "y": 2018599,
+          "cx": 4649786,
+          "cy": 4182176,
+          "font_family": null,
+          "size_pt": null,
+          "bold": null
+        }
+      ],
+      "shapes": [],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L24",
+      "name": "1_Паттерн + фото",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout17.xml",
+      "index": 24,
+      "kind": "two_column",
+      "kind_confidence": 0.75,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 11,
+        "max_chars_body": 330,
+        "max_chars_title": 7,
+        "supports_chart": true,
+        "supports_table": true,
+        "supports_image": false
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 677334,
+          "y": 692149,
+          "cx": 3180792,
+          "cy": 1348739,
+          "font_family": "Play",
+          "size_pt": 36.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 671514,
+          "y": 2558715,
+          "cx": 4165182,
+          "cy": 3642059,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s4",
+          "kind": "picture",
+          "x": 5333139,
+          "y": 0,
+          "cx": 6858000,
+          "cy": 6858000,
+          "z": 4,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L25",
+      "name": "Паттерн + фото",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout16.xml",
+      "index": 25,
+      "kind": "two_column",
+      "kind_confidence": 0.75,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 11,
+        "max_chars_body": 330,
+        "max_chars_title": 7,
+        "supports_chart": true,
+        "supports_table": true,
+        "supports_image": false
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 677334,
+          "y": 692149,
+          "cx": 3180792,
+          "cy": 1348739,
+          "font_family": "Play",
+          "size_pt": 36.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 671514,
+          "y": 2558715,
+          "cx": 4165182,
+          "cy": 3642059,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s4",
+          "kind": "picture",
+          "x": 5335631,
+          "y": 0,
+          "cx": 6872200,
+          "cy": 6855356,
+          "z": 4,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L26",
+      "name": "3_Финальный с QR + подпись",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout19.xml",
+      "index": 26,
+      "kind": "quote",
+      "kind_confidence": 0.5,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 3,
+        "max_chars_body": 18,
+        "max_chars_title": 13,
+        "supports_chart": false,
+        "supports_table": false,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 620713,
+          "y": 2483712,
+          "cx": 5475287,
+          "cy": 1477328,
+          "font_family": "Play",
+          "size_pt": 60.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 658813,
+          "y": 4161565,
+          "cx": 5437187,
+          "cy": 355600,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        },
+        {
+          "idx": 2,
+          "ph_type": "PIC",
+          "role": null,
+          "x": 658813,
+          "y": 692150,
+          "cx": 1081088,
+          "cy": 1081088,
+          "font_family": null,
+          "size_pt": null,
+          "bold": null
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s5",
+          "kind": "picture",
+          "x": 658813,
+          "y": 5711140,
+          "cx": 2772297,
+          "cy": 489635,
+          "z": 5,
+          "text": null
+        },
+        {
+          "shape_id": "s6",
+          "kind": "picture",
+          "x": 8794220,
+          "y": 0,
+          "cx": 3397780,
+          "cy": 6858000,
+          "z": 6,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L27",
+      "name": "Финальный с QR + подпись",
+      "master": "M01",
+      "part_name": "ppt/slideLayouts/slideLayout18.xml",
+      "index": 27,
+      "kind": "quote",
+      "kind_confidence": 0.5,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 3,
+        "max_chars_body": 18,
+        "max_chars_title": 13,
+        "supports_chart": false,
+        "supports_table": false,
+        "supports_image": true
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 620713,
+          "y": 2483712,
+          "cx": 5475287,
+          "cy": 1477328,
+          "font_family": "Play",
+          "size_pt": 60.0,
+          "bold": false
+        },
+        {
+          "idx": 1,
+          "ph_type": "BODY",
+          "role": "body",
+          "x": 658813,
+          "y": 4161565,
+          "cx": 5437187,
+          "cy": 355600,
+          "font_family": "Play",
+          "size_pt": 16.0,
+          "bold": false
+        },
+        {
+          "idx": 2,
+          "ph_type": "PIC",
+          "role": null,
+          "x": 658813,
+          "y": 692150,
+          "cx": 1081088,
+          "cy": 1081088,
+          "font_family": null,
+          "size_pt": null,
+          "bold": null
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s2",
+          "kind": "picture",
+          "x": 6023251,
+          "y": 692149,
+          "cx": 6168749,
+          "cy": 6168749,
+          "z": 2,
+          "text": null
+        },
+        {
+          "shape_id": "s6",
+          "kind": "picture",
+          "x": 658813,
+          "y": 5711140,
+          "cx": 2772297,
+          "cy": 489635,
+          "z": 6,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L28",
+      "name": "1_Титульный слайд раздела",
+      "master": "M02",
+      "part_name": "ppt/slideLayouts/slideLayout29.xml",
+      "index": 28,
+      "kind": "title",
+      "kind_confidence": 0.6,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 0,
+        "max_chars_body": 0,
+        "max_chars_title": 11,
+        "supports_chart": false,
+        "supports_table": false,
+        "supports_image": false
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 603172,
+          "y": 692150,
+          "cx": 4621372,
+          "cy": 1181862,
+          "font_family": "Play",
+          "size_pt": 48.0,
+          "bold": false
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s3",
+          "kind": "picture",
+          "x": 6033225,
+          "y": 699157,
+          "cx": 6166658,
+          "cy": 6166658,
+          "z": 3,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    },
+    {
+      "layout_id": "L29",
+      "name": "3_Титульный слайд раздела",
+      "master": "M02",
+      "part_name": "ppt/slideLayouts/slideLayout30.xml",
+      "index": 29,
+      "kind": "title",
+      "kind_confidence": 0.6,
+      "kind_source": "heuristic",
+      "capacity": {
+        "max_bullets": 0,
+        "max_chars_body": 0,
+        "max_chars_title": 11,
+        "supports_chart": false,
+        "supports_table": false,
+        "supports_image": false
+      },
+      "placeholders": [
+        {
+          "idx": 0,
+          "ph_type": "TITLE",
+          "role": "title",
+          "x": 603172,
+          "y": 692150,
+          "cx": 4621372,
+          "cy": 1181862,
+          "font_family": "Play",
+          "size_pt": 48.0,
+          "bold": false
+        }
+      ],
+      "shapes": [
+        {
+          "shape_id": "s3",
+          "kind": "picture",
+          "x": 8807980,
+          "y": 0,
+          "cx": 3394294,
+          "cy": 6858000,
+          "z": 3,
+          "text": null
+        }
+      ],
+      "preview_png": null
+    }
+  ],
+  "decor": {
+    "logo": null,
+    "footer": {
+      "present": false,
+      "y_emu": null
+    },
+    "static_shapes": []
+  },
+  "chart_defaults": {
+    "series_color_refs": [
+      "accent1",
+      "accent2",
+      "accent3",
+      "accent4",
+      "accent5",
+      "accent6"
+    ]
+  },
+  "parser_version": "1.0.0"
+}

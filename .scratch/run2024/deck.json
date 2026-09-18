@@ -1,0 +1,99 @@
+{
+  "deck_id": "Шаблон презентации 2024.pptx",
+  "variant": "A",
+  "template_id": "sha256:bcffb15cf153207e198654106775471dfa199a914cda592147c6f1ca86c86f20",
+  "language": "ru",
+  "seed": 1337,
+  "slides": [
+    {
+      "slide_id": "s17",
+      "layout_id": "L16",
+      "variant": "A",
+      "blocks": [
+        {
+          "x": null,
+          "y": null,
+          "cx": null,
+          "cy": null,
+          "block_id": "b",
+          "type": "bullets",
+          "placeholder_idx": 16,
+          "role": "body",
+          "items": [
+            {
+              "text": "Меньше ручной работы",
+              "level": 0
+            },
+            {
+              "text": "Быстрее согласование",
+              "level": 0
+            }
+          ],
+          "max_level": 1,
+          "size_pt": null
+        }
+      ],
+      "speaker_note": null,
+      "provenance": {
+        "fact_refs": [],
+        "prompt_version": null,
+        "model": null,
+        "seed": null
+      },
+      "fit_report": {
+        "b": {
+          "final_size_pt": 8.0,
+          "overflow": false,
+          "lines": 2,
+          "required_cy_emu": 243840,
+          "strategy": "shrink"
+        }
+      }
+    },
+    {
+      "slide_id": "s41",
+      "layout_id": "L40",
+      "variant": "A",
+      "blocks": [
+        {
+          "x": null,
+          "y": null,
+          "cx": null,
+          "cy": null,
+          "block_id": "b",
+          "type": "bullets",
+          "placeholder_idx": 16,
+          "role": "body",
+          "items": [
+            {
+              "text": "Меньше ручной работы",
+              "level": 0
+            },
+            {
+              "text": "Быстрее согласование",
+              "level": 0
+            }
+          ],
+          "max_level": 1,
+          "size_pt": null
+        }
+      ],
+      "speaker_note": null,
+      "provenance": {
+        "fact_refs": [],
+        "prompt_version": null,
+        "model": null,
+        "seed": null
+      },
+      "fit_report": {
+        "b": {
+          "final_size_pt": 8.0,
+          "overflow": false,
+          "lines": 2,
+          "required_cy_emu": 243840,
+          "strategy": "shrink"
+        }
+      }
+    }
+  ]
+}

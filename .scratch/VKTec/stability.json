@@ -1,0 +1,237 @@
+{
+  "s05|content.headline_is_conclusion": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s05|content.body_matches_headline": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s05|content.one_sentence_summary": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s05|content.has_substance": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s05|content.visuals_on_topic": {
+    "run0": "находка",
+    "run1": "находка",
+    "run2": "находка"
+  },
+  "s05|content.no_prompt_leftovers": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s05|content.table_rows_meaningful": {
+    "run0": "находка",
+    "run1": "находка",
+    "run2": "находка"
+  },
+  "s07|content.headline_is_conclusion": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s07|content.body_matches_headline": {
+    "run0": "находка",
+    "run1": "находка",
+    "run2": "находка"
+  },
+  "s07|content.one_sentence_summary": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s07|content.has_substance": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s07|content.visuals_on_topic": {
+    "run0": "находка",
+    "run1": "находка",
+    "run2": "находка"
+  },
+  "s07|content.no_prompt_leftovers": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s07|content.table_rows_meaningful": {
+    "run0": "находка",
+    "run1": "находка",
+    "run2": "находка"
+  },
+  "s07|content.neighbours_connected": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s08|content.headline_is_conclusion": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s08|content.body_matches_headline": {
+    "run0": "находка",
+    "run1": "находка",
+    "run2": "находка"
+  },
+  "s08|content.one_sentence_summary": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s08|content.has_substance": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s08|content.visuals_on_topic": {
+    "run0": "находка",
+    "run1": "находка",
+    "run2": "находка"
+  },
+  "s08|content.no_prompt_leftovers": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s08|content.table_rows_meaningful": {
+    "run0": "находка",
+    "run1": "находка",
+    "run2": "находка"
+  },
+  "s08|content.neighbours_connected": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s10|content.headline_is_conclusion": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s10|content.body_matches_headline": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s10|content.one_sentence_summary": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s10|content.has_substance": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s10|content.visuals_on_topic": {
+    "run0": "находка",
+    "run1": "находка",
+    "run2": "находка"
+  },
+  "s10|content.no_prompt_leftovers": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s10|content.table_rows_meaningful": {
+    "run0": "находка",
+    "run1": "находка",
+    "run2": "находка"
+  },
+  "s10|content.neighbours_connected": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s11|content.headline_is_conclusion": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s11|content.body_matches_headline": {
+    "run0": "находка",
+    "run1": "находка",
+    "run2": "находка"
+  },
+  "s11|content.one_sentence_summary": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s11|content.has_substance": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s11|content.visuals_on_topic": {
+    "run0": "находка",
+    "run1": "находка",
+    "run2": "находка"
+  },
+  "s11|content.no_prompt_leftovers": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s11|content.table_rows_meaningful": {
+    "run0": "находка",
+    "run1": "находка",
+    "run2": "находка"
+  },
+  "s11|content.neighbours_connected": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s12|content.headline_is_conclusion": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s12|content.body_matches_headline": {
+    "run0": "находка",
+    "run1": "находка",
+    "run2": "находка"
+  },
+  "s12|content.one_sentence_summary": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s12|content.has_substance": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s12|content.visuals_on_topic": {
+    "run0": "находка",
+    "run1": "находка",
+    "run2": "находка"
+  },
+  "s12|content.no_prompt_leftovers": {
+    "run0": "ok",
+    "run1": "ok",
+    "run2": "ok"
+  },
+  "s12|content.table_rows_meaningful": {
+    "run0": "нет ответа",
+    "run1": "нет ответа",
+    "run2": "нет ответа"
+  },
+  "s12|content.neighbours_connected": {
+    "run0": "ok",
+    "run1": "нет ответа",
+    "run2": "ok"
+  }
+}
