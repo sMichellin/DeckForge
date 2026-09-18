@@ -293,3 +293,27 @@ def test_dense_variant_stays_within_the_spec_fill_limit() -> None:
         "плотный вариант укладывается в предел ТЗ по площади только потому, "
         "что это разные величины — расхождение должно оставаться осознанным"
     )
+
+
+async def test_prompt_says_what_is_not_the_models_job(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Схема ответа этого больше не просит (#32) — промпт обязан сказать то же словами.
+
+    Без такой формулировки модель продолжает присылать координаты, подписи осей и
+    provenance: схема их не требует, но и не запрещает, а композитор всё равно выбросит.
+    """
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "L07",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "b1", "type": "text", "placeholder_idx": 0, "role": "title", "text": "З"}
+        ],
+    }
+    llm = FakeLlm(payload)
+    await SlideComposer(llm).compose(plan_slide(), content, manifest, variant_a, seed=1)
+
+    assert "Координаты не задавай" in llm.prompt
+    assert "Подписи осей" in llm.prompt
+    assert "provenance" in llm.prompt.lower()
