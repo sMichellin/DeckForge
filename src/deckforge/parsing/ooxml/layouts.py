@@ -98,6 +98,48 @@ def _text_properties(
     return None, None, None
 
 
+#: Стиль мастера по типу плейсхолдера — последняя ступень каскада OOXML. Размер из
+#: `p:txStyles` действует тогда, когда его не объявили ни фигура макета, ни фигура мастера.
+#: Шаблоны, собранные не в PowerPoint, держат кегли только здесь.
+_TX_STYLE_BY_PH_TYPE: dict[str, str] = {
+    "title": "titleStyle",
+    "ctrTitle": "titleStyle",
+    "body": "bodyStyle",
+    "subTitle": "bodyStyle",
+    "obj": "bodyStyle",
+    "tbl": "bodyStyle",
+    "chart": "bodyStyle",
+}
+_DEFAULT_TX_STYLE = "otherStyle"
+
+
+def parse_text_styles(master_xml: bytes) -> dict[str, tuple[float | None, bool | None, str | None]]:
+    """Кегль, жирность и гарнитура первого уровня из `p:txStyles` мастера.
+
+    Это не то же самое, что фигуры мастера: `txStyles` — стиль по умолчанию для роли,
+    и в шаблонах, где фигуры размеров не объявляют, он единственный источник правды.
+    """
+    root = etree.fromstring(master_xml)
+    styles = root.find(f".//{{{P}}}txStyles")
+    if styles is None:
+        return {}
+
+    out: dict[str, tuple[float | None, bool | None, str | None]] = {}
+    for style in styles:
+        name = etree.QName(style).localname
+        props = style.find(f"{{{A}}}lvl1pPr/{{{A}}}defRPr")
+        if props is None or not props.get("sz"):
+            continue
+        bold = props.get("b")
+        latin = props.find(f"{{{A}}}latin")
+        out[name] = (
+            int(props.get("sz")) / 100,
+            (bold == "1") if bold is not None else None,
+            (latin.get("typeface") if latin is not None else None) or None,
+        )
+    return out
+
+
 def parse_placeholders(part_xml: bytes) -> list[RawPlaceholder]:
     """Плейсхолдеры одной части (мастера или макета) без разрешения наследования."""
     root = etree.fromstring(part_xml)
@@ -139,12 +181,17 @@ def resolve_placeholders(
     всё равно некуда, а выдумывать координаты — ровно то, что запрещает C6.
     """
     inherited: dict[tuple[str, int], RawPlaceholder] = {}
+    styles: dict[str, tuple[float | None, bool | None, str | None]] = {}
     if master_xml:
         inherited = {ph.key: ph for ph in parse_placeholders(master_xml)}
+        styles = parse_text_styles(master_xml)
 
     specs: list[PlaceholderSpec] = []
     for ph in parse_placeholders(layout_xml):
         base = inherited.get(ph.key)
+        style_size, style_bold, style_font = styles.get(
+            _TX_STYLE_BY_PH_TYPE.get(ph.ph_type, _DEFAULT_TX_STYLE), (None, None, None)
+        )
         x = ph.x if ph.x is not None else (base.x if base else None)
         y = ph.y if ph.y is not None else (base.y if base else None)
         cx = ph.cx if ph.cx is not None else (base.cx if base else None)
@@ -161,10 +208,12 @@ def resolve_placeholders(
                 y=max(0, y),
                 cx=cx,
                 cy=cy,
-                # Наследуются так же, как геометрия: своё значение перекрывает мастер.
-                font_family=ph.font if ph.font else (base.font if base else None),
-                size_pt=ph.size_pt if ph.size_pt is not None else (base.size_pt if base else None),
-                bold=ph.bold if ph.bold is not None else (base.bold if base else None),
+                # Наследуются так же, как геометрия, и на ступень глубже: своя фигура,
+                # затем фигура мастера, затем `txStyles` мастера. Без последней ступени
+                # кегль остаётся пустым на шаблонах, где размеры объявлены только там.
+                font_family=_first(ph.font, base.font if base else None, style_font),
+                size_pt=_first(ph.size_pt, base.size_pt if base else None, style_size),
+                bold=_first(ph.bold, base.bold if base else None, style_bold),
             )
         )
 
@@ -176,6 +225,11 @@ def resolve_placeholders(
             seen.add(spec.idx)
             unique.append(spec)
     return unique
+
+
+def _first[T](*values: T | None) -> T | None:
+    """Первое объявленное значение каскада. `None` значит «не объявлено», а не «ноль»."""
+    return next((value for value in values if value is not None), None)
 
 
 def placeholder_text_sizes(

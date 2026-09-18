@@ -248,3 +248,30 @@ def test_theme_font_references_are_resolved(template: Path, parser: TemplatePars
         if ph.font_family
     }
     assert not any(f.startswith("+") for f in fonts), f"неразвёрнутые ссылки: {fonts}"
+
+
+def test_sizes_declared_only_in_master_text_styles_are_read(tmp_path: Path) -> None:
+    """Кегли живут только в `p:txStyles` мастера — ни одна фигура их не объявляет.
+
+    Так собран «Шаблон презентации 2024» из датасета: 34 макета с заголовком и ни одного
+    объявленного размера. До правки 18.09 `PlaceholderSpec.size_pt` оставался пустым
+    у всех 34, а кегль роли `title` не читался, а **выводился пропорцией** от соседней
+    роли — 49,2 pt при живом значении 32 pt в шаблоне.
+    """
+    from deckforge.domain.enums import TextRole
+
+    manifest = TemplateParser().parse(
+        build(tmp_path / "tx.pptx", sizes_only_in_tx_styles=True), use_cache=False
+    )
+
+    titles = [p for layout in manifest.layouts for p in layout.placeholders
+              if p.role is TextRole.TITLE]
+    assert titles, "в пакете нет плейсхолдеров заголовка — тест проверял бы пустоту"
+    assert all(p.size_pt == 32.0 for p in titles)
+
+    title_step = next(s for s in manifest.typography_scale if s.role is TextRole.TITLE)
+    assert title_step.size_pt == 32.0, "кегль роли выведен пропорцией вместо чтения шаблона"
+
+    body = [p for layout in manifest.layouts for p in layout.placeholders
+            if p.role is TextRole.BODY]
+    assert all(p.size_pt == 14.0 for p in body)

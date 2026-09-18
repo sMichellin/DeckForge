@@ -80,6 +80,32 @@ def collect_observations(part_xml: bytes, role_by_idx: dict[int, TextRole]) -> l
     return out
 
 
+#: Стиль мастера → роль типошкалы. `otherStyle` сознательно не отображается: он описывает
+#: обычные надписи вне плейсхолдеров, и в шкалу ролей ему места нет.
+_ROLE_BY_TX_STYLE: dict[str, TextRole] = {
+    "titleStyle": TextRole.TITLE,
+    "bodyStyle": TextRole.BODY,
+}
+
+
+def observations_from_text_styles(master_xml: bytes) -> list[TypographyObservation]:
+    """Наблюдения из `p:txStyles` мастера — последняя ступень каскада OOXML.
+
+    Нужны там, где роль не наблюдается больше нигде. На шаблоне, где ни один из 34 макетов
+    не объявляет кегль заголовка, без них размер роли не читается, а **выводится
+    пропорцией от соседней** — то есть выдумывается при живом значении в шаблоне.
+    """
+    from deckforge.parsing.ooxml.layouts import parse_text_styles
+
+    out: list[TypographyObservation] = []
+    for name, (size, bold, _font) in parse_text_styles(master_xml).items():
+        role = _ROLE_BY_TX_STYLE.get(name)
+        if role is None or size is None:
+            continue
+        out.append(TypographyObservation(role=role, size_pt=size, bold=bold, color_hex=None))
+    return out
+
+
 def _representative(values: list[float]) -> float:
     """Типичный кегль роли: самый частый, при равенстве — больший.
 

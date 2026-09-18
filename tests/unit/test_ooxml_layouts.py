@@ -213,3 +213,94 @@ def test_placeholder_without_declared_font_leaves_it_unset() -> None:
     layout = part(sp('<p:ph type="title"/>', xfrm(1, 2, 300, 400)))
     (placeholder,) = resolve_placeholders(layout, None)
     assert placeholder.font_family is None
+
+
+# --- txStyles мастера: последняя ступень каскада (правка 18.09) ----------------
+
+
+def tx_styles(title: str = "", body: str = "", other: str = "") -> str:
+    """`p:txStyles` мастера. Пустая строка — стиль не объявлен вовсе."""
+
+    def style(name: str, size: str) -> str:
+        if not size:
+            return ""
+        return (
+            f"<p:{name}><a:lvl1pPr><a:defRPr {size}/></a:lvl1pPr></p:{name}>"
+        )
+
+    inner = style("titleStyle", title) + style("bodyStyle", body) + style("otherStyle", other)
+    return f"<p:txStyles>{inner}</p:txStyles>" if inner else ""
+
+
+def master_with_styles(*shapes: str, styles: str = "") -> bytes:
+    tree = "".join(shapes)
+    return (
+        f"<p:sldMaster {NS}><p:cSld><p:spTree>{tree}</p:spTree></p:cSld>{styles}</p:sldMaster>"
+    ).encode()
+
+
+def test_text_styles_are_read_from_the_master() -> None:
+    from deckforge.parsing.ooxml.layouts import parse_text_styles
+
+    master = master_with_styles(styles=tx_styles(title='sz="3200" b="1"', body='sz="1400"'))
+    styles = parse_text_styles(master)
+    assert styles["titleStyle"][0] == 32.0
+    assert styles["titleStyle"][1] is True
+    assert styles["bodyStyle"][0] == 14.0
+
+
+def test_master_without_text_styles_is_not_an_error() -> None:
+    from deckforge.parsing.ooxml.layouts import parse_text_styles
+
+    assert parse_text_styles(master_with_styles()) == {}
+
+
+def test_size_falls_through_to_master_text_styles() -> None:
+    """Шаблон, где кегль объявлен только в `txStyles`: без этой ступени он терялся.
+
+    Так собран «Шаблон презентации 2024»: ни один из 34 макетов и ни одна фигура мастера
+    размера заголовка не объявляют, и `size_pt` оставался пустым у всех.
+    """
+    master = master_with_styles(
+        sp('<p:ph type="title" idx="0"/>', xfrm(1, 2, 300, 400)),
+        styles=tx_styles(title='sz="3200"'),
+    )
+    layout = part(sp('<p:ph type="title" idx="0"/>'))
+    (placeholder,) = resolve_placeholders(layout, master)
+    assert placeholder.size_pt == 32.0
+
+
+def test_shape_size_wins_over_text_styles() -> None:
+    """`txStyles` — стиль по умолчанию и в каскаде OOXML стоит ниже фигуры."""
+    master = master_with_styles(
+        sp('<p:ph type="title" idx="0"/>', xfrm(1, 2, 300, 400), size='sz="4000"'),
+        styles=tx_styles(title='sz="3200"'),
+    )
+    layout = part(sp('<p:ph type="title" idx="0"/>'))
+    (placeholder,) = resolve_placeholders(layout, master)
+    assert placeholder.size_pt == 40.0
+
+    own = part(sp('<p:ph type="title" idx="0"/>', xfrm(1, 2, 3, 4), size='sz="2000"'))
+    (placeholder,) = resolve_placeholders(own, master)
+    assert placeholder.size_pt == 20.0
+
+
+def test_body_placeholder_takes_body_style() -> None:
+    """Стиль выбирается по типу плейсхолдера, а не один на всех."""
+    master = master_with_styles(
+        sp('<p:ph type="body" idx="1"/>', xfrm(1, 2, 300, 400)),
+        styles=tx_styles(title='sz="3200"', body='sz="1400"'),
+    )
+    layout = part(sp('<p:ph type="body" idx="1"/>'))
+    (placeholder,) = resolve_placeholders(layout, master)
+    assert placeholder.size_pt == 14.0
+
+
+def test_unknown_placeholder_type_takes_other_style() -> None:
+    master = master_with_styles(
+        sp('<p:ph type="sldNum" idx="4"/>', xfrm(1, 2, 300, 400)),
+        styles=tx_styles(title='sz="3200"', other='sz="900"'),
+    )
+    layout = part(sp('<p:ph type="sldNum" idx="4"/>'))
+    (placeholder,) = resolve_placeholders(layout, master)
+    assert placeholder.size_pt == 9.0

@@ -35,9 +35,10 @@ from deckforge.parsing.typography import (
     TypographyObservation,
     collect_observations,
     derive_scale,
+    observations_from_text_styles,
 )
 
-PARSER_VERSION = "1.0.0"
+PARSER_VERSION = "1.1.0"
 
 #: Цвета серий диаграмм по умолчанию: акценты темы в порядке схемы.
 #: Благодаря этому диаграмма перекрашивается вместе со сменой шаблона (ADR-002).
@@ -198,6 +199,7 @@ class TemplateParser:
     ) -> tuple[list[LayoutSpec], list[TypographyObservation]]:
         layouts: list[LayoutSpec] = []
         observations: list[TypographyObservation] = []
+        style_observations: list[TypographyObservation] = []
         index = 0
 
         for master_index, master_part in enumerate(masters, start=1):
@@ -245,6 +247,13 @@ class TemplateParser:
             # Наблюдения мастера идут после макетов: при равной частоте кегль,
             # объявленный в макете, остаётся более сильным сигналом.
             observations += collect_observations(master_xml, master_roles)
+            style_observations += observations_from_text_styles(master_xml)
+
+        # `txStyles` подключается только к ролям, которых не видно больше нигде.
+        # Иначе стиль по умолчанию перебивал бы то, что шаблон объявил на фигурах явно,
+        # а он в каскаде OOXML стоит ниже их.
+        seen = {obs.role for obs in observations}
+        observations += [obs for obs in style_observations if obs.role not in seen]
 
         return layouts, observations
 

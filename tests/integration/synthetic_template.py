@@ -58,13 +58,24 @@ def _sp(ph: str, x: int, y: int, cx: int, cy: int, size_pt: float | None = None,
     )
 
 
-def _part(shapes: str, root: str, name: str = "") -> bytes:
+def _part(shapes: str, root: str, name: str = "", tail: str = "") -> bytes:
     attr = f' name="{name}"' if name else ""
     return (
         f'<p:{root} xmlns:a="{A}" xmlns:p="{P}" xmlns:r="{R}">'
-        f"<p:cSld{attr}><p:spTree>{shapes}</p:spTree></p:cSld>"
+        f"<p:cSld{attr}><p:spTree>{shapes}</p:spTree></p:cSld>{tail}"
         f"</p:{root}>"
     ).encode()
+
+
+def _tx_styles(title_pt: float, body_pt: float) -> str:
+    """`p:txStyles` мастера — там держат кегли шаблоны, собранные не в PowerPoint."""
+    return (
+        "<p:txStyles>"
+        f'<p:titleStyle><a:lvl1pPr><a:defRPr sz="{int(title_pt * 100)}" b="1"/>'
+        "</a:lvl1pPr></p:titleStyle>"
+        f'<p:bodyStyle><a:lvl1pPr><a:defRPr sz="{int(body_pt * 100)}"/></a:lvl1pPr></p:bodyStyle>'
+        "</p:txStyles>"
+    )
 
 
 def _rels(entries: list[tuple[str, str, str]]) -> bytes:
@@ -84,8 +95,22 @@ MARGIN_X, MARGIN_Y = 700_000, 450_000
 CONTENT_CX = SLIDE_CX - 2 * MARGIN_X
 
 
-def build(path: Path, *, with_view_props: bool = False, empty_master: bool = False) -> Path:
-    """Собрать пакет: один мастер, тема, три макета (титул, буллеты, две колонки)."""
+def build(
+    path: Path,
+    *,
+    with_view_props: bool = False,
+    empty_master: bool = False,
+    sizes_only_in_tx_styles: bool = False,
+) -> Path:
+    """Собрать пакет: один мастер, тема, три макета (титул, буллеты, две колонки).
+
+    `sizes_only_in_tx_styles` воспроизводит шаблон, где кегли не объявлены ни на одной
+    фигуре и живут исключительно в `p:txStyles` мастера. Так собран «Шаблон презентации
+    2024» из датасета: 34 макета с заголовком и ни одного объявленного размера.
+    """
+    if sizes_only_in_tx_styles:
+        return _build_tx_styles_only(path)
+
     master_shapes = (
         ""
         if empty_master
@@ -158,5 +183,72 @@ def build(path: Path, *, with_view_props: bool = False, empty_master: bool = Fal
                 "ppt/viewProps.xml",
                 f'<p:viewPr xmlns:p="{P}">'
                 f'<p:guide pos="440"/><p:guide orient="horz" pos="284"/></p:viewPr>',
+            )
+    return path
+
+
+def _build_tx_styles_only(path: Path) -> Path:
+    """Пакет, где кегли объявлены только в `p:txStyles` мастера."""
+    TITLE_PT, BODY_PT = 32.0, 14.0
+    master_shapes = (
+        _sp(TITLE_PH, MARGIN_X, MARGIN_Y, CONTENT_CX, 1_000_000)
+        + _sp(BODY_PH, MARGIN_X, 1_800_000, CONTENT_CX, 4_000_000)
+    )
+    layouts = {
+        "slideLayout1.xml": (
+            "Титул",
+            _sp(TITLE_PH, MARGIN_X, 2_400_000, CONTENT_CX, 1_200_000),
+        ),
+        "slideLayout2.xml": (
+            "Заголовок и содержимое",
+            _sp(TITLE_PH, MARGIN_X, MARGIN_Y, CONTENT_CX, 1_000_000)
+            + _sp(BODY_PH, MARGIN_X, 1_800_000, CONTENT_CX, 4_000_000),
+        ),
+    }
+
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr(
+            "[Content_Types].xml",
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="xml" ContentType="application/xml"/></Types>',
+        )
+        z.writestr(
+            "_rels/.rels",
+            _rels([("rId1", f"{R}/officeDocument", "ppt/presentation.xml")]).decode(),
+        )
+        z.writestr(
+            "ppt/presentation.xml",
+            f'<p:presentation xmlns:p="{P}" xmlns:r="{R}">'
+            '<p:sldMasterIdLst><p:sldMasterId id="1" r:id="rId1"/></p:sldMasterIdLst>'
+            f'<p:sldSz cx="{SLIDE_CX}" cy="{SLIDE_CY}"/></p:presentation>',
+        )
+        z.writestr(
+            "ppt/_rels/presentation.xml.rels",
+            _rels([("rId1", f"{R}/slideMaster", "slideMasters/slideMaster1.xml")]).decode(),
+        )
+        z.writestr("ppt/theme/theme1.xml", _theme().decode())
+        z.writestr(
+            "ppt/slideMasters/slideMaster1.xml",
+            _part(master_shapes, "sldMaster", tail=_tx_styles(TITLE_PT, BODY_PT)).decode(),
+        )
+        z.writestr(
+            "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+            _rels(
+                [("rId1", f"{R}/theme", "../theme/theme1.xml")]
+                + [
+                    (f"rId{i + 2}", f"{R}/slideLayout", f"../slideLayouts/{name}")
+                    for i, name in enumerate(layouts)
+                ]
+            ).decode(),
+        )
+        for name, (title, shapes) in layouts.items():
+            z.writestr(
+                f"ppt/slideLayouts/{name}", _part(shapes, "sldLayout", name=title).decode()
+            )
+            z.writestr(
+                f"ppt/slideLayouts/_rels/{name}.rels",
+                _rels(
+                    [("rId1", f"{R}/slideMaster", "../slideMasters/slideMaster1.xml")]
+                ).decode(),
             )
     return path

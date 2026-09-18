@@ -218,3 +218,56 @@ def test_inferred_guides_pick_up_repeated_edges() -> None:
     grid = infer_grid(layouts, SLIDE, None)
     assert 600_000 in grid.guides_x_emu
     assert grid.columns > 0
+
+
+# --- txStyles мастера в типошкале (правка 18.09) ------------------------------
+
+
+def _master_with_tx_styles(title: str = "", body: str = "") -> bytes:
+    ns = (
+        'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+        'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"'
+    )
+
+    def style(name: str, size: str) -> str:
+        return f"<p:{name}><a:lvl1pPr><a:defRPr {size}/></a:lvl1pPr></p:{name}>" if size else ""
+
+    styles = style("titleStyle", title) + style("bodyStyle", body)
+    return (
+        f"<p:sldMaster {ns}><p:cSld><p:spTree/></p:cSld>"
+        f"<p:txStyles>{styles}</p:txStyles></p:sldMaster>"
+    ).encode()
+
+
+def test_text_styles_give_observations_for_title_and_body() -> None:
+    from deckforge.parsing.typography import observations_from_text_styles
+
+    observed = observations_from_text_styles(
+        _master_with_tx_styles(title='sz="3200"', body='sz="1400"')
+    )
+    assert {(o.role, o.size_pt) for o in observed} == {
+        (TextRole.TITLE, 32.0),
+        (TextRole.BODY, 14.0),
+    }
+
+
+def test_other_style_is_not_a_role_of_the_scale() -> None:
+    """`otherStyle` описывает надписи вне плейсхолдеров — роли типошкалы он не задаёт."""
+    from deckforge.parsing.typography import observations_from_text_styles
+
+    ns = (
+        'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+        'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"'
+    )
+    master = (
+        f"<p:sldMaster {ns}><p:cSld><p:spTree/></p:cSld><p:txStyles>"
+        f'<p:otherStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></p:otherStyle>'
+        f"</p:txStyles></p:sldMaster>"
+    ).encode()
+    assert observations_from_text_styles(master) == []
+
+
+def test_master_without_text_styles_gives_nothing() -> None:
+    from deckforge.parsing.typography import observations_from_text_styles
+
+    assert observations_from_text_styles(_master_with_tx_styles()) == []
