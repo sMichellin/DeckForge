@@ -46,19 +46,32 @@ class SofficeRenderer:
 
     @property
     def available(self) -> bool:
-        return shutil.which(self.binary) is not None and shutil.which("pdftoppm") is not None
+        """Полный путь pptx → png. Превью требуют обеих программ."""
+        return self.can_convert_pdf and shutil.which("pdftoppm") is not None
 
-    def _require(self) -> None:
+    @property
+    def can_convert_pdf(self) -> bool:
+        """pptx → pdf. `pdftoppm` здесь ни при чём — он режет страницы, а не конвертирует."""
+        return shutil.which(self.binary) is not None
+
+    def _require_soffice(self) -> None:
         if shutil.which(self.binary) is None:
             raise SofficeUnavailableError(
                 f"не найден {self.binary!r}: нужен образ docker/Dockerfile.libreoffice"
             )
+
+    def _require_pdftoppm(self) -> None:
         if shutil.which("pdftoppm") is None:
             raise SofficeUnavailableError("не найден pdftoppm: поставьте poppler-utils")
 
     def to_pdf(self, source: Path, out_dir: Path) -> Path:
-        """pptx → pdf. Та же команда используется экспортом в change (16)."""
-        self._require()
+        """pptx → pdf. Та же команда используется экспортом в change (16).
+
+        Требует только LibreOffice (запрос потока B из change 16): раньше здесь стояла
+        проверка и на `pdftoppm`, из-за чего экспорт в pdf отказывал на машинах без
+        poppler — при том, что резать страницы на этом пути не нужно вовсе.
+        """
+        self._require_soffice()
         out_dir.mkdir(parents=True, exist_ok=True)
 
         # Профиль отдельный на каждый запуск: иначе параллельные вызовы дерутся за
@@ -70,7 +83,9 @@ class SofficeRenderer:
                     "--headless",
                     "--norestore",
                     "--nolockcheck",
-                    f"-env:UserInstallation=file://{profile}",
+                    # URI собирается стандартом, а не склейкой: на Windows «file://C:\…»
+                    # это не URI, и LibreOffice молча не конвертирует (запрос потока B).
+                    f"-env:UserInstallation={Path(profile).as_uri()}",
                     "--convert-to",
                     "pdf",
                     "--outdir",
@@ -90,7 +105,7 @@ class SofficeRenderer:
 
     def pdf_to_pngs(self, pdf: Path, out_dir: Path, prefix: str = "page") -> list[Path]:
         """pdf → по одному png на страницу, в порядке страниц."""
-        self._require()
+        self._require_pdftoppm()
         out_dir.mkdir(parents=True, exist_ok=True)
         subprocess.run(
             ["pdftoppm", "-png", "-r", str(self.dpi), str(pdf), str(out_dir / prefix)],
