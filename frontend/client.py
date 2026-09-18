@@ -1,0 +1,128 @@
+"""Клиент сервиса. Change (23) `web-ui`.
+
+Интерфейс говорит с бэкендом **только по HTTP** и ничего из `deckforge` не импортирует.
+Это не чистоплюйство: `frontend/` монтируется в свой контейнер отдельным томом
+(`docker/compose.yaml`), и связывать его сборку со сборкой пакета незачем. Контракт
+между ними — сам API, он описан в `openspec/changes/service-api/proposal.md`.
+
+Все адреса собраны здесь. Разъехаться с сервером они могут — но в одном месте,
+а не в пяти местах разметки.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import httpx
+
+DEFAULT_BASE_URL = "http://app:8080"
+#: Долгая генерация — не повод ждать её в одном запросе: ждём мы опросом статуса.
+TIMEOUT_S = 30.0
+
+
+class ServiceError(RuntimeError):
+    """Сервис ответил отказом. Причина — то, что он написал, а не наш пересказ."""
+
+    def __init__(self, status: int, detail: str) -> None:
+        super().__init__(f"{status}: {detail}")
+        self.status = status
+        self.detail = detail
+
+
+@dataclass(slots=True)
+class DeckForgeClient:
+    """Тонкая обёртка над HTTP. Ни одного решения, кроме разбора ответа."""
+
+    base_url: str = DEFAULT_BASE_URL
+    timeout_s: float = TIMEOUT_S
+    _http: httpx.Client | None = None
+
+    @property
+    def http(self) -> httpx.Client:
+        if self._http is None:
+            self._http = httpx.Client(base_url=self.base_url, timeout=self.timeout_s)
+        return self._http
+
+    # --- прогон --------------------------------------------------------------
+
+    def create_run(self, **fields: Any) -> str:
+        return str(self._json(self.http.post("/runs", json=fields))["run_id"])
+
+    def upload_template(self, run_id: str, name: str, data: bytes) -> None:
+        self._ok(
+            self.http.put(
+                f"/runs/{run_id}/template", params={"filename": name}, content=data
+            )
+        )
+
+    def upload_content(self, run_id: str, name: str, data: bytes) -> None:
+        self._ok(self.http.put(f"/runs/{run_id}/content/{name}", content=data))
+
+    def start(self, run_id: str) -> None:
+        self._ok(self.http.post(f"/runs/{run_id}/start"))
+
+    # --- наблюдение ----------------------------------------------------------
+
+    def status(self, run_id: str) -> dict[str, Any]:
+        return self._json(self.http.get(f"/runs/{run_id}"))
+
+    def findings(self, run_id: str) -> list[dict[str, Any]]:
+        payload = self._json(self.http.get(f"/runs/{run_id}/findings"))
+        return list(payload) if isinstance(payload, list) else []
+
+    def report(self, run_id: str) -> dict[str, Any] | None:
+        """Отчёт или `None`, если его ещё нет. Это не ошибка, а «рано».
+
+        Сервис отвечает 409, и показывать пользователю красное сообщение о том,
+        что прогон ещё идёт, незачем.
+        """
+        answer = self.http.get(f"/runs/{run_id}/report")
+        if answer.status_code == 409:
+            return None
+        return self._json(answer)
+
+    def preview(self, run_id: str, slide_id: str) -> bytes | None:
+        answer = self.http.get(f"/runs/{run_id}/previews/{slide_id}")
+        if answer.status_code == 404:
+            return None
+        self._ok(answer)
+        return answer.content
+
+    # --- действия ------------------------------------------------------------
+
+    def choose_fixes(self, run_id: str, finding_ids: list[str]) -> None:
+        self._ok(self.http.post(f"/runs/{run_id}/fixes", json={"finding_ids": finding_ids}))
+
+    def export(self, run_id: str, fmt: str) -> bytes | None:
+        answer = self.http.get(f"/runs/{run_id}/exports/{fmt}")
+        if answer.status_code in (404, 409):
+            return None
+        self._ok(answer)
+        return answer.content
+
+    def close(self) -> None:
+        if self._http is not None:
+            self._http.close()
+            self._http = None
+
+    # --- разбор --------------------------------------------------------------
+
+    def _ok(self, answer: httpx.Response) -> httpx.Response:
+        if answer.is_success:
+            return answer
+        raise ServiceError(answer.status_code, _detail(answer))
+
+    def _json(self, answer: httpx.Response) -> Any:
+        return self._ok(answer).json()
+
+
+def _detail(answer: httpx.Response) -> str:
+    """Текст отказа. Сервис отвечает `{"detail": …}`, но падать на этом нельзя."""
+    try:
+        payload = answer.json()
+    except ValueError:
+        return answer.text.strip() or answer.reason_phrase
+    if isinstance(payload, dict) and "detail" in payload:
+        return str(payload["detail"])
+    return str(payload)

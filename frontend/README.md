@@ -7,4 +7,32 @@ Streamlit (MVP и сдача). Next.js — в списке COULD, режется
 находки аудита с подсветкой на слайде → выбор, что исправить → повторная проверка →
 скачивание в трёх форматах.
 
-Реализация — change (23) `service-api` + `web-ui`, 23–24.09.
+Реализация — change (23), `openspec/changes/web-ui/proposal.md`.
+
+## Файлы
+
+| Файл | Что в нём |
+|---|---|
+| `app.py` | разметка и переходы, больше ничего |
+| `client.py` | разговор с сервисом по HTTP; все адреса собраны здесь |
+| `highlight.py` | рамка находки на превью: доли слайда → пиксели картинки |
+
+**Из `deckforge` не импортируется ничего.** `frontend/` монтируется в свой контейнер
+отдельным томом, и связывать его сборку со сборкой пакета незачем: контракт между
+ними — сам API (`openspec/changes/service-api/proposal.md`).
+
+## Запуск
+
+```bash
+podman compose -f docker/compose.yaml up -d      # app, worker, ui, redis
+```
+
+Интерфейс — http://localhost:8501, сервис — http://localhost:8080.
+
+Локально, против уже поднятого сервиса:
+
+```bash
+DECKFORGE_API_URL=http://localhost:8080 streamlit run frontend/app.py
+```
+
+Адрес сервиса меняется и прямо на странице — поле в боковой панели.
