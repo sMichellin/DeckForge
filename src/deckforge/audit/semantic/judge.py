@@ -18,12 +18,20 @@
 «претензий нет» и находки не порождает: цена ошибки здесь — пропущенная мелочь.
 Вердикт «no» порождает находку, которую увидит человек, поэтому он и переспрашивается
 тремя прогонами с разными seed. Так стоимость падает втрое там, где колода в порядке.
+
+**Вопросы по слайдам можно задавать одновременно.** Они независимы: вердикт по одному
+слайду не влияет на вердикт по другому. Это бьёт по стенным часам, а не по числу вызовов,
+и потому включается отдельным ключом — см. `DEFAULT_CONCURRENCY`. Числа, ради которых
+всё это, — в `openspec/changes/audit-judge-concurrency/proposal.md`: 28 с на вызов
+по замеру 18.09 против 60 с стадии `audit` в `pipeline/budget.py`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import partial
 
 from deckforge.audit.findings import make_finding
 from deckforge.audit.geometry import slide_text
@@ -62,6 +70,20 @@ _AUTO_FIX: dict[str, AutoFix] = {
 #: Вопрос про пару слайдов, а не про один: спрашивается по второму слайду пары,
 #: первый уходит в контекст текстом.
 _PAIRWISE = "content.neighbours_connected"
+
+#: Сколько вопросов задавать серверу одновременно. По умолчанию — один, то есть
+#: поведение прежнее.
+#:
+#: Это не осторожность ради осторожности. Параллелизм выигрывает только там, где сервер
+#: обслуживает запросы параллельно: llama.cpp с одним слотом выстроит их в очередь,
+#: и 39 минут останутся 39 минутами. А на провайдере с поминутным лимитом (Groq) лишние
+#: одновременные запросы получают отказ, `ask` ловит его и возвращает `None` — слайд
+#: остаётся **без вердикта**. Потеря покрытия, которая выглядит как молчание модели,
+#: хуже медленного аудита: пропуск перестал бы отличаться от «претензий нет».
+#:
+#: Поэтому число поднимается осознанно — `audit.vlm_concurrency` в профиле запуска,
+#: после того как на сервере поднят `--parallel` и это измерено.
+DEFAULT_CONCURRENCY = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +169,53 @@ def _previews_for(ctx: CheckContext) -> dict[str, bytes]:
     return previews
 
 
+@dataclass(frozen=True, slots=True)
+class Query:
+    """Один вопрос по одному слайду: всё, что нужно, чтобы позвать судью."""
+
+    slide_id: str
+    image_png: bytes
+    context: str = ""
+
+
+def verdicts(
+    vlm: object,
+    queries: list[Query],
+    *,
+    check_id: str,
+    question: str,
+    language: str,
+    votes: int,
+    concurrency: int,
+) -> list[tuple[Query, Verdict | None]]:
+    """Вердикты по списку вопросов — **в порядке слайдов, а не ответов**.
+
+    Порядок фиксирован намеренно: находки одного и того же аудита обязаны совпадать
+    между прогонами, а `finding_id` считается от того, на что находка указывает.
+    Порядок завершения потоков к содержанию отношения не имеет.
+
+    Параллелизм бьёт по стенным часам, а не по числу вызовов: узкое место —
+    ожидание ответа сервера (28 с на вызов по замеру 18.09), и на нём GIL отпущен.
+    Асинхронного варианта здесь нет сознательно: `ask` синхронна снизу доверху,
+    и переписывать под неё контракт проверки (`registry.py`) значило бы тронуть все
+    тридцать пять проверок ради восьми.
+    """
+    call = partial(
+        ask,
+        vlm,
+        check_id=check_id,
+        question=question,
+        language=language,
+        votes=votes,
+    )
+    if concurrency <= 1 or len(queries) <= 1:
+        return [(q, call(image_png=q.image_png, context=q.context)) for q in queries]
+
+    with ThreadPoolExecutor(max_workers=min(concurrency, len(queries))) as pool:
+        futures = [pool.submit(call, image_png=q.image_png, context=q.context) for q in queries]
+        return [(q, f.result()) for q, f in zip(queries, futures, strict=True)]
+
+
 def _make_check(check_id: str, question: str) -> None:
     """Регистрирует проверку-вопрос. Отдельных функций не пишем: они отличались бы
     только строкой вопроса, а расхождение между ними — источник ошибок."""
@@ -160,12 +229,13 @@ def _make_check(check_id: str, question: str) -> None:
     )
     def _check(ctx: CheckContext) -> Iterable[Finding]:
         previews = _previews_for(ctx)
-        vlm = ctx.vlm
         votes = int(ctx.param("vlm_votes", 3))
         threshold = ctx.param("vlm_confidence_threshold", 0.6)
+        concurrency = max(1, int(ctx.param("vlm_concurrency", DEFAULT_CONCURRENCY)))
         language = getattr(ctx.deck, "language", None) or "ru"
         slides = list(ctx.deck.slides)
 
+        queries: list[Query] = []
         for index, slide in enumerate(slides):
             image = previews.get(slide.slide_id)
             if image is None:
@@ -177,15 +247,18 @@ def _make_check(check_id: str, question: str) -> None:
                     continue  # первому слайду не с чем соседствовать
                 context_text = f"Предыдущий слайд: {slide_text(slides[index - 1])[:600]}"
 
-            verdict = ask(
-                vlm,
-                check_id=check_id,
-                question=question,
-                image_png=image,
-                language=language,
-                context=context_text,
-                votes=votes,
-            )
+            queries.append(Query(slide_id=slide.slide_id, image_png=image, context=context_text))
+
+        asked = verdicts(
+            ctx.vlm,
+            queries,
+            check_id=check_id,
+            question=question,
+            language=language,
+            votes=votes,
+            concurrency=concurrency,
+        )
+        for query, verdict in asked:
             # Модель промолчала или не уверена — это не «всё хорошо».
             # Такой слайд просто остаётся без вердикта, и находки по нему нет.
             if verdict is None or verdict.ok or verdict.confidence < threshold:
@@ -193,7 +266,7 @@ def _make_check(check_id: str, question: str) -> None:
 
             yield make_finding(
                 check_id=check_id,
-                slide_id=slide.slide_id,
+                slide_id=query.slide_id,
                 reason=f"verdict:{check_id}",
                 message=f"{question} — нет. {verdict.reason}".strip(),
                 evidence={

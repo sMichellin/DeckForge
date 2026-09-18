@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from typing import Any
 
 import pytest
@@ -177,3 +179,97 @@ def test_dominant_script_ignores_digits_and_punctuation() -> None:
     assert judge.dominant_script("37 % — 2026") is None
     assert judge.dominant_script("Выручка") == "cyrillic"
     assert judge.dominant_script("Revenue") == "latin"
+
+
+# --- параллелизм вопросов ----------------------------------------------------
+
+
+class ConcurrentVlm:
+    """Считает, сколько вызовов идёт одновременно, и отвечает **по картинке**.
+
+    Фейк, отдающий ответы по очереди, здесь не годится: при параллельных вызовах порядок
+    обращений не определён, и такой тест проверял бы удачу планировщика потоков.
+    """
+
+    def __init__(self, answers: dict[bytes, dict[str, Any]], holds: dict[bytes, float]) -> None:
+        self.answers = answers
+        self.holds = holds
+        self.calls = 0
+        self.inside = 0
+        self.max_parallel = 0
+        self._lock = threading.Lock()
+
+    def ask_image(self, *, system: str, user: str, image_png: bytes,
+                  schema: dict[str, Any] | None, seed: int) -> dict[str, Any]:
+        with self._lock:
+            self.calls += 1
+            self.inside += 1
+            self.max_parallel = max(self.max_parallel, self.inside)
+        time.sleep(self.holds[image_png])
+        with self._lock:
+            self.inside -= 1
+        return self.answers[image_png]
+
+
+def _three_slides() -> tuple[object, dict[str, bytes]]:
+    previews = {f"s0{i}": PNG + str(i).encode() for i in (1, 2, 3)}
+    colony = deck(*(slide(title(f"Слайд {i}"), slide_id=f"s0{i}") for i in (1, 2, 3)))
+    return colony, previews
+
+
+def _judge_three(manifest: TemplateManifest, vlm: ConcurrentVlm, **overrides: int) -> list[Any]:
+    colony, previews = _three_slides()
+    registered = REGISTRY.get("content.has_substance")
+    assert registered is not None
+    context = context_for("content.has_substance", colony, manifest, previews=previews,
+                          vlm=vlm, vlm_votes=1, **overrides)
+    return list(registered.fn(context))
+
+
+def _slow_first(previews: dict[str, bytes]) -> dict[bytes, float]:
+    """Первый слайд отвечает дольше всех: в порядке ответов он оказался бы последним."""
+    return {previews["s01"]: 0.15, previews["s02"]: 0.01, previews["s03"]: 0.01}
+
+
+def test_questions_about_different_slides_are_asked_at_once(manifest: TemplateManifest) -> None:
+    """Вердикты по слайдам независимы, значит ждать ответа по одному ради другого незачем."""
+    _, previews = _three_slides()
+    vlm = ConcurrentVlm({img: _no() for img in previews.values()}, _slow_first(previews))
+
+    _judge_three(manifest, vlm, vlm_concurrency=3)
+
+    assert vlm.max_parallel == 3
+
+
+def test_by_default_questions_go_one_by_one(manifest: TemplateManifest) -> None:
+    """Сервер с одним слотом и провайдер с лимитом не должны получить наплыв молча."""
+    _, previews = _three_slides()
+    vlm = ConcurrentVlm({img: _no() for img in previews.values()}, _slow_first(previews))
+
+    _judge_three(manifest, vlm)
+
+    assert vlm.max_parallel == 1
+
+
+def test_findings_keep_slide_order_not_answer_order(manifest: TemplateManifest) -> None:
+    """`finding_id` считается от того, на что находка указывает: порядок обязан быть устойчив."""
+    _, previews = _three_slides()
+    vlm = ConcurrentVlm({img: _no() for img in previews.values()}, _slow_first(previews))
+
+    findings = _judge_three(manifest, vlm, vlm_concurrency=3)
+
+    assert [f.slide_id for f in findings] == ["s01", "s02", "s03"]
+
+
+def test_parallelism_does_not_change_what_is_asked(manifest: TemplateManifest) -> None:
+    """Выигрыш — в стенных часах, а не в числе вызовов: аудит не должен дешеветь незаметно."""
+    _, previews = _three_slides()
+    answers = {img: _no() for img in previews.values()}
+
+    one = ConcurrentVlm(answers, _slow_first(previews))
+    many = ConcurrentVlm(answers, _slow_first(previews))
+    sequential = _judge_three(manifest, one)
+    parallel = _judge_three(manifest, many, vlm_concurrency=3)
+
+    assert one.calls == many.calls == 3
+    assert [f.finding_id for f in sequential] == [f.finding_id for f in parallel]
