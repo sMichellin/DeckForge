@@ -53,6 +53,17 @@ class InferenceError(RuntimeError):
     """Модель не дала пригодного ответа. Отдельный тип, чтобы отличать от сетевых сбоев."""
 
 
+class InferenceTransportError(InferenceError):
+    """Отказ провайдера: 404, 400, неверный эндпоинт, модель не поднята.
+
+    Отдельный тип нужен циклу починки в `structured.py`: тот переспрашивает **модель**,
+    когда её ответ не разобрался, и повторять запрос, который провайдер отверг, ему
+    бессмысленно. Хуже того, без этого различия транспортный отказ доезжает
+    до пользователя под видом «ответ не прошёл валидацию» — так 404 перезапускавшегося
+    сервера выглядел как проблема схемы (замер 18.09).
+    """
+
+
 class InferenceQuotaError(InferenceError):
     """Квота исчерпана.
 
@@ -227,7 +238,9 @@ class InferenceClient:
                     f"{self.model}: {exc.status_code} — квота исчерпана или доступ закрыт"
                 ) from exc
             if exc.status_code < 500 and exc.status_code not in _RETRYABLE_4XX:
-                raise InferenceError(f"{self.model}: {exc.status_code} {exc.message}") from exc
+                raise InferenceTransportError(
+                    f"{self.model}: {exc.status_code} {exc.message}"
+                ) from exc
             raise
 
         choice = response.choices[0]

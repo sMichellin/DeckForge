@@ -18,7 +18,12 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from deckforge.inference.cache import ResponseCache
-from deckforge.inference.client import Completion, InferenceClient, InferenceError
+from deckforge.inference.client import (
+    Completion,
+    InferenceClient,
+    InferenceError,
+    InferenceTransportError,
+)
 
 #: Модели любят обернуть JSON в ```json … ``` даже при строгой схеме.
 _FENCE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.MULTILINE)
@@ -129,6 +134,11 @@ def generate_model[T: BaseModel](
                 **kwargs,
             )
             return model_cls.model_validate(data), completion
+        except InferenceTransportError:
+            # Провайдер отверг запрос: 404, неверный эндпоинт, модель не поднята.
+            # Переспрашивать нечего — ответа не было вовсе. Пробрасываем как есть,
+            # иначе транспортный отказ выглядит как «модель не справилась со схемой».
+            raise
         except (ValidationError, InferenceError) as exc:
             last_error = exc
             attempt_user = f"{user}\n\n{_repair_hint(exc)}"

@@ -193,3 +193,45 @@ def test_corrupted_cache_file_is_ignored(tmp_path: Path) -> None:
     generate_json(client, system="s", user="u", response_schema=None, seed=1,  # type: ignore[arg-type]
                   cache=cache, skill_ref="проба@1.0.0")
     assert len(client.requests) == 2
+
+
+
+# --- транспортный отказ не выдаётся за провал валидации (замер 18.09) ----------
+
+
+def test_provider_refusal_is_not_repaired(monkeypatch: pytest.MonkeyPatch) -> None:
+    """404 перезапускающегося сервера доезжал как «ответ не прошёл валидацию за 3 попыток».
+
+    Переспрашивать модель, которая не отвечала вовсе, бессмысленно: три попытки бьются
+    об один и тот же отказ, а причина в сообщении теряется за формулировкой про схему.
+    """
+    from deckforge.inference.client import InferenceTransportError
+
+    calls = 0
+
+    class RefusingClient:
+        model = "fake"
+
+        def complete(self, messages: list[dict[str, Any]], **kwargs: Any) -> Completion:
+            nonlocal calls
+            calls += 1
+            raise InferenceTransportError("fake: 404 Not found")
+
+    with pytest.raises(InferenceTransportError, match="404"):
+        generate_model(RefusingClient(), Verdict, system="s", user="u")  # type: ignore[arg-type]
+
+    assert calls == 1, "запрос, отвергнутый провайдером, повторять незачем"
+
+
+def test_unparsable_answer_is_still_repaired() -> None:
+    """Разбор ответа — по-прежнему дело цикла починки: тут модель ответила, просто плохо."""
+    answers = ["не json вовсе", json.dumps({"kind": "ok", "score": 7})]
+
+    class SloppyClient:
+        model = "fake"
+
+        def complete(self, messages: list[dict[str, Any]], **kwargs: Any) -> Completion:
+            return Completion(text=answers.pop(0), model="fake")
+
+    result, _ = generate_model(SloppyClient(), Verdict, system="s", user="u")  # type: ignore[arg-type]
+    assert result.score == 7, "со второй попытки ответ должен был разобраться"
