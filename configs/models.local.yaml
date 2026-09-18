@@ -40,10 +40,17 @@ models:
     params_total_b: 26.9
     role: "composition,bulk"
     endpoint_ref: "vlm"
+    # Замер 18.09: сквозной прогон падает на стадии плана —
+    #   400 'Failed to initialize samplers: failed to parse grammar'
+    # llama.cpp переводит JSON Schema в GBNF-грамматику и на схеме `DeckPlan` этого
+    # не осиливает. Схема уходит в текст промпта, форму держит цикл починки
+    # (inference/client.py). У судьи схема из двух полей, она компилируется — поэтому
+    # выключено только здесь, а не у всех ролей: дело в схеме, а не в модели.
     notes: >-
       Веса: DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NEO-CODER-MAX-MTP-GGUF,
       квантование IQ4_XS, 16.6 ГБ. Родословная проверена: единственный предок —
       Qwen/Qwen3.8-27B, тоже apache-2.0, чужих лицензий в мерже нет.
+    supports_structured_output: false
   vlm_judge:
     hf_id: "/home/joni/Downloads/Qwen3.8-27B-TurboFCFusion-735-882-Here-Uncen-NEO-CODER-MAX-IQ4_XS.gguf"
     license: "apache-2.0"
