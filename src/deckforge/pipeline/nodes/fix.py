@@ -1,4 +1,4 @@
-"""Узел `fix`. Change (17) `pipeline-orchestration`.
+"""Узел `fix`. Change (17) `pipeline-orchestration`, подключение фиксов — change (19).
 
 Виток починки ведёт в `fit`, а не в `compose`, хотя ARCHITECTURE.md §3 рисует стрелку
 в композицию. Причина в контракте `FixApplier` (change 19): он возвращает **готовый**
@@ -6,9 +6,10 @@
 применённый фикс — чинить и тут же перегенерировать чинимое бессмысленно. Заново
 проходятся вписывание, запись и аудит: только они видят последствия правки.
 
-Пока change (19) не приехал, `FixApplier` поднимает `NotImplementedError`. Узел пишет
-это в `errors` и ведёт колоду на экспорт: граф замкнут, и когда фиксы появятся,
-править в нём будет нечего.
+`FixApplier` не падает на находке, которую чинить нечем: отказ приезжает флагом
+`auto_fix_applied` и причиной в `evidence`. Поэтому узел смотрит на флаги, а не на то,
+что вызов вернулся без исключения. Виток, не изменивший ни одного слайда, обязан вести
+на экспорт: иначе граф крутил бы витки до предела впустую (`route_after_fix`).
 """
 
 from __future__ import annotations
@@ -31,28 +32,29 @@ async def fix_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     round_no = state.get("fix_round", 0) + 1
 
     async with timed(deps, "fix") as timings:
-        try:
-            deck, _report = await asyncio.to_thread(
-                partial(FixApplier().apply, state["deck"], selected, state["manifest"])
-            )
-        except NotImplementedError:
-            return {
-                "fix_round": round_no,
-                "fix_applied": False,
-                "selected_fixes": [],
-                "stage_timings_s": timings,
-                "errors": [
-                    f"авто-фиксы не применены ({len(selected)} находок): "
-                    "change (19) audit-remediation ещё не реализован"
-                ],
-            }
+        deck, report = await asyncio.to_thread(
+            partial(FixApplier().apply, state["deck"], selected, state["manifest"])
+        )
+
+    applied = [f for f in report.findings if f.auto_fix_applied]
+    # Отказ виден пользователю поимённо: «применено 2 из 5» без причин оставшихся трёх
+    # выглядит как сбой, хотя это законный исход (шкала кончилась, чинит модель).
+    refused = [
+        f"не починено {f.check_id} на {f.slide_id}: "
+        + f.evidence.get("fix_skipped", "причина не указана")
+        for f in report.findings
+        if not f.auto_fix_applied
+    ]
 
     return {
         "deck": deck,
         "slides": list(deck.slides),
         "fix_round": round_no,
-        "fix_applied": True,
+        "fix_applied": bool(applied),
         "selected_fixes": [],
         "stage_timings_s": timings,
-        "notes": [f"виток починки {round_no}: применено находок — {len(selected)}"],
+        "notes": [
+            f"виток починки {round_no}: применено находок — {len(applied)} из {len(selected)}",
+            *refused,
+        ],
     }

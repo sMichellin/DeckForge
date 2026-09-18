@@ -17,7 +17,8 @@ from deckforge.domain.audit import AuditReport, Finding
 from deckforge.domain.content import Brief
 from deckforge.domain.enums import AutoFix, Severity, SlideIntent, TextRole
 from deckforge.domain.plan import DeckPlan, SlidePlan
-from deckforge.domain.slide import SlideIR, TextBlock
+from deckforge.domain.slide import DeckIR, SlideIR, TextBlock
+from deckforge.domain.template import TemplateManifest
 from deckforge.pipeline.budget import STAGE_BUDGET_S, BudgetTracker
 from deckforge.pipeline.deps import Deps, PipelineError
 from deckforge.pipeline.graph import build_graph, route_after_fix, route_after_hitl
@@ -61,15 +62,28 @@ def plan_of(*slide_ids: str) -> DeckPlan:
     )
 
 
-def finding(finding_id: str, fix: AutoFix = AutoFix.SHRINK_FONT) -> Finding:
+def finding(
+    finding_id: str, fix: AutoFix = AutoFix.SHRINK_FONT, block_id: str | None = None
+) -> Finding:
     return Finding(
         finding_id=finding_id,
         check_id="layout.text_overflow",
         deterministic=True,
         severity=Severity.ERROR,
         slide_id="s01",
+        block_id=block_id,
         message="переполнение",
         auto_fix=fix,
+    )
+
+
+def deck_of(manifest: TemplateManifest, *slide_ids: str) -> DeckIR:
+    return DeckIR(
+        deck_id="d1",
+        variant="A",
+        template_id=manifest.template_id,
+        seed=1,
+        slides=[slide_ir(sid) for sid in slide_ids],
     )
 
 
@@ -153,21 +167,51 @@ async def test_fix_rounds_are_capped_and_the_cap_is_reported(tmp_path: Path) -> 
     assert any("предел витков" in note for note in out["notes"])
 
 
-# --- узел fix: change (19) ещё не приехал ------------------------------------
+# --- узел fix ----------------------------------------------------------------
 
 
-async def test_missing_fix_applier_is_reported_not_swallowed(tmp_path: Path) -> None:
-    """`FixApplier` — change (19). Пока его нет, колода идёт на экспорт с причиной."""
+async def test_applied_fix_moves_the_deck_on(tmp_path: Path, manifest: TemplateManifest) -> None:
     state: DeckState = {
-        "deck": None,  # type: ignore[typeddict-item]
-        "manifest": None,  # type: ignore[typeddict-item]
-        "selected_fixes": [finding("f1")],
+        "deck": deck_of(manifest, "s01"),
+        "manifest": manifest,
+        "selected_fixes": [finding("f1", block_id="t")],
         "fix_round": 0,
     }
     out = await fix_node(state, runtime(deps(tmp_path)))
-    assert out["fix_applied"] is False
+
+    assert out["fix_applied"] is True
     assert out["fix_round"] == 1
-    assert any("audit-remediation" in line for line in out["errors"])
+    # 40 pt из шкалы синтетического шаблона ушли на ступень ниже.
+    assert out["deck"].slides[0].block("t").size_pt == 24
+    assert any("применено находок — 1 из 1" in note for note in out["notes"])
+
+
+async def test_round_that_changed_nothing_does_not_claim_it_did(
+    tmp_path: Path, manifest: TemplateManifest
+) -> None:
+    """Иначе граф ушёл бы на новый виток за починкой, которой не было (`route_after_fix`)."""
+    state: DeckState = {
+        "deck": deck_of(manifest, "s01"),
+        "manifest": manifest,
+        "selected_fixes": [finding("f1", AutoFix.REGENERATE_HEADLINE, block_id="t")],
+        "fix_round": 0,
+    }
+    out = await fix_node(state, runtime(deps(tmp_path)))
+
+    assert out["fix_applied"] is False
+    assert any("не починено" in note for note in out["notes"])
+
+
+def test_slide_added_by_a_fix_is_not_dropped_by_the_plan(manifest: TemplateManifest) -> None:
+    """`split_slide` создаёт слайд, которого в плане нет: отбор по плану потерял бы пункты."""
+    deck = deck_of(manifest, "s01", "s01-2", "s02")
+    state: DeckState = {
+        "plan": plan_of("s01", "s02"),
+        "slides": list(deck.slides),
+        "deck": deck,
+        "fix_round": 1,
+    }
+    assert [s.slide_id for s in _ordered(state)] == ["s01", "s01-2", "s02"]
 
 
 # --- деградация по бюджету ---------------------------------------------------
@@ -255,9 +299,7 @@ async def test_interactive_run_stops_and_resumes_with_the_human_choice(tmp_path:
     compiled = graph.compile(checkpointer=InMemorySaver())
 
     config: Any = {"configurable": {"thread_id": "t1"}}
-    report = AuditReport(
-        deck_id="d1", variant="A", findings=[finding("f1"), finding("f2")]
-    )
+    report = AuditReport(deck_id="d1", variant="A", findings=[finding("f1"), finding("f2")])
     stopped = await compiled.ainvoke(
         {"audit": report, "fix_round": 0}, config=config, context=context
     )
