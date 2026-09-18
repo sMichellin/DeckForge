@@ -102,6 +102,21 @@ class RunResult:
         """Граф остановлен на HITL и ждёт выбора человека."""
         return "__interrupt__" in self.state
 
+    def pending_findings(self) -> list[dict[str, Any]]:
+        """Находки, на которые граф ждёт ответа. Пусто, если он не прерван.
+
+        Разбор `__interrupt__` живёт здесь, а не в транспорте: его форма принадлежит
+        LangGraph, а API и CLI про LangGraph знать не должны (ARCHITECTURE.md §3).
+        """
+        # Ключ не объявлен в `DeckState`: его кладёт LangGraph, а не наши узлы.
+        payloads: Any = self.state.get("__interrupt__") or []
+        findings: list[dict[str, Any]] = []
+        for item in payloads:
+            value = getattr(item, "value", item)
+            if isinstance(value, dict):
+                findings.extend(value.get("findings") or [])
+        return findings
+
     def report(self) -> dict[str, Any]:
         """Отчёт прогона. Всё, что не отработало, названо здесь, а не замолчано."""
         audit = self.state.get("audit")
@@ -194,6 +209,12 @@ def initial_state(
     }
 
 
+def thread_id(run_id: str, variant: VariantProfile | str) -> str:
+    """Ключ чекпойнта. Возобновление обязано попасть в ту же нить, что и прогон."""
+    name = variant if isinstance(variant, str) else variant.variant_id
+    return f"{run_id}:{name}"
+
+
 async def generate_variant(
     template: Path,
     content_paths: Iterable[Path],
@@ -212,11 +233,42 @@ async def generate_variant(
         graph = build_graph(checkpointer=saver)
         final = await graph.ainvoke(
             initial_state(template, content_paths, variant, seed, identifier),
-            config={"configurable": {"thread_id": f"{identifier}:{variant.variant_id}"}},
+            config={"configurable": {"thread_id": thread_id(identifier, variant)}},
             context=deps,
         )
     return RunResult(
         variant=variant.variant_id, run_id=identifier, out_dir=deps.out_dir, state=final
+    )
+
+
+async def resume_variant(
+    variant: VariantProfile,
+    deps: Deps,
+    *,
+    run_id: str,
+    selected: Iterable[str],
+    checkpoint_path: Path,
+) -> RunResult:
+    """Продолжение прерванного прогона после выбора человека (HITL).
+
+    Путь до чекпойнта обязателен, и это не придирка: `InMemorySaver` живёт в процессе,
+    а смысл HITL ровно в том, что выбор приходит позже и, возможно, в другой воркер.
+    Возобновлять из памяти было бы нечего.
+
+    Выбор передаётся списком `finding_id` — тем же, что уехал в `pending_findings()`.
+    Узел `hitl` отберёт по нему находки сам: транспорт решает, что чинить, а не как.
+    """
+    from langgraph.types import Command
+
+    async with open_checkpointer(checkpoint_path) as saver:
+        graph = build_graph(checkpointer=saver)
+        final = await graph.ainvoke(
+            Command(resume=[str(item) for item in selected]),
+            config={"configurable": {"thread_id": thread_id(run_id, variant)}},
+            context=deps,
+        )
+    return RunResult(
+        variant=variant.variant_id, run_id=run_id, out_dir=deps.out_dir, state=final
     )
 
 

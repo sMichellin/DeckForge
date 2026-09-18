@@ -14,6 +14,7 @@ from deckforge.pipeline.run import (
     collect_content_paths,
     generate_variant,
     load_brief,
+    resume_variant,
     variants_for,
 )
 from deckforge.pipeline.state import DeckState
@@ -29,5 +30,6 @@ __all__ = [
     "collect_content_paths",
     "generate_variant",
     "load_brief",
+    "resume_variant",
     "variants_for",
 ]
