@@ -57,10 +57,12 @@ def _language_tool(language: str, url: str | None) -> SpellChecker | None:
         return None
 
     try:
-        if url:
-            tool: Any = language_tool_python.LanguageToolPublicAPI(language, remote_server=url)
-        else:
-            tool = language_tool_python.LanguageTool(language)
+        # `LanguageTool`, а не `LanguageToolPublicAPI`: последний сам подставляет адрес
+        # публичного сервиса languagetool.org, и второй `remote_server` роняет его
+        # с `TypeError: got multiple values for keyword argument`. Фабрика глотала это
+        # исключение, и проверка ни разу не работала ни в одном окружении (замер 18.09).
+        # Тесты подменяют фабрику целиком, поэтому настоящий клиент в них не создавался.
+        tool: Any = language_tool_python.LanguageTool(language, remote_server=url or None)
     except Exception:
         return None
 

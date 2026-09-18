@@ -8,6 +8,10 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     env_file: [../.env]
+    # Внутри сети compose сервис виден по имени; адрес из .env (обычно localhost)
+    # здесь указывает внутрь самого контейнера.
+    environment:
+      - DECKFORGE_LANGUAGETOOL_URL=http://languagetool:8010
     volumes:
       - ../artifacts:/app/artifacts:z
       - ../submission:/app/submission:z
@@ -22,9 +26,12 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.worker
     env_file: [../.env]
+    # Аудит в связке с Redis выполняет воркер, а не app, — ему LanguageTool и нужен.
+    environment:
+      - DECKFORGE_LANGUAGETOOL_URL=http://languagetool:8010
     volumes:
       - ../artifacts:/app/artifacts:z
-    depends_on: [redis, minio]
+    depends_on: [redis, minio, languagetool]
     command: ["arq", "deckforge.api.worker.WorkerSettings"]
 
   ui:
@@ -38,10 +45,11 @@ services:
       - ../frontend:/app/frontend:z
     ports: ["8501:8501"]
 
+  # Без n-грамм: каталог /ngrams никуда не смонтирован, и с ним сервис падал при старте
+  # («LanguageModel directory not found»). Для русского n-грамм у LanguageTool нет вовсе.
   languagetool:
     image: docker.io/erikvl87/languagetool:latest
     environment:
-      - langtool_languageModel=/ngrams
       - Java_Xms=512m
       - Java_Xmx=2g
     ports: ["8010:8010"]

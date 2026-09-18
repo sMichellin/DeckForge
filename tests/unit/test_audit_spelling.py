@@ -88,3 +88,52 @@ def test_language_comes_from_the_deck(
     colony = deck(slide(title(), body("текст")))
     list(spelling.no_typos(context_for("content.no_typos", colony, manifest)))
     assert seen == [colony.language]
+
+
+# --- настоящий клиент, а не подмена фабрики (замер 18.09) ---------------------
+
+
+def test_self_hosted_server_gets_the_self_hosted_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Проверка не работала ни в одном окружении: `LanguageToolPublicAPI` сам задаёт
+    адрес публичного сервиса и падает с `TypeError` на втором `remote_server`.
+
+    Остальные тесты подменяют `checker_factory` целиком, поэтому этого не видели.
+    Здесь подменяется только сетевой класс библиотеки — фабрика настоящая.
+    """
+    import language_tool_python
+
+    from deckforge.audit.semantic import spelling
+
+    seen: dict[str, object] = {}
+
+    class Recorder:
+        def __init__(self, language: str, **kwargs: object) -> None:
+            seen["language"] = language
+            seen.update(kwargs)
+
+    monkeypatch.setattr(language_tool_python, "LanguageTool", Recorder)
+    monkeypatch.setattr(
+        language_tool_python,
+        "LanguageToolPublicAPI",
+        lambda *a, **k: pytest.fail("для своего сервера нужен LanguageTool, а не PublicAPI"),
+    )
+
+    assert spelling._language_tool("ru", "http://languagetool:8010") is not None
+    assert seen["remote_server"] == "http://languagetool:8010"
+
+
+def test_dead_server_means_skipped_not_crashed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Сервиса нет — клиент падает при создании, проверка уходит в пропущенные.
+
+    На этом держится то, что адрес из настроек можно подавать всегда: иначе
+    стенд без LanguageTool ронял бы весь аудит посреди слайдов.
+    """
+    import language_tool_python
+
+    from deckforge.audit.semantic import spelling
+
+    def refuse(*a: object, **k: object) -> None:
+        raise language_tool_python.utils.LanguageToolError("сервер не отвечает")
+
+    monkeypatch.setattr(language_tool_python, "LanguageTool", refuse)
+    assert spelling._language_tool("ru", "http://nowhere:8010") is None

@@ -9,6 +9,7 @@ from typing import Any
 from langgraph.runtime import Runtime
 
 from deckforge.audit.runner import AuditRunner
+from deckforge.config import get_settings
 from deckforge.pipeline.deps import Deps
 from deckforge.pipeline.nodes import timed
 from deckforge.pipeline.state import DeckState
@@ -22,6 +23,20 @@ PIPELINE_KEYS = frozenset({"run_deterministic", "run_semantic", "auto_fix", "max
 def check_params(audit: dict[str, Any]) -> dict[str, Any]:
     """Пороги прогона из профиля — всё, что не управляет графом."""
     return {key: value for key, value in audit.items() if key not in PIPELINE_KEYS}
+
+
+def run_params(audit: dict[str, Any], languagetool_url: str) -> dict[str, Any]:
+    """Параметры прогона для проверок: адреса окружения плюс пороги профиля.
+
+    `DECKFORGE_LANGUAGETOOL_URL` была объявлена в настройках и не читалась нигде —
+    проверка орфографии брала адрес только из `server_url` в `audit_checks.yaml`,
+    а там его нет. Адрес — свойство окружения, а не порог проверки, поэтому он идёт
+    отсюда. Профиль, если задаст `server_url` явно, главнее.
+
+    Подавать адрес безопасно и тогда, когда сервиса нет: клиент падает сразу при
+    создании, и проверка уходит в пропущенные, а не рвёт аудит посреди слайдов.
+    """
+    return {"server_url": languagetool_url, **check_params(audit)}
 
 
 def _read_previews(previews: dict[str, Path]) -> dict[str, bytes]:
@@ -45,7 +60,7 @@ async def audit_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
         vlm = None
         degradations.append("audit: смысловой аудит выключен — остатка бюджета не хватает (§15)")
 
-    runner = AuditRunner(run_params=check_params(deps.run.audit))
+    runner = AuditRunner(run_params=run_params(deps.run.audit, get_settings().languagetool_url))
     async with timed(deps, "audit") as timings:
         report = await runner.run(
             state["deck"],

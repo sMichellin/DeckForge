@@ -163,3 +163,23 @@ def test_profile_votes_are_not_dead_letters(profile: str, votes: int) -> None:
     config = load_run_config(profile=profile)
     assert config.audit["vlm_votes"] == votes
     assert check_params(config.audit)["vlm_votes"] == votes
+
+
+# --- адрес LanguageTool из окружения (замер 18.09) ----------------------------
+
+
+def test_languagetool_address_reaches_the_spelling_check() -> None:
+    """`DECKFORGE_LANGUAGETOOL_URL` была объявлена и не читалась нигде."""
+    from deckforge.pipeline.nodes.audit import run_params
+
+    params = run_params({"vlm_votes": 3, "auto_fix": True}, "http://languagetool:8010")
+    assert params["server_url"] == "http://languagetool:8010"
+    assert params["vlm_votes"] == 3
+    assert "auto_fix" not in params, "рычаг графа в пороги проверок не уезжает"
+
+
+def test_profile_address_beats_the_environment() -> None:
+    from deckforge.pipeline.nodes.audit import run_params
+
+    params = run_params({"server_url": "http://special:8010"}, "http://languagetool:8010")
+    assert params["server_url"] == "http://special:8010"
