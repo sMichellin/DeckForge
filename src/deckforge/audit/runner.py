@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Any
 
 from deckforge.audit import deterministic as _deterministic  # noqa: F401  регистрация
 from deckforge.audit import semantic as _semantic  # noqa: F401  регистрация
@@ -41,10 +42,20 @@ class AuditRunner:
 
     `enabled_checks` сужает набор до перечисленных id — нужно интерфейсу и тестам;
     выключенные в `configs/audit_checks.yaml` не запускаются в любом случае.
+
+    `run_params` — пороги прогона из профиля запуска (`configs/profiles/*.yaml`).
+    Они подкладываются **под** `params` проверки: порог, откалиброванный для конкретной
+    проверки, профиль молча переопределять не должен, а параметр, которого у проверки нет
+    (`vlm_votes` у VLM-судьи), иначе не доехал бы до неё вовсе.
     """
 
-    def __init__(self, enabled_checks: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        enabled_checks: list[str] | None = None,
+        run_params: dict[str, Any] | None = None,
+    ) -> None:
         self.enabled_checks = enabled_checks
+        self.run_params = dict(run_params or {})
         self.skipped_checks: list[str] = []
 
     async def run(
@@ -79,7 +90,7 @@ class AuditRunner:
                 skipped.append(registered.check_id)
                 continue
 
-            params = dict(spec.params) if spec is not None else {}
+            params = {**self.run_params, **(dict(spec.params) if spec is not None else {})}
             try:
                 produced = list(registered.fn(context.with_params(params)))
             except CheckUnavailable:
