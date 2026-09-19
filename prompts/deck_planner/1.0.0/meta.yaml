@@ -1,5 +1,8 @@
 model_ref: llm_main
 response_model: deckforge.domain.plan.DeckPlan
+# Поля, которые заполняет код: вариант, seed и язык известны до вызова, отчёт по нарративу
+# считает planning.narrative. Модель их не присылает (прогон 59e0014d2fdc: variant="report").
+response_omit: [variant, seed, language, narrative_check]
 temperature: 0.3
 top_p: 0.95
 max_tokens: 8192

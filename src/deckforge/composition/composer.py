@@ -128,6 +128,13 @@ class SlideComposer:
             temperature=bundle.meta.temperature,
             top_p=bundle.meta.top_p,
             max_tokens=bundle.meta.max_tokens,
+            # Поля, которые проставляет `_bind`: в схеме ответа их нет (response_omit),
+            # для валидации они нужны. Ошибка модели в них сжигала попытки починки.
+            overrides={
+                "slide_id": slide.slide_id,
+                "layout_id": layout.layout_id,
+                "variant": variant.variant_id,
+            },
         )
         raw, _completion = await asyncio.to_thread(call)
         return self._bind(

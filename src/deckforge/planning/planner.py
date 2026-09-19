@@ -75,6 +75,13 @@ class DeckPlanner:
             temperature=bundle.meta.temperature,
             top_p=bundle.meta.top_p,
             max_tokens=bundle.meta.max_tokens,
+            # Эти поля знает код, а не модель: в схеме ответа их нет (response_omit),
+            # а для валидации они нужны — подставляются до неё.
+            overrides={
+                "variant": variant.variant_id,
+                "seed": seed,
+                "language": content.brief.language,
+            },
         )
         raw_plan, _completion = await asyncio.to_thread(call)
         return self._ground(raw_plan, content, variant, seed)

@@ -648,19 +648,6 @@
   },
   "additionalProperties": false,
   "properties": {
-    "slide_id": {
-      "title": "Slide Id",
-      "type": "string"
-    },
-    "layout_id": {
-      "title": "Layout Id",
-      "type": "string"
-    },
-    "variant": {
-      "pattern": "^[A-Z]$",
-      "title": "Variant",
-      "type": "string"
-    },
     "blocks": {
       "items": {
         "discriminator": {
@@ -717,15 +704,9 @@
       ],
       "default": null,
       "title": "Speaker Note"
-    },
-    "provenance": {
-      "$ref": "#/$defs/Provenance"
     }
   },
   "required": [
-    "slide_id",
-    "layout_id",
-    "variant",
     "blocks"
   ],
   "title": "SlideIR",

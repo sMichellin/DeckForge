@@ -114,9 +114,16 @@ def generate_model[T: BaseModel](
     response_schema: dict[str, Any] | None = None,
     seed: int | None = None,
     repairs: int = 2,
+    overrides: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> tuple[T, Completion]:
-    """Ответ, валидированный доменной моделью. При провале — цикл починки."""
+    """Ответ, валидированный доменной моделью. При провале — цикл починки.
+
+    `overrides` — поля, которые заполняет код, а не модель (вариант, seed, язык).
+    Подставляются **до** валидации: иначе ошибка модели в поле, которое код всё равно
+    перезапишет, сжигает попытки починки. Прогон 59e0014d2fdc: планировщик трижды
+    получил `variant: "report"` и упал, хотя вариант ему известен заранее.
+    """
     schema = response_schema if response_schema is not None else model_cls.model_json_schema()
     attempt_user = user
     last_error: Exception | None = None
@@ -133,6 +140,8 @@ def generate_model[T: BaseModel](
                 schema_name=model_cls.__name__,
                 **kwargs,
             )
+            if overrides and isinstance(data, dict):
+                data = {**data, **overrides}
             return model_cls.model_validate(data), completion
         except InferenceTransportError:
             # Провайдер отверг запрос: 404, неверный эндпоинт, модель не поднята.

@@ -248,3 +248,37 @@ async def test_no_think_reaches_the_prompt_only_when_asked(
     fast = FakeLlm(payload_for(PRODUCT_FRAME))
     await DeckPlanner(fast).plan(content, manifest, variant_c, seed=1, no_think=True)
     assert "/no_think" in fast.prompt_text
+
+
+@pytest.mark.asyncio
+async def test_models_wrong_variant_does_not_burn_the_repairs(
+    content: ContentPackage, manifest: TemplateManifest, variant_c: VariantProfile
+) -> None:
+    """Прогон 59e0014d2fdc: модель трижды прислала `variant: "report"`, и план упал.
+
+    Вариант пайплайну известен заранее — чужое значение модели заменяется до валидации.
+    """
+    payload = payload_for(PRODUCT_FRAME) | {"variant": "report", "seed": "не число"}
+    plan = await DeckPlanner(FakeLlm(payload)).plan(content, manifest, variant_c, seed=5)
+    assert (plan.variant, plan.seed) == ("C", 5)
+
+
+@pytest.mark.asyncio
+async def test_plan_without_code_owned_fields_is_accepted(
+    content: ContentPackage, manifest: TemplateManifest, variant_c: VariantProfile
+) -> None:
+    """Схема ответа их больше не просит — ответ без них законен."""
+    payload = {k: v for k, v in payload_for(PRODUCT_FRAME).items() if k in ("deck_id", "slides")}
+    plan = await DeckPlanner(FakeLlm(payload)).plan(content, manifest, variant_c, seed=5)
+    assert plan.variant == "C" and plan.language == content.brief.language
+
+
+def test_planner_is_not_asked_for_fields_the_code_fills() -> None:
+    import json as _json
+
+    from deckforge.config import PROMPTS_DIR
+
+    schema = _json.loads(
+        (PROMPTS_DIR / "deck_planner" / "1.0.0" / "schema.json").read_text(encoding="utf-8")
+    )
+    assert set(schema["properties"]) == {"deck_id", "slides"}

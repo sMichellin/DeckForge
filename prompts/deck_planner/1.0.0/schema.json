@@ -127,35 +127,16 @@
       "title": "Deck Id",
       "type": "string"
     },
-    "variant": {
-      "pattern": "^[A-Z]$",
-      "title": "Variant",
-      "type": "string"
-    },
-    "seed": {
-      "title": "Seed",
-      "type": "integer"
-    },
-    "language": {
-      "default": "ru",
-      "title": "Language",
-      "type": "string"
-    },
     "slides": {
       "items": {
         "$ref": "#/$defs/SlidePlan"
       },
       "title": "Slides",
       "type": "array"
-    },
-    "narrative_check": {
-      "$ref": "#/$defs/NarrativeCheck"
     }
   },
   "required": [
     "deck_id",
-    "variant",
-    "seed",
     "slides"
   ],
   "title": "DeckPlan",
