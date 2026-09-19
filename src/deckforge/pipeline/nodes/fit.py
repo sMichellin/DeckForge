@@ -6,12 +6,24 @@ import asyncio
 
 from langgraph.runtime import Runtime
 
-from deckforge.domain.slide import DeckIR, SlideIR
+from deckforge.audit.fixes.apply import shorten_to_words
+from deckforge.domain.content import ContentPackage
+from deckforge.domain.slide import Block, BulletsBlock, DeckIR, SlideIR, TextBlock
+from deckforge.domain.template import TemplateManifest
 from deckforge.layout.errors import LayoutFitError
-from deckforge.layout.fitting import fit_slide
+from deckforge.layout.fitting import SHORTEN, fit_slide
+from deckforge.layout.fonts import FontLibrary
 from deckforge.pipeline.deps import Deps
 from deckforge.pipeline.nodes import timed
 from deckforge.pipeline.state import DeckState
+
+#: Сколько кругов «сократить и вписать заново», прежде чем сдаться. Каждый круг оставляет
+#: 80 % слов: шесть кругов — это четверть исходного текста, дальше смысл уже не спасти.
+_SHORTEN_ROUNDS = 6
+_SHORTEN_KEEP = 0.8
+
+#: Короче этого пункт или абзац не сокращается: огрызок хуже переполнения.
+_MIN_WORDS = 3
 
 
 def _ordered(state: DeckState) -> list[SlideIR]:
@@ -35,26 +47,109 @@ def _ordered(state: DeckState) -> list[SlideIR]:
     return [by_id[s.slide_id] for s in state["plan"].slides if s.slide_id in by_id]
 
 
+def _into_placeholders(slide: SlideIR) -> SlideIR:
+    """Блок с плейсхолдером пишется в плейсхолдер — координаты модели рядом с ним лишние.
+
+    Модель иногда отдаёт и то и другое. Писатель такой блок отвергает («координаты
+    потерялись бы»), а вписывание меряет текст по придуманным координатам, а не по месту,
+    которое отвёл шаблон. Плейсхолдер — решение автора шаблона, поэтому остаётся он.
+    """
+    blocks: list[Block] = []
+    for block in slide.blocks:
+        if getattr(block, "placeholder_idx", None) is not None and block.bbox is not None:
+            block = block.model_copy(update={"x": None, "y": None, "cx": None, "cy": None})
+        blocks.append(block)
+    return slide.model_copy(update={"blocks": blocks})
+
+
+def _shortened(block: Block) -> Block | None:
+    """Блок с сокращённым на пятую часть текстом; `None`, если сокращать нечего."""
+
+    def cut(text: str) -> str:
+        words = len(text.split())
+        return shorten_to_words(text, max(_MIN_WORDS, int(words * _SHORTEN_KEEP)))
+
+    if isinstance(block, TextBlock):
+        text = cut(block.text)
+        return None if text == block.text else block.model_copy(update={"text": text})
+    if isinstance(block, BulletsBlock):
+        items = [item.model_copy(update={"text": cut(item.text)}) for item in block.items]
+        if all(new.text == old.text for new, old in zip(items, block.items, strict=True)):
+            return None
+        return block.model_copy(update={"items": items})
+    return None
+
+
+def _fit_shortening(
+    slide: SlideIR,
+    manifest: TemplateManifest,
+    fonts: FontLibrary | None,
+    content: ContentPackage,
+) -> tuple[SlideIR, list[str]]:
+    """Вписывает слайд, сокращая текст, пока `fit_report` требует `shorten`.
+
+    Стратегию `shorten` вписывание только назначает (LLM в слое `layout` не зовут), а писатель
+    блок с переполнением не пишет. Фикс `shorten_text` есть в аудите, но аудит идёт после
+    записи — до него прогон не доживал: первое же переполнение роняло стадию `render`.
+    Поэтому сокращение выполняется здесь, детерминированно, и каждое попадает в заметки.
+    """
+    fitted = fit_slide(_into_placeholders(slide), manifest, fonts=fonts, content=content)
+    touched: set[str] = set()
+    for _ in range(_SHORTEN_ROUNDS):
+        over = {
+            block_id
+            for block_id, fit in fitted.fit_report.items()
+            if fit.overflow and fit.strategy == SHORTEN
+        }
+        blocks: list[Block] = []
+        changed = False
+        for block in fitted.blocks:
+            shorter = _shortened(block) if block.block_id in over else None
+            if shorter is not None:
+                changed = True
+                touched.add(block.block_id)
+            blocks.append(shorter or block)
+        if not changed:
+            break
+        fitted = fit_slide(
+            fitted.model_copy(update={"blocks": blocks, "fit_report": {}}),
+            manifest,
+            fonts=fonts,
+            content=content,
+        )
+
+    notes = [
+        f"{fitted.slide_id}/{block_id}: текст сокращён, чтобы влезть"
+        + ("" if not fitted.fit_report[block_id].overflow else " — и всё равно не влез")
+        for block_id in sorted(touched)
+    ]
+    return fitted, notes
+
+
 async def fit_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     """Вписывание текста метриками гарнитуры до записи файла (change 12)."""
     deps = runtime.context
     manifest = state["manifest"]
     plan = state["plan"]
 
-    def work() -> tuple[list[SlideIR], list[str]]:
+    def work() -> tuple[list[SlideIR], list[str], list[str]]:
         fitted: list[SlideIR] = []
         failed: list[str] = []
+        notes: list[str] = []
         for slide in _ordered(state):
             try:
-                fitted.append(
-                    fit_slide(slide, manifest, fonts=deps.fonts, content=state["content"])
+                slide_fitted, slide_notes = _fit_shortening(
+                    slide, manifest, deps.fonts, state["content"]
                 )
             except LayoutFitError as error:
                 failed.append(f"слайд {slide.slide_id} не вписан: {error}")
-        return fitted, failed
+                continue
+            fitted.append(slide_fitted)
+            notes.extend(slide_notes)
+        return fitted, failed, notes
 
     async with timed(deps, "fit") as timings:
-        fitted, failed = await asyncio.to_thread(work)
+        fitted, failed, notes = await asyncio.to_thread(work)
 
     if not fitted:
         raise RuntimeError(f"ни один слайд не вписан: {'; '.join(failed)}")
@@ -67,4 +162,10 @@ async def fit_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
         seed=state["seed"],
         slides=fitted,
     )
-    return {"deck": deck, "slides": fitted, "stage_timings_s": timings, "errors": failed}
+    return {
+        "deck": deck,
+        "slides": fitted,
+        "stage_timings_s": timings,
+        "errors": failed,
+        "notes": notes,
+    }
