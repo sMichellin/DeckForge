@@ -158,7 +158,7 @@ class InferenceClient:
         self._client = OpenAI(
             base_url=endpoint.base_url,
             api_key=endpoint.api_key,
-            timeout=self.timeout_s,
+            timeout=self.spec.timeout_s or self.timeout_s,
             max_retries=0,
         )
 

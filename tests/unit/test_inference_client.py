@@ -288,3 +288,10 @@ def test_bad_request_is_not_retried() -> None:
     with pytest.raises(InferenceTransportError):
         client.complete([{"role": "user", "content": "x"}])
     assert len(fake.calls) == 1
+
+
+def test_slow_backend_gets_its_own_timeout() -> None:
+    """Реестр задаёт таймаут медленному бэкенду; без него — общий таймаут клиента."""
+    slow = SPEC.model_copy(update={"timeout_s": 300.0})
+    assert InferenceClient(spec=slow, settings=Settings())._client.timeout == 300.0
+    assert InferenceClient(spec=SPEC, settings=Settings())._client.timeout == 120.0
