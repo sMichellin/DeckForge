@@ -13,12 +13,18 @@ from typing import Any
 import pytest
 
 from deckforge.composition.composer import MAX_BULLETS_BY_SPEC, CompositionError, SlideComposer
-from deckforge.composition.layout_picker import INTENT_LAYOUTS, kind_chain, pick_layout
+from deckforge.composition.layout_picker import (
+    INTENT_LAYOUTS,
+    MAX_CONTENT_LAYOUTS,
+    content_palette,
+    kind_chain,
+    pick_layout,
+)
 from deckforge.composition.visual_selector import looks_like_time_series, select_chart
 from deckforge.domain.content import Brief, ContentPackage, Dataset, Fact, Series
 from deckforge.domain.enums import ChartType, LayoutKind, SlideIntent, TextRole
 from deckforge.domain.plan import SlidePlan
-from deckforge.domain.template import TemplateManifest
+from deckforge.domain.template import LayoutBackground, TemplateManifest
 from deckforge.domain.variants import VariantProfile
 from deckforge.inference.client import Completion
 from deckforge.registry import load_variant_profiles
@@ -429,3 +435,266 @@ async def test_prompt_forbids_colouring_text_in_placeholders(
     llm = FakeLlm(payload)
     await SlideComposer(llm).compose(plan_slide(), content, manifest, variant_a, seed=1)
     assert "цвет не задавай вовсе" in llm.prompt
+
+
+# ------------------------------------------- основной текст свободным блоком (#62)
+
+
+def title_only_template(manifest: TemplateManifest, count: int = 6) -> TemplateManifest:
+    """Шаблон, где **ни один** макет не размечен под основной текст.
+
+    Так устроен VK WorkSpace: во всех пятнадцати макетах один плейсхолдер — заголовок.
+    Фоны нарочно повторяются: палитра обязана выбирать непохожие.
+    """
+    source = next(item for item in manifest.layouts if item.kind is LayoutKind.TITLE)
+    backgrounds = ["#101014", "#101014", "#0C2D59", "#101014", "#01111C", "#101014"]
+    return manifest.model_copy(
+        update={
+            "layouts": [
+                source.model_copy(
+                    update={
+                        "layout_id": f"T{index:02d}",
+                        "name": f"Макет {index}",
+                        "index": index,
+                        "kind": LayoutKind.SECTION if index == 1 else LayoutKind.TITLE,
+                        "background": LayoutBackground(
+                            color_hex=backgrounds[index % len(backgrounds)], source="layout"
+                        ),
+                    }
+                )
+                for index in range(count)
+            ]
+        }
+    )
+
+
+def test_content_slides_do_not_all_land_on_one_layout(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Дефект прогонов b8549ea89984 и 4197f2e8331f: двенадцать слайдов на одной подложке.
+
+    Все макеты шаблона равно непригодны под текст, `max(..., key=max_chars_body)`
+    отдавал первый, и колода выходила из двенадцати одинаковых слайдов.
+    """
+    template = title_only_template(manifest)
+    chosen = [
+        pick_layout(plan_slide(SlideIntent.PROBLEM, slide_id=f"s{n:02d}"), template, variant_a)
+        for n in range(2, 12)
+    ]
+    assert len({layout.layout_id for layout in chosen}) > 1
+
+
+def test_content_slides_keep_to_a_couple_of_layouts(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Разнообразие ограничено: презентация держится на повторе, а не на переборе."""
+    template = title_only_template(manifest)
+    chosen = {
+        pick_layout(
+            plan_slide(SlideIntent.PROBLEM, slide_id=f"s{n:02d}"), template, variant_a
+        ).layout_id
+        for n in range(2, 14)
+    }
+    assert len(chosen) <= MAX_CONTENT_LAYOUTS
+
+
+def test_content_slides_do_not_reuse_the_title_layout(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Титул посреди колоды читается как начало новой презентации."""
+    template = title_only_template(manifest)
+    title = pick_layout(plan_slide(SlideIntent.TITLE, slide_id="s01"), template, variant_a)
+    content_layouts = {
+        pick_layout(
+            plan_slide(SlideIntent.PROBLEM, slide_id=f"s{n:02d}"), template, variant_a
+        ).layout_id
+        for n in range(2, 12)
+    }
+    assert title.layout_id not in content_layouts
+
+
+def test_content_palette_prefers_different_backgrounds(manifest: TemplateManifest) -> None:
+    """Жалоба по прогону: «подложки везде одинаковые». Фон и есть то, что видно."""
+    template = title_only_template(manifest)
+    palette = content_palette(template, list(template.layouts))
+    backgrounds = {layout.background.color_hex for layout in palette if layout.background}
+    assert len(backgrounds) == len(palette)
+
+
+def test_layout_choice_is_deterministic(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Тот же план — та же колода: иначе два прогона не сравнить ни глазом, ни тестом."""
+    template = title_only_template(manifest)
+    slide = plan_slide(SlideIntent.PROBLEM, slide_id="s05")
+    first = pick_layout(slide, template, variant_a)
+    assert all(
+        pick_layout(slide, template, variant_a).layout_id == first.layout_id for _ in range(5)
+    )
+
+
+def test_capacious_layout_still_wins_when_capacity_differs(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Норма к той же правке: где вместимость различает макеты, она и решает."""
+    layout = pick_layout(plan_slide(SlideIntent.PROBLEM), manifest, variant_a)
+    assert layout.layout_id == "L07"
+    assert layout.capacity.max_chars_body == 420
+
+
+async def test_body_without_placeholder_or_coordinates_gets_a_place(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Главное по #62: модель отдаёт основной текст свободным блоком, и он не теряется."""
+    template = title_only_template(manifest)
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "T00",
+        "variant": "A",
+        "blocks": [
+            {
+                "block_id": "t",
+                "type": "text",
+                "placeholder_idx": 0,
+                "role": "title",
+                "text": "Отток снизился втрое",
+            },
+            {
+                "block_id": "b",
+                "type": "bullets",
+                "items": [{"text": "Первый довод"}, {"text": "Второй довод"}],
+            },
+        ],
+    }
+    ir = await SlideComposer(FakeLlm(payload)).compose(
+        plan_slide(), content, template, variant_a, seed=1
+    )
+    body = ir.block("b")
+    assert body is not None, "основной текст потерян — это и был дефект"
+    assert body.bbox is not None, "свободному блоку не дали места"
+    assert template.content_bbox.contains(body.bbox)
+
+
+async def test_free_body_does_not_land_on_the_title(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Заголовок VK WorkSpace шире полей шаблона: проверка «целиком внутри» его не видела."""
+    template = title_only_template(manifest)
+    layout = template.layout("T00")
+    assert layout is not None
+    wide = layout.placeholders[0].model_copy(
+        update={"x": 0, "cx": template.slide_size.cx_emu}
+    )
+    template = template.model_copy(
+        update={
+            "layouts": [
+                item.model_copy(update={"placeholders": [wide]})
+                if item.layout_id == "T00"
+                else item
+                for item in template.layouts
+            ]
+        }
+    )
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "T00",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "t", "type": "text", "placeholder_idx": 0, "role": "title", "text": "З"},
+            {"block_id": "b", "type": "text", "role": "body", "text": "Основной текст"},
+        ],
+    }
+    ir = await SlideComposer(FakeLlm(payload)).compose(
+        plan_slide(), content, template, variant_a, seed=1
+    )
+    body = ir.block("b")
+    assert body is not None and body.bbox is not None
+    assert body.bbox.intersection_area(wide.bbox) == 0, "текст лёг поверх заголовка"
+
+
+async def test_smartart_without_a_place_is_kept_not_dropped(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Инфографика из фигур PowerPoint — содержание слайда, а не оформление."""
+    template = title_only_template(manifest)
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "T00",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "t", "type": "text", "placeholder_idx": 0, "role": "title", "text": "З"},
+            {
+                "block_id": "d",
+                "type": "smartart",
+                "pattern": "process",
+                "items": ["Сбор", "Разбор", "Сборка"],
+            },
+        ],
+    }
+    ir = await SlideComposer(FakeLlm(payload)).compose(
+        plan_slide(), content, template, variant_a, seed=1
+    )
+    diagram = ir.block("d")
+    assert diagram is not None and diagram.bbox is not None
+
+
+async def test_block_that_cannot_be_placed_freely_is_reported(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Диаграмме нужен не прямоугольник, а макет, который её допускает. Потеря — в отчёт."""
+    template = title_only_template(manifest)
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "T00",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "t", "type": "text", "placeholder_idx": 0, "role": "title", "text": "З"},
+            {
+                "block_id": "c",
+                "type": "chart",
+                "chart_type": "clustered_column",
+                "dataset_ref": "d001",
+            },
+        ],
+    }
+    composer = SlideComposer(FakeLlm(payload))
+    ir = await composer.compose(plan_slide(), content, template, variant_a, seed=1)
+    assert ir.block("c") is None
+    assert any("c" in note and "координат" in note for note in composer.notes)
+
+
+async def test_prompt_asks_for_a_free_block_when_there_is_no_body_slot(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Промпт запрещал чужие idx и показывал вместимость 0 — модель отдавала заголовок."""
+    template = title_only_template(manifest)
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "T00",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "t", "type": "text", "placeholder_idx": 0, "role": "title", "text": "З"}
+        ],
+    }
+    llm = FakeLlm(payload)
+    await SlideComposer(llm).compose(plan_slide(), content, template, variant_a, seed=1)
+    assert "свободным блоком" in llm.prompt
+    assert "не более 0 знаков" not in llm.prompt
+    assert "smartart" in llm.prompt
+
+
+async def test_prompt_says_nothing_about_free_blocks_when_the_layout_has_a_body(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Норма: макет предусмотрел место под текст — просить свободный блок незачем."""
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "L07",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "t", "type": "text", "placeholder_idx": 0, "role": "title", "text": "З"}
+        ],
+    }
+    llm = FakeLlm(payload)
+    await SlideComposer(llm).compose(plan_slide(), content, manifest, variant_a, seed=1)
+    assert "Плейсхолдера под основной текст в этом макете нет" not in llm.prompt

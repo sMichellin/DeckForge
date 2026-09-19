@@ -14,6 +14,7 @@ import asyncio
 from functools import partial
 from typing import Any
 
+from deckforge.composition.free_space import clip, effective_capacity, has_body_slot
 from deckforge.composition.layout_picker import pick_layout
 from deckforge.composition.visual_selector import select_chart
 from deckforge.domain.base import BBox
@@ -24,8 +25,10 @@ from deckforge.domain.slide import (
     BulletsBlock,
     ChartBlock,
     ImageBlock,
+    KpiBlock,
     Provenance,
     SlideIR,
+    SmartArtBlock,
     TextBlock,
 )
 from deckforge.domain.slide import TableBlock as TableBlockIR
@@ -34,6 +37,7 @@ from deckforge.domain.variants import VariantProfile
 from deckforge.inference.client import InferenceClient
 from deckforge.inference.structured import generate_model
 from deckforge.layout.constraints import solve_positions
+from deckforge.layout.diagram import SUPPORTED_PATTERNS
 from deckforge.layout.errors import LayoutFitError
 from deckforge.registry import get_prompt_registry
 
@@ -48,7 +52,11 @@ class CompositionError(RuntimeError):
 #: Блоки, которые можно поставить свободно, если в макете нет подходящего плейсхолдера.
 #: Текст теряться не должен: у VK WorkSpace макетов под текст нет вовсе, и раньше
 #: основное содержание слайда молча исчезало.
-_PLACEABLE_FREELY = (TextBlock, BulletsBlock)
+#:
+#: Схема и показатели здесь по той же причине, что и текст: это содержание слайда,
+#: а не оформление. Диаграммы и таблицы в набор не входят — им нужен не просто
+#: прямоугольник, а макет, который их допускает (`capacity.supports_*`).
+_PLACEABLE_FREELY = (TextBlock, BulletsBlock, SmartArtBlock, KpiBlock)
 
 
 class SlideComposer:
@@ -85,6 +93,11 @@ class SlideComposer:
         dataset = content.dataset(slide.dataset_ref) if slide.dataset_ref else None
         chart_type = select_chart(dataset) if dataset is not None else None
 
+        # Вместимость показывается та, что слайду действительно достанется. У макета
+        # без места под тело своя — ноль, и промпт просил «не более 0 знаков»: модель
+        # честно отдавала один заголовок, а колода выходила без текста (#62).
+        body_free = not has_body_slot(layout)
+
         bundle = get_prompt_registry().load("slide_composer", profile=self.profile)
         system, user = bundle.render(
             layout=layout,
@@ -94,7 +107,9 @@ class SlideComposer:
             variant=variant.variant_id,
             seed=seed,
             size_ladder=manifest.size_ladder_pt,
-            capacity=layout.capacity,
+            capacity=effective_capacity(layout, manifest),
+            body_free=body_free,
+            smartart_patterns=sorted(pattern.value for pattern in SUPPORTED_PATTERNS),
             capacity_ratio=variant.capacity_ratio(),
             language=content.brief.language,
             preserve_wording=preserve_wording,
@@ -139,9 +154,9 @@ class SlideComposer:
         """Даёт координаты блокам, оставшимся без плейсхолдера.
 
         Решатель из слоя `layout` делит свободную часть области контента между ними
-        и не даёт залезть на занятые плейсхолдеры. Плейсхолдеры, выходящие за поля
-        шаблона (полноэкранные подложки и декор), в расчёт не берутся: они не мешают
-        тексту, а решатель на них отказался бы работать.
+        и не даёт залезть на занятые плейсхолдеры. Плейсхолдер, выходящий за поля шаблона,
+        учитывается своей видимой частью: решателю нельзя отдать рамку шире области,
+        но и забыть про неё нельзя — текст встанет поверх заголовка.
         """
         content = manifest.content_bbox
         fixed: list[tuple[str, BBox | None]] = []
@@ -151,10 +166,14 @@ class SlideComposer:
             idx = getattr(block, "placeholder_idx", None)
             if idx is not None:
                 placeholder = layout.placeholder(idx)
-                if placeholder is not None and content.contains(placeholder.bbox):
-                    fixed.append((block.block_id, placeholder.bbox))
-            elif block.bbox is not None:
-                fixed.append((block.block_id, block.bbox))
+                # Занятое обрезается по области контента, а не отбрасывается целиком:
+                # заголовок VK WorkSpace шире полей шаблона, проверка «целиком внутри»
+                # его не видела, и свободный текст ложился прямо на него.
+                box = clip(placeholder.bbox, content) if placeholder is not None else None
+                if box is not None:
+                    fixed.append((block.block_id, box))
+            elif block.bbox is not None and (box := clip(block.bbox, content)) is not None:
+                fixed.append((block.block_id, box))
 
         try:
             boxes = solve_positions([*fixed, *((block_id, None) for block_id in freed)], manifest)
@@ -244,6 +263,23 @@ class SlideComposer:
                     f"буллеты {block.block_id}: {dropped} тезисов сверх предела "
                     f"{max_bullets} убрано",
                 )
+
+            # Ни плейсхолдера, ни координат — блоку просто не назвали места. Промпт
+            # просит основной текст именно так, когда в макете нет места под тело:
+            # координаты модель задавать не должна, их считает решатель. Проверка стоит
+            # последней, чтобы более точная причина потери (нет такого датасета, нет
+            # такого ассета) называлась раньше этой, общей.
+            if block.block_id not in freed and idx is None and block.bbox is None:
+                if isinstance(block, _PLACEABLE_FREELY):
+                    freed.append(block.block_id)
+                else:
+                    self._note(
+                        slide.slide_id,
+                        f"блок {block.block_id} ({block.type}) отброшен: ни плейсхолдера, "
+                        "ни координат, а ставить его свободно нельзя",
+                    )
+                    continue
+
             blocks.append(block)
 
         if freed:

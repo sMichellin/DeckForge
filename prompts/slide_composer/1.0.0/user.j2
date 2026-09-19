@@ -3,6 +3,11 @@
 {% for ph in layout.placeholders %}
 - idx={{ ph.idx }}, тип {{ ph.ph_type }}{% if ph.role %}, роль {{ ph.role }}{% endif %}
 {% endfor %}
+{% if body_free %}
+Плейсхолдера под основной текст в этом макете нет. Основной текст, схему и показатели
+давай свободными блоками — без `placeholder_idx` и без координат. На свободной части
+слайда помещается около {{ capacity.max_chars_body }} знаков или {{ capacity.max_bullets }} строк.
+{% endif %}
 {% if layout.capacity.supports_chart %}Макет допускает диаграмму.{% endif %}
 {% if layout.capacity.supports_table %}Макет допускает таблицу.{% endif %}
 {% if layout.capacity.supports_image %}Макет допускает изображение.{% endif %}
@@ -22,6 +27,7 @@ slide_id: {{ slide.slide_id }}
 {% endif %}
 
 Собери SlideIR для варианта «{{ variant }}». Seed: {{ seed }}.
+Заголовок — обязателен. Основное содержание — тоже: слайд без него не засчитывается.
 {% if no_think %}
 /no_think
 {% endif %}
