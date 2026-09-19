@@ -55,7 +55,6 @@ fastapi     = ">=0.133.0,<0.137.0"
 uvicorn     = { version = "^0.34", extras = ["standard"] }
 arq         = "^0.26"
 redis       = "^5.2"
-boto3       = "^1.36"
 typer       = "^0.15"
 structlog   = "^25.1"
 pyyaml      = "^6.0"

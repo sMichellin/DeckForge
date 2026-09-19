@@ -30,7 +30,7 @@ Python, Poetry, LibreOffice и шрифты живут в образах.
 ```bash
 cp .env.example .env          # укажите эндпоинт инференса
 make image                    # собрать образ приложения
-make up                       # поднять сервисы: API, воркер, UI, LibreOffice, Redis, MinIO, LanguageTool
+make up                       # поднять сервисы: API, воркер, UI, LibreOffice, Redis, LanguageTool
 ```
 
 UI — <http://localhost:8501>, API — <http://localhost:8080/docs>.
@@ -72,7 +72,6 @@ make checks      # показать реестр проверок аудита
 | `DECKFORGE_VLM_BASE_URL`, `DECKFORGE_VLM_API_KEY` | VLM: классификация макетов и аудит-судья |
 | `DECKFORGE_T2I_BASE_URL`, `DECKFORGE_T2I_API_KEY` | text-to-image (задача «со звёздочкой») |
 | `DECKFORGE_REDIS_URL` | очередь arq |
-| `DECKFORGE_S3_*` | MinIO для артефактов |
 | `DECKFORGE_LANGUAGETOOL_URL` | сервер проверки орфографии |
 | `DECKFORGE_SOFFICE_BIN` | LibreOffice headless для pptx → png/pdf |
 

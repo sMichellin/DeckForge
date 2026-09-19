@@ -33,10 +33,6 @@ class Settings(BaseSettings):
     t2i_api_key: str = "changeme"
 
     redis_url: str = "redis://localhost:6379/0"
-    s3_endpoint: str = "http://localhost:9000"
-    s3_access_key: str = "minioadmin"
-    s3_secret_key: str = "minioadmin"
-    s3_bucket: str = "deckforge"
     languagetool_url: str = "http://localhost:8010"
 
     soffice_bin: str = "soffice"

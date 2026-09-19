@@ -615,7 +615,6 @@ fastapi     = "^0.124"
 uvicorn     = { version = "^0.34", extras = ["standard"] }
 arq         = "^0.26"      # очередь на Redis, async-native
 redis       = "^5.2"
-boto3       = "^1.36"      # S3/MinIO для артефактов
 typer       = "^0.15"
 structlog   = "^25.1"
 pyyaml      = "^6.0"
@@ -688,7 +687,6 @@ MIT, API-совместим). Решение: **стартуем на `python-pp
 | Кириллические шрифты | иначе LibreOffice подменит шрифты и аудит будет врать | `assets/fonts`, копируются в образ |
 | LanguageTool server | орфография RU | сервис в compose |
 | Redis | очередь arq | сервис в compose |
-| MinIO | артефакты | сервис в compose |
 | Node.js ≥ 20.19 | OpenSpec CLI | dev-машина |
 
 ---

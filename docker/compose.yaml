@@ -15,7 +15,7 @@ services:
     volumes:
       - ../artifacts:/app/artifacts:z
       - ../submission:/app/submission:z
-    depends_on: [redis, minio, languagetool]
+    depends_on: [redis, languagetool]
     command: ["uvicorn", "deckforge.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]
     ports: ["8080:8080"]
 
@@ -31,7 +31,7 @@ services:
       - DECKFORGE_LANGUAGETOOL_URL=http://languagetool:8010
     volumes:
       - ../artifacts:/app/artifacts:z
-    depends_on: [redis, minio, languagetool]
+    depends_on: [redis, languagetool]
     command: ["arq", "deckforge.api.worker.WorkerSettings"]
 
   ui:
@@ -54,19 +54,10 @@ services:
       - Java_Xmx=2g
     ports: ["8010:8010"]
 
+  # Артефакты лежат на смонтированном томе ../artifacts, общем для app и воркера.
+  # MinIO здесь был, но к S3 код не обращался ни разу — убран. Понадобится, когда
+  # воркеры разъедутся по разным хостам и общий том исчезнет (service-api, п. 6).
   redis:
     image: docker.io/library/redis:7-alpine
     ports: ["6379:6379"]
 
-  minio:
-    image: docker.io/minio/minio:latest
-    command: ["server", "/data", "--console-address", ":9001"]
-    environment:
-      - MINIO_ROOT_USER=minioadmin
-      - MINIO_ROOT_PASSWORD=minioadmin
-    ports: ["9000:9000", "9001:9001"]
-    volumes:
-      - minio-data:/data
-
-volumes:
-  minio-data:

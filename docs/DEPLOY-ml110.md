@@ -120,7 +120,7 @@ make gates          # лицензии C1/C2 и константы шаблон�
 cd ~/deckforge-src
 python3 -m venv venv && source venv/bin/activate && pip install podman-compose
 
-make up             # API, воркер, UI, Redis, MinIO, LanguageTool
+make up             # API, воркер, UI, Redis, LanguageTool
 make logs
 make down
 
