@@ -140,6 +140,7 @@ def generate_model[T: BaseModel](
                 schema_name=model_cls.__name__,
                 **kwargs,
             )
+            data = _without_nulls(data)
             if overrides and isinstance(data, dict):
                 data = {**data, **overrides}
             return model_cls.model_validate(data), completion
@@ -212,6 +213,22 @@ def strict_schema(schema: dict[str, Any], defs: dict[str, Any] | None = None
         }
 
     return out
+
+
+def _without_nulls(data: Any) -> Any:
+    """Ответ модели без `null`-значений: на их месте сработают умолчания модели.
+
+    Строгий режим разрешает `null` каждому необязательному полю (`strict_schema`), но
+    умолчание у поля не всегда `None`: у `SmartArtBlock.color_refs` это пустой список, и
+    `null` Pydantic отвергает. Прогон e26f1eb2b6bf: так не собрались 3 слайда из 12.
+    Обязательных полей, допускающих `None`, в доменных моделях нет — выбросить `null`
+    безопасно: для поля с умолчанием `None` это то же самое.
+    """
+    if isinstance(data, dict):
+        return {k: _without_nulls(v) for k, v in data.items() if v is not None}
+    if isinstance(data, list):
+        return [_without_nulls(item) for item in data]
+    return data
 
 
 def _inline(branch: dict[str, Any], defs: dict[str, Any]) -> dict[str, Any]:

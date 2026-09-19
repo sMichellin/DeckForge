@@ -235,3 +235,20 @@ def test_unparsable_answer_is_still_repaired() -> None:
 
     result, _ = generate_model(SloppyClient(), Verdict, system="s", user="u")  # type: ignore[arg-type]
     assert result.score == 7, "со второй попытки ответ должен был разобраться"
+
+
+def test_null_for_a_field_with_a_non_null_default_is_not_fatal() -> None:
+    """Строгий режим разрешает `null`, а умолчание у поля — пустой список (e26f1eb2b6bf)."""
+    from deckforge.domain.slide import SmartArtBlock
+    from deckforge.inference.structured import _without_nulls
+
+    raw = {
+        "block_id": "b02",
+        "type": "smartart",
+        "pattern": "process",
+        "items": ["Разбор", "Сборка"],
+        "color_refs": None,
+        "x": None,
+    }
+    block = SmartArtBlock.model_validate(_without_nulls(raw))
+    assert block.color_refs == [] and block.bbox is None

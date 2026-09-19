@@ -8,6 +8,7 @@ from langgraph.runtime import Runtime
 
 from deckforge.audit.fixes.apply import shorten_to_words
 from deckforge.domain.content import ContentPackage
+from deckforge.domain.enums import TextRole
 from deckforge.domain.slide import Block, BulletsBlock, DeckIR, SlideIR, TextBlock
 from deckforge.domain.template import TemplateManifest
 from deckforge.layout.errors import LayoutFitError
@@ -24,6 +25,12 @@ _SHORTEN_KEEP = 0.8
 
 #: Короче этого пункт или абзац не сокращается: огрызок хуже переполнения.
 _MIN_WORDS = 3
+
+#: Заголовку — два. Он не уменьшается кеглем (правило шкалы), и когда полоса заголовка
+#: узкая, трёх слов со многоточием бывает много: прогон e26f1eb2b6bf упал на записи
+#: из-за заголовка в 34 знака при месте на 32. Два слова хуже трёх, но лучше колоды,
+#: которой нет; заметка это называет, аудит видит.
+_MIN_TITLE_WORDS = 2
 
 
 def _ordered(state: DeckState) -> list[SlideIR]:
@@ -65,9 +72,15 @@ def _into_placeholders(slide: SlideIR) -> SlideIR:
 def _shortened(block: Block) -> Block | None:
     """Блок с сокращённым на пятую часть текстом; `None`, если сокращать нечего."""
 
+    floor = (
+        _MIN_TITLE_WORDS
+        if isinstance(block, TextBlock) and block.role is TextRole.TITLE
+        else _MIN_WORDS
+    )
+
     def cut(text: str) -> str:
         words = len(text.split())
-        return shorten_to_words(text, max(_MIN_WORDS, int(words * _SHORTEN_KEEP)))
+        return shorten_to_words(text, max(floor, int(words * _SHORTEN_KEEP)))
 
     if isinstance(block, TextBlock):
         text = cut(block.text)

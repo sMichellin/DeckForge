@@ -76,9 +76,22 @@ def without_patterns(schema: Any) -> Any:
     его в любом случае. Провайдеру, который компилирует схему в грамматику, оно может
     оказаться не по зубам, и тогда запрос отвергается целиком: лучше отдать форму
     без одного ограничения, чем не отдать ничего.
+
+    Вырезается **ключевое слово** `pattern`, а не свойство с таким именем: внутри
+    `properties` ключи — имена полей модели. `SmartArtBlock.pattern` — обязательное поле,
+    и прежняя версия вырезала его вместе с регулярками: модель не видела его в схеме,
+    не присылала, и слайды со схемой не собирались (прогон e26f1eb2b6bf, 3 слайда из 12).
     """
     if isinstance(schema, dict):
-        return {k: without_patterns(v) for k, v in schema.items() if k != "pattern"}
+        return {
+            k: (
+                {name: without_patterns(sub) for name, sub in v.items()}
+                if k == "properties" and isinstance(v, dict)
+                else without_patterns(v)
+            )
+            for k, v in schema.items()
+            if k != "pattern"
+        }
     if isinstance(schema, list):
         return [without_patterns(item) for item in schema]
     return schema

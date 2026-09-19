@@ -295,3 +295,21 @@ def test_slow_backend_gets_its_own_timeout() -> None:
     slow = SPEC.model_copy(update={"timeout_s": 300.0})
     assert InferenceClient(spec=slow, settings=Settings())._client.timeout == 300.0
     assert InferenceClient(spec=SPEC, settings=Settings())._client.timeout == 120.0
+
+
+def test_field_named_pattern_survives_pattern_stripping() -> None:
+    """`SmartArtBlock.pattern` — поле, а не регулярка: вырезать его нельзя."""
+    from deckforge.inference.client import without_patterns
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "pattern": {"type": "string", "enum": ["process", "cycle"]},
+            "slide_id": {"type": "string", "pattern": "^s\\d{2,}$"},
+        },
+        "required": ["pattern", "slide_id"],
+    }
+    out = without_patterns(schema)
+    assert set(out["properties"]) == {"pattern", "slide_id"}
+    assert "pattern" not in out["properties"]["slide_id"]
+    assert out["properties"]["pattern"]["enum"] == ["process", "cycle"]

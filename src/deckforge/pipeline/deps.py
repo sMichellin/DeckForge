@@ -59,7 +59,11 @@ class Deps:
     def slots(self) -> asyncio.Semaphore:
         """Ограничитель параллельной композиции (`parallel_slides`, §12)."""
         if self._semaphore is None:
-            self._semaphore = asyncio.Semaphore(max(1, self.run.parallel_slides))
+            # Параллельность прогона не может быть выше той, что держит бэкенд: лишние
+            # запросы ждали бы в его очереди, и ожидание съедало бы таймаут вызова.
+            spec = getattr(self.llm, "spec", None)
+            backend = getattr(spec, "max_concurrency", None) or self.run.parallel_slides
+            self._semaphore = asyncio.Semaphore(max(1, min(self.run.parallel_slides, backend)))
         return self._semaphore
 
     def llm_for(self, stage: str) -> tuple[Any, str | None]:

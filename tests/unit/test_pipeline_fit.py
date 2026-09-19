@@ -146,3 +146,16 @@ def test_text_that_asks_for_a_split_is_shortened_and_says_so(
     fitted, notes = _fit_shortening(_slide(TITLE, bullets), narrow, fonts, CONTENT)
     assert fitted.fit_report["b"].strategy != "split" or fitted.fit_report["b"].overflow is False
     assert notes and "просился на два слайда" in notes[0]
+
+
+def test_title_may_be_cut_to_two_words_but_body_not_below_three() -> None:
+    """Заголовок кеглем не уменьшается — ему разрешено сократиться сильнее тела."""
+    from deckforge.pipeline.nodes.fit import _shortened
+
+    title = TextBlock(block_id="t", placeholder_idx=0, role=TextRole.TITLE,
+                      text="Существующие инструменты плохо воспроизводят стиль")
+    body = TextBlock(block_id="b", role=TextRole.BODY, text="Раз два три")
+    for _ in range(6):
+        title = _shortened(title) or title
+    assert len(title.text.split()) == 2
+    assert _shortened(body) is None, "тело короче трёх слов не сокращается"

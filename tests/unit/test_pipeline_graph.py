@@ -339,3 +339,16 @@ async def test_composition_notes_reach_the_run_report(
         "слайд s01: блок b1 поставлен свободным блоком",
         "слайд s02: блок b1 поставлен свободным блоком",
     ]
+
+
+def test_single_slot_backend_limits_parallel_composition(tmp_path: Path) -> None:
+    """Слать шесть запросов на сервер с одним слотом — значит, ждать в его очереди."""
+    from types import SimpleNamespace
+
+    one_slot = SimpleNamespace(spec=SimpleNamespace(max_concurrency=1))
+    limited = deps(tmp_path, llm=one_slot, run={"parallel_slides": 6})
+    assert limited.slots()._value == 1
+
+    unlimited = deps(tmp_path, llm=SimpleNamespace(spec=SimpleNamespace(max_concurrency=None)),
+                     run={"parallel_slides": 6})
+    assert unlimited.slots()._value == 6
