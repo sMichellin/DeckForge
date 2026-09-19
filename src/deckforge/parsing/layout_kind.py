@@ -53,6 +53,19 @@ _COLUMN_BODY_SHARE = 0.12
 #: есть содержание слайда.
 _BACKGROUND_SHARE = 0.85
 
+#: Полоса у верхнего края, объявленная телом, а не заголовком. Так размечают шаблоны,
+#: где заголовок набирается «своим» стилем: тип BODY, но стоит там и таков, где и каким
+#: бывает только заголовок — в верхних 15 % слайда, не выше 12 % его высоты и не уже
+#: 40 % ширины. Последнее отсекает ряд показателей у верхнего края: там блоки узкие.
+_TITLE_BAND_TOP = 0.15
+_TITLE_BAND_HEIGHT = 0.12
+_TITLE_BAND_WIDTH = 0.4
+
+#: Уверенность для макета, где кроме заголовка есть только места под картинки.
+#: Ниже, чем у картинки на весь слайд: вид ясен, но сколько картинок и какого
+#: они размера, эвристика не взвешивает.
+_PICTURES_ONLY_CONFIDENCE = 0.75
+
 _CHART_PH = frozenset({"CHART"})
 _TABLE_PH = frozenset({"TBL"})
 _PICTURE_PH = frozenset({"PIC"})
@@ -96,6 +109,11 @@ def classify_heuristic(
     titles = [p for p in content if p.role is TextRole.TITLE]
     bodies = [p for p in content if p.role is TextRole.BODY]
     subtitles = [p for p in content if p.role is TextRole.SUBTITLE]
+    if not titles:
+        band = _title_band(bodies, slide_size)
+        if band is not None:
+            titles = [band]
+            bodies = [p for p in bodies if p is not band]
 
     # Явные типы плейсхолдеров — самый надёжный сигнал: автор шаблона сказал прямо.
     if any(p.ph_type in _CHART_PH for p in content):
@@ -129,6 +147,13 @@ def classify_heuristic(
     if share >= _IMAGE_HALF_SHARE and body_share >= _COLUMN_BODY_SHARE:
         return LayoutKind.TWO_COLUMN, 0.75
 
+    # Кроме заголовка — только места под картинки: содержание слайда в них, сколько бы
+    # их ни было и какими бы маленькими они ни были. Без этого правила такой макет
+    # падал в «заголовок без текста» — закрывающий слайд с уверенностью 0.45.
+    pictures = [p for p in content if p.ph_type in _PICTURE_PH]
+    if pictures and not bodies and not subtitles:
+        return LayoutKind.IMAGE_FULL, _PICTURES_ONLY_CONFIDENCE
+
     # Титул: заголовок с подзаголовком и без основного текста.
     if titles and subtitles and not bodies:
         return LayoutKind.TITLE, 0.9
@@ -157,6 +182,18 @@ def classify_heuristic(
         return LayoutKind.CLOSING, 0.45
 
     return LayoutKind.CUSTOM, 0.3
+
+
+def _title_band(bodies: list[PlaceholderSpec], slide_size: SlideSize) -> PlaceholderSpec | None:
+    """Тело, которое по месту и форме — заголовок. Берётся самое верхнее из таких."""
+    band = [
+        p
+        for p in bodies
+        if p.y <= slide_size.cy_emu * _TITLE_BAND_TOP
+        and p.cy <= slide_size.cy_emu * _TITLE_BAND_HEIGHT
+        and p.cx >= slide_size.cx_emu * _TITLE_BAND_WIDTH
+    ]
+    return min(band, key=lambda p: p.y, default=None)
 
 
 def needs_vlm(confidence: float) -> bool:

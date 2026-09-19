@@ -275,3 +275,55 @@ def test_photo_next_to_a_full_text_column_is_two_columns() -> None:
     column = ph(1, "BODY", 600_000, 2_500_000, 4_100_000, 3_600_000, TextRole.BODY)
     kind, _ = classify_heuristic([TITLE, column], SLIDE, [photo])
     assert kind is LayoutKind.TWO_COLUMN
+
+
+# --- места под картинки и заголовок, объявленный телом --------------------------
+
+BAND = ph(1, "BODY", 500_000, 280_000, 8_400_000, 480_000, TextRole.BODY)
+
+
+def _pic(idx: int, x: int, share_w: float, share_h: float) -> PlaceholderSpec:
+    return ph(idx, "PIC", x, 1_800_000, int(SLIDE.cx_emu * share_w), int(SLIDE.cy_emu * share_h))
+
+
+def test_title_with_several_small_picture_slots_is_an_image_layout() -> None:
+    """Три узких места под фото: каждое меньше трети слайда, но содержание — именно они."""
+    slots = [_pic(i, 500_000 + i * 3_800_000, 0.16, 0.6) for i in range(1, 4)]
+    kind, confidence = classify_heuristic([TITLE, *slots], SLIDE)
+    assert kind is LayoutKind.IMAGE_FULL
+    assert not needs_vlm(confidence)
+
+
+def test_single_small_picture_slot_under_a_title_is_still_an_image_layout() -> None:
+    kind, _ = classify_heuristic([TITLE, _pic(1, 2_000_000, 0.15, 0.58)], SLIDE)
+    assert kind is LayoutKind.IMAGE_FULL
+
+
+def test_picture_slot_next_to_real_text_is_not_a_pictures_only_layout() -> None:
+    body = ph(2, "BODY", 6_500_000, 1_800_000, 5_000_000, 4_000_000, TextRole.BODY)
+    kind, _ = classify_heuristic([TITLE, _pic(1, 500_000, 0.45, 0.7), body], SLIDE)
+    assert kind is LayoutKind.TWO_COLUMN
+
+
+def test_thin_top_body_without_a_title_acts_as_the_title() -> None:
+    """Заголовок, размеченный как BODY: полоса у верхнего края. Картинки под ней — фотослайд."""
+    slots = [_pic(i, 500_000 + i * 3_800_000, 0.28, 0.29) for i in range(2, 5)]
+    kind, confidence = classify_heuristic([BAND, *slots], SLIDE)
+    assert kind is LayoutKind.IMAGE_FULL
+    assert not needs_vlm(confidence)
+
+
+def test_title_band_with_a_text_block_is_bullets() -> None:
+    body = ph(2, "BODY", 6_900_000, 1_800_000, 4_700_000, 4_000_000, TextRole.BODY)
+    kind, _ = classify_heuristic([BAND, body], SLIDE)
+    assert kind is LayoutKind.BULLETS
+
+
+def test_a_row_of_narrow_top_blocks_is_not_taken_for_a_title() -> None:
+    """Показатели у верхнего края узкие — ни один из них не заголовок."""
+    row = [
+        ph(i, "BODY", 500_000 + i * 2_900_000, 300_000, 2_500_000, 600_000, TextRole.BODY)
+        for i in range(1, 5)
+    ]
+    kind, _ = classify_heuristic(row, SLIDE)
+    assert kind is LayoutKind.KPI
