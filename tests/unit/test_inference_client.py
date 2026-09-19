@@ -313,3 +313,16 @@ def test_field_named_pattern_survives_pattern_stripping() -> None:
     assert set(out["properties"]) == {"pattern", "slide_id"}
     assert "pattern" not in out["properties"]["slide_id"]
     assert out["properties"]["pattern"]["enum"] == ["process", "cycle"]
+
+
+def test_thinking_is_switched_off_through_the_chat_template() -> None:
+    """`/no_think` в тексте локальная сборка игнорирует; параметр шаблона — нет (замер 20.09)."""
+    quiet = SPEC.model_copy(update={"disable_thinking": True})
+    client, fake = build([ok("ответ")])
+    client.spec = quiet  # type: ignore[misc]
+    client.complete([{"role": "user", "content": "x"}])
+    assert fake.calls[0]["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+
+    client, fake = build([ok("ответ")])
+    client.complete([{"role": "user", "content": "x"}])
+    assert "extra_body" not in fake.calls[0]

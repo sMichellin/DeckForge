@@ -49,6 +49,15 @@ class ModelSpec(BaseModel):
             "на каждой попытке (прогон 19.09, `APITimeoutError` на стадии plan)."
         ),
     )
+    disable_thinking: bool = Field(
+        default=False,
+        description=(
+            "Просить бэкенд не размышлять: `chat_template_kwargs.enable_thinking=false` "
+            "(llama.cpp, vLLM с шаблоном Qwen3). Команда `/no_think` в тексте промпта "
+            "на локальной сборке не действует — замер 20.09: 11,6 тыс. знаков размышления "
+            "против 21 тыс. и 270 с плана против 203. Параметр шаблона — 0 знаков."
+        ),
+    )
     max_concurrency: int | None = Field(
         default=None,
         ge=1,

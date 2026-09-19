@@ -263,6 +263,9 @@ class InferenceClient:
         }
         if seed is not None:
             params["seed"] = seed
+        if self.spec.disable_thinking:
+            # Не OpenAI-поле: SDK пропускает его в тело запроса как есть.
+            params["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
         # Провайдер без поддержки JSON Schema отвергнет запрос целиком, поэтому схема
         # в таком случае остаётся только в тексте промпта, а форму держит цикл починки.
         if response_schema is not None and self.spec.supports_structured_output:
