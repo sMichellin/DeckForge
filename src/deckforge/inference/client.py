@@ -22,7 +22,7 @@ from typing import Any
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, RateLimitError
 from tenacity import (
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
@@ -35,6 +35,22 @@ RETRYABLE = (RateLimitError, APIConnectionError, APITimeoutError)
 
 #: Коды 4xx, которые всё-таки стоит повторить: это не «запрос плохой», а «сейчас занято».
 _RETRYABLE_4XX = frozenset({408, 409, 425, 429})
+
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Повторять ли вызов. Единственное место, где это решается.
+
+    У клиента OpenAI свои повторы выключены (`max_retries=0`): вместе с нашими они
+    перемножались — 3 × 3 = 9 попыток на один сбой. Обрыв соединения на 60-й секунде
+    стоил так 9 минут вместо трёх (замер 19.09, `test_time_budget`: 551 с до ошибки).
+    """
+    if isinstance(exc, RETRYABLE):
+        return True
+    return isinstance(exc, APIStatusError) and (
+        exc.status_code >= 500 or exc.status_code in _RETRYABLE_4XX
+    )
+
 
 #: Кончились кредиты или доступ закрыт — повторять бессмысленно и вредно.
 _QUOTA_CODES = frozenset({402, 403})
@@ -140,7 +156,10 @@ class InferenceClient:
         if endpoint is None:
             raise ValueError(f"неизвестный endpoint_ref: {self.spec.endpoint_ref!r}")
         self._client = OpenAI(
-            base_url=endpoint.base_url, api_key=endpoint.api_key, timeout=self.timeout_s
+            base_url=endpoint.base_url,
+            api_key=endpoint.api_key,
+            timeout=self.timeout_s,
+            max_retries=0,
         )
 
     @property
@@ -205,7 +224,7 @@ class InferenceClient:
         return await asyncio.to_thread(lambda: self.complete(messages, **kwargs))
 
     @retry(
-        retry=retry_if_exception_type(RETRYABLE),
+        retry=retry_if_exception(_is_retryable),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=20),
         reraise=True,

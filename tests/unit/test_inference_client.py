@@ -9,10 +9,10 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from openai import APIConnectionError, RateLimitError
+from openai import APIConnectionError, APIStatusError, RateLimitError
 
 from deckforge.config import Settings
-from deckforge.inference.client import InferenceClient, InferenceError
+from deckforge.inference.client import InferenceClient, InferenceError, InferenceTransportError
 from deckforge.registry.models import ModelSpec
 
 SPEC = ModelSpec(
@@ -255,3 +255,36 @@ def test_patterns_survive_for_backends_that_support_them() -> None:
 
     spec = ModelSpec(hf_id="x/y", license="apache-2.0", params_total_b=1.0, role="r")
     assert spec.supports_schema_patterns is True
+
+
+# --- один слой повторов ------------------------------------------------------
+
+
+def test_the_sdk_does_not_retry_on_its_own() -> None:
+    """Повторы SDK поверх наших перемножались: 3 × 3 = 9 попыток на один сбой."""
+    client, _ = build([ok("x")])
+    assert client._client.max_retries == 0
+
+
+def test_persistent_failure_costs_exactly_our_attempts() -> None:
+    client, fake = build([APIConnectionError(request=_req())])
+    with pytest.raises(APIConnectionError):
+        client.complete([{"role": "user", "content": "x"}])
+    assert len(fake.calls) == 3
+
+
+@pytest.mark.parametrize("status", [500, 502, 503, 408, 409])
+def test_server_side_failures_are_still_retried(status: int) -> None:
+    """Раньше 5xx и «занято» повторял SDK. Выключив его повторы, их надо взять себе."""
+    error = APIStatusError("занято", response=_resp(status), body=None)
+    client, fake = build([error, ok("получилось")])
+    assert client.complete([{"role": "user", "content": "x"}]).text == "получилось"
+    assert len(fake.calls) == 2
+
+
+def test_bad_request_is_not_retried() -> None:
+    error = APIStatusError("плохой запрос", response=_resp(400), body=None)
+    client, fake = build([error])
+    with pytest.raises(InferenceTransportError):
+        client.complete([{"role": "user", "content": "x"}])
+    assert len(fake.calls) == 1
