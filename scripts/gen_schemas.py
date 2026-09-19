@@ -11,6 +11,11 @@
 в `required` все ключи объекта, а у карты они произвольны. Такое свойство из схемы ответа
 выбрасывается — и по делу: карты в наших моделях заполняются кодом, а не моделью
 (`SlideIR.fit_report` считает слой `layout`, `ChartBlock.axis_titles` берутся из `Dataset`).
+
+Второе сужение объявляет сам промпт: `response_omit` в `meta.yaml` — поля, которые модель
+заполнять **не должна**. Без него поле остаётся в схеме, а строгий режим делает его
+обязательным: промпт композитора запрещал координаты, схема требовала `x, y, cx, cy`,
+и модель клала минимум, который пускала схема, — точку 0, 0, 1, 1 (прогон f4cf4257e07f).
 """
 
 from __future__ import annotations
@@ -63,10 +68,10 @@ def is_open_map(node: object) -> bool:
     )
 
 
-def narrow(node: Any, dropped: set[str]) -> Any:
-    """Убирает свойства-карты на любой глубине, включая `$defs`."""
+def narrow(node: Any, dropped: set[str], omit: frozenset[str] = frozenset()) -> Any:
+    """Убирает свойства-карты и поля из `omit` на любой глубине, включая `$defs`."""
     if isinstance(node, list):
-        return [narrow(item, dropped) for item in node]
+        return [narrow(item, dropped, omit) for item in node]
     if not isinstance(node, dict):
         return node
 
@@ -75,13 +80,13 @@ def narrow(node: Any, dropped: set[str]) -> Any:
         if key == "properties" and isinstance(value, dict):
             kept = {}
             for name, sub in value.items():
-                if is_open_map(sub):
+                if is_open_map(sub) or name in omit:
                     dropped.add(name)
                     continue
-                kept[name] = narrow(sub, dropped)
+                kept[name] = narrow(sub, dropped, omit)
             out[key] = kept
         else:
-            out[key] = narrow(value, dropped)
+            out[key] = narrow(value, dropped, omit)
 
     # `required` чинится в том же узле, где выброшено свойство: строгий режим требует,
     # чтобы список и набор свойств совпадали, и осиротевшее имя отвергается наравне
@@ -91,10 +96,10 @@ def narrow(node: Any, dropped: set[str]) -> Any:
     return out
 
 
-def response_schema(model: type) -> tuple[str, set[str]]:
-    """Схема ответа модели: доменная минус то, что строгий режим не выражает."""
+def response_schema(model: type, omit: frozenset[str] = frozenset()) -> tuple[str, set[str]]:
+    """Схема ответа модели: доменная минус невыразимое в строгом режиме и минус `omit`."""
     dropped: set[str] = set()
-    schema = narrow(model.model_json_schema(), dropped)
+    schema = narrow(model.model_json_schema(), dropped, omit)
     return json.dumps(schema, ensure_ascii=False, indent=2) + "\n", dropped
 
 
@@ -116,9 +121,11 @@ def main() -> int:
             if not dotted:
                 continue
             path = PROMPTS_DIR / skill / version / "schema.json"
-            text, dropped = response_schema(resolve(dotted))
+            text, dropped = response_schema(
+                resolve(dotted), frozenset(meta.get("response_omit") or ())
+            )
             path.write_text(text, encoding="utf-8")
-            note = f" (выброшены карты: {', '.join(sorted(dropped))})" if dropped else ""
+            note = f" (выброшено: {', '.join(sorted(dropped))})" if dropped else ""
             written.append(path.relative_to(ROOT).as_posix() + note)
         _ = entry
 

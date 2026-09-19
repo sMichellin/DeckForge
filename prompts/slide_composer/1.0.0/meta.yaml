@@ -1,5 +1,8 @@
 model_ref: llm_main
 response_model: deckforge.domain.slide.SlideIR
+# Поля, которых модель не задаёт: координаты считает слой вёрстки. Выбрасываются из
+# schema.json генератором (`make schemas`); в строгом режиме они иначе обязательны.
+response_omit: [x, y, cx, cy]
 temperature: 0.2
 top_p: 0.9
 max_tokens: 4096

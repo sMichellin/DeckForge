@@ -75,7 +75,8 @@ def test_response_schema_survives_strict_mode(skill: str, version: str, dotted: 
 @pytest.mark.parametrize(("skill", "version", "dotted"), CASES, ids=IDS)
 def test_committed_schema_matches_the_generator(skill: str, version: str, dotted: str) -> None:
     path = PROMPTS_DIR / skill / version / "schema.json"
-    text, _ = response_schema(resolve(dotted))
+    meta = load_yaml(PROMPTS_DIR / skill / version / "meta.yaml")
+    text, _ = response_schema(resolve(dotted), frozenset(meta.get("response_omit") or ()))
     assert path.read_text(encoding="utf-8") == text, (
         f"{path.relative_to(ROOT)} разошёлся с моделью — перегенерируйте `make schemas`"
     )
@@ -115,3 +116,18 @@ def test_dropped_fields_are_ones_the_model_never_had_to_send() -> None:
         }
     )
     assert slide.fit_report == {}
+
+
+def test_composer_is_not_asked_for_coordinates() -> None:
+    """Прогон f4cf4257e07f: схема требовала x, y, cx, cy, и модель клала точку 0, 0, 1, 1."""
+    text = (PROMPTS_DIR / "slide_composer" / "1.0.0" / "schema.json").read_text(encoding="utf-8")
+    schema = json.loads(text)
+    for name, definition in schema.get("$defs", {}).items():
+        props = definition.get("properties", {})
+        assert not {"x", "y", "cx", "cy"} & set(props), f"{name} всё ещё просит координаты"
+
+
+def test_contract_still_carries_coordinates() -> None:
+    """Сужается ответ модели, а не контракт: координаты свободному блоку ставит решатель."""
+    contract = json.loads((ROOT / "schemas" / "slide_ir.schema.json").read_text(encoding="utf-8"))
+    assert "cx" in contract["$defs"]["TextBlock"]["properties"]

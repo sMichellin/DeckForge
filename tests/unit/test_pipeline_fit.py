@@ -15,6 +15,7 @@ from deckforge.domain.enums import TextRole
 from deckforge.domain.slide import BulletItem, BulletsBlock, SlideIR, TextBlock
 from deckforge.domain.template import PlaceholderSpec, TemplateManifest
 from deckforge.domain.units import EMU_PER_CM
+from deckforge.layout.fitting import fit_slide
 from deckforge.layout.fonts import FontLibrary
 from deckforge.pipeline.nodes.fit import _fit_shortening, _into_placeholders
 from tests.unit.test_layout_fonts import make_font
@@ -129,3 +130,19 @@ def test_placeholder_wins_over_model_coordinates() -> None:
     slide = _into_placeholders(_slide(both, free))
     assert slide.blocks[0].bbox is None and slide.blocks[0].placeholder_idx == 1
     assert slide.blocks[1].bbox is not None, "блок без плейсхолдера сохраняет координаты"
+
+
+def test_text_that_asks_for_a_split_is_shortened_and_says_so(
+    narrow: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """`split` до записи выполнить некому, а писатель его отвергает: сокращаем и называем это."""
+    item = "Отток клиентов снизился, отток клиентов снизился, отток клиентов снизился"
+    bullets = BulletsBlock(
+        block_id="b", placeholder_idx=NARROW_IDX, items=[BulletItem(text=item)] * 2
+    )
+    before = fit_slide(_slide(TITLE, bullets), narrow, fonts=fonts).fit_report["b"]
+    assert before.strategy == "split"
+
+    fitted, notes = _fit_shortening(_slide(TITLE, bullets), narrow, fonts, CONTENT)
+    assert fitted.fit_report["b"].strategy != "split" or fitted.fit_report["b"].overflow is False
+    assert notes and "просился на два слайда" in notes[0]

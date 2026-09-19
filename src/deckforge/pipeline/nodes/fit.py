@@ -11,7 +11,7 @@ from deckforge.domain.content import ContentPackage
 from deckforge.domain.slide import Block, BulletsBlock, DeckIR, SlideIR, TextBlock
 from deckforge.domain.template import TemplateManifest
 from deckforge.layout.errors import LayoutFitError
-from deckforge.layout.fitting import SHORTEN, fit_slide
+from deckforge.layout.fitting import SHORTEN, SPLIT, fit_slide
 from deckforge.layout.fonts import FontLibrary
 from deckforge.pipeline.deps import Deps
 from deckforge.pipeline.nodes import timed
@@ -92,14 +92,24 @@ def _fit_shortening(
     блок с переполнением не пишет. Фикс `shorten_text` есть в аудите, но аудит идёт после
     записи — до него прогон не доживал: первое же переполнение роняло стадию `render`.
     Поэтому сокращение выполняется здесь, детерминированно, и каждое попадает в заметки.
+
+    `split` сокращается тоже, но как вынужденная мера. Делить слайд до записи некому
+    (`split_slide` — фикс аудита, после записи), а блок со `split` писатель отвергает, и
+    один такой блок ронял весь прогон (f4cf4257e07f: 3 слайда из 12). Сокращённый текст
+    хуже разнесённого на два слайда, но лучше колоды, которой нет. Заметка это называет.
     """
     fitted = fit_slide(_into_placeholders(slide), manifest, fonts=fonts, content=content)
     touched: set[str] = set()
+    wanted_split = {
+        block_id
+        for block_id, fit in fitted.fit_report.items()
+        if fit.overflow and fit.strategy == SPLIT
+    }
     for _ in range(_SHORTEN_ROUNDS):
         over = {
             block_id
             for block_id, fit in fitted.fit_report.items()
-            if fit.overflow and fit.strategy == SHORTEN
+            if fit.overflow and fit.strategy in (SHORTEN, SPLIT)
         }
         blocks: list[Block] = []
         changed = False
@@ -120,6 +130,11 @@ def _fit_shortening(
 
     notes = [
         f"{fitted.slide_id}/{block_id}: текст сокращён, чтобы влезть"
+        + (
+            " (просился на два слайда — делить до записи некому)"
+            if block_id in wanted_split
+            else ""
+        )
         + ("" if not fitted.fit_report[block_id].overflow else " — и всё равно не влез")
         for block_id in sorted(touched)
     ]

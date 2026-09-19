@@ -698,3 +698,45 @@ async def test_prompt_says_nothing_about_free_blocks_when_the_layout_has_a_body(
     llm = FakeLlm(payload)
     await SlideComposer(llm).compose(plan_slide(), content, manifest, variant_a, seed=1)
     assert "Плейсхолдера под основной текст в этом макете нет" not in llm.prompt
+
+
+async def test_model_coordinates_on_a_free_block_are_not_trusted(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Прогон f4cf4257e07f: модель ставила свободным блокам точку 0, 0, 1, 1.
+
+    Блок с координатами считался размещённым, решателю не отдавался, текст не влезал
+    в 1 EMU, а писатель отвергал координаты вне полей — прогон падал на записи.
+    """
+    template = title_only_template(manifest)
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "T00",
+        "variant": "A",
+        "blocks": [
+            {
+                "block_id": "t",
+                "type": "text",
+                "placeholder_idx": 0,
+                "role": "title",
+                "text": "Отток снизился втрое",
+            },
+            {
+                "block_id": "b",
+                "type": "text",
+                "role": "body",
+                "text": "Клиенты остаются дольше",
+                "x": 0,
+                "y": 0,
+                "cx": 1,
+                "cy": 1,
+            },
+        ],
+    }
+    ir = await SlideComposer(FakeLlm(payload)).compose(
+        plan_slide(), content, template, variant_a, seed=1
+    )
+    body = ir.block("b")
+    assert body is not None and body.bbox is not None
+    assert body.bbox.cx > 1 and body.bbox.cy > 1, "точка модели осталась на месте"
+    assert template.content_bbox.contains(body.bbox)

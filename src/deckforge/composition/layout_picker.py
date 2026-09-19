@@ -9,6 +9,7 @@ Change (11) `slide-composition`. Цепочка деградации: сложн
 
 from __future__ import annotations
 
+import zlib
 from typing import Final
 
 from deckforge.domain.enums import LayoutKind, SlideIntent
@@ -182,7 +183,9 @@ def _rotation(slide_id: str, size: int) -> int:
     а не по хешу: соседние слайды получают разные подложки, и это видно глазом.
     """
     digits = slide_id[1:]
-    index = int(digits) if digits.isdigit() else abs(hash(slide_id))
+    # `hash()` строк в Python солится заново в каждом процессе — выбор перестал бы
+    # воспроизводиться между прогонами. crc32 от тех же байтов стабилен.
+    index = int(digits) if digits.isdigit() else zlib.crc32(slide_id.encode("utf-8"))
     return index % size
 
 

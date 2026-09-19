@@ -134,7 +134,6 @@ class SlideComposer:
             raw, slide, layout, manifest, variant, seed, content, chart_type, bundle.ref
         )
 
-
     def _note(self, slide_id: str, text: str) -> None:
         """Отчёт о том, что композиция изменила или выбросила.
 
@@ -269,10 +268,20 @@ class SlideComposer:
             # координаты модель задавать не должна, их считает решатель. Проверка стоит
             # последней, чтобы более точная причина потери (нет такого датасета, нет
             # такого ассета) называлась раньше этой, общей.
-            if block.block_id not in freed and idx is None and block.bbox is None:
+            #
+            # Координатам модели не доверяем вовсе: промпт их не просит, схема ответа
+            # их больше не содержит, но провайдеры со своей схемой встречаются. Прогон
+            # f4cf4257e07f: строгий режим требовал x, y, cx, cy, и модель клала минимум,
+            # который пускала схема, — точку 0, 0, 1, 1 в углу слайда. Блок с такими
+            # координатами считался размещённым, решателю не отдавался и ронял запись.
+            if block.block_id not in freed and idx is None:
                 if isinstance(block, _PLACEABLE_FREELY):
+                    if block.bbox is not None:
+                        block = block.model_copy(
+                            update={"x": None, "y": None, "cx": None, "cy": None}
+                        )
                     freed.append(block.block_id)
-                else:
+                elif block.bbox is None:
                     self._note(
                         slide.slide_id,
                         f"блок {block.block_id} ({block.type}) отброшен: ни плейсхолдера, "
