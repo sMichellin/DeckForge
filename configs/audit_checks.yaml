@@ -109,6 +109,10 @@ checks:
     deterministic: true
     severity: error
     title: "Пустой слайд или слайд с одним заголовком"
+  integrity.content_lost:
+    deterministic: true
+    severity: error
+    title: "От слайда остался один заголовок, хотя план дал ему факты"
   integrity.slide_is_image:
     deterministic: true
     severity: error

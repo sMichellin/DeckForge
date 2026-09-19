@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 
 from deckforge.domain.base import BBox
-from deckforge.domain.enums import ChartType
+from deckforge.domain.enums import ChartType, ColorRef
 from deckforge.domain.template import TemplateManifest
 
 
@@ -29,6 +29,27 @@ def contrast_ratio(fg_hex: str, bg_hex: str) -> float:
 
 def meets_wcag_aa(fg_hex: str, bg_hex: str, *, large_text: bool = False) -> bool:
     return contrast_ratio(fg_hex, bg_hex) >= (3.0 if large_text else 4.5)
+
+
+#: Слоты темы, из которых выбирается цвет текста, когда его не задал никто.
+#: Это пара «тёмный/светлый» схемы OOXML, а не вкус: акценты для основного текста
+#: не предназначены, и брать их наугад значит перекрашивать чужой шаблон.
+TEXT_SLOTS: tuple[ColorRef, ...] = (ColorRef.DK1, ColorRef.LT1, ColorRef.DK2, ColorRef.LT2)
+
+
+def readable_text_ref(manifest: TemplateManifest, background_hex: str) -> ColorRef:
+    """Слот темы, который виден на этом фоне лучше прочих.
+
+    Свободная фигура (текстбокс, подпись KPI) в OOXML не наследует цвет ни от кого:
+    у неё нет плейсхолдера-родителя. Без явного выбора PowerPoint рисует её чёрной —
+    на тёмном фоне это невидимый текст, а не «цвет по умолчанию».
+
+    Выбор делается измерением, а не таблицей соответствий: берётся слот темы с наибольшим
+    контрастом к фону. Поэтому правило работает на незнакомом шаблоне и не содержит
+    ни одного `#RRGGBB` (гейт C6).
+    """
+    colors = manifest.theme.colors
+    return max(TEXT_SLOTS, key=lambda ref: contrast_ratio(colors.get(ref), background_hex))
 
 
 def delta_e_rgb(a_hex: str, b_hex: str) -> float:

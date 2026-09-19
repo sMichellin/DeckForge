@@ -163,6 +163,36 @@ class LayoutShape(DomainModel):
         return BBox(x=self.x, y=self.y, cx=self.cx, cy=self.cy)
 
 
+class LayoutBackground(DomainModel):
+    """Фон макета: то, **по чему** на самом деле читается текст.
+
+    Без этого поля проверка контраста сравнивала цвет текста со светлым слотом темы,
+    то есть с догадкой. На тёмном макете догадка неверна: `dk1` по `dk1` — контраст
+    1:1 — проходил как норма, и колода из двенадцати невидимых заголовков получала
+    вердикт «нарушений нет».
+
+    `color_hex` — всегда разрешённый цвет, по нему и считается контраст. `color_ref`
+    заполнен тогда, когда фон задан слотом темы: смена шаблона перекрашивает его сама,
+    и это важно знать тому, кто подбирает читаемый цвет текста (ADR-002).
+    """
+
+    color_hex: str = Field(pattern=HEX_COLOR)
+    color_ref: ColorRef | None = Field(
+        default=None, description="Слот темы, если фон задан ссылкой, а не литералом"
+    )
+    source: str = Field(
+        description=(
+            "Откуда взят фон: layout — из p:bg макета; master — унаследован от мастера; "
+            "picture — усреднённый цвет подложки во весь слайд; theme — ни того, ни "
+            "другого в шаблоне нет, взят светлый слот темы"
+        )
+    )
+    is_image: bool = Field(
+        default=False,
+        description="Под текстом картинка: цвет усреднённый, вердикт по нему приблизителен",
+    )
+
+
 class LayoutSpec(DomainModel):
     layout_id: str
     name: str
@@ -188,6 +218,13 @@ class LayoutSpec(DomainModel):
     shapes: list[LayoutShape] = Field(
         default_factory=list,
         description="Фигуры вне плейсхолдеров: фон, фотографии, декор. Наполнению не подлежат.",
+    )
+    background: LayoutBackground | None = Field(
+        default=None,
+        description=(
+            "Фон макета. Пусто у манифестов, снятых до change (24): потребитель обязан "
+            "это различать, а не подставлять светлый фон молча"
+        ),
     )
     preview_png: str | None = None
 

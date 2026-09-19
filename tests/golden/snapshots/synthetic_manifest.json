@@ -40,6 +40,12 @@
   },
   "layouts": [
     {
+      "background": {
+        "color_hex": "#FFFFFF",
+        "color_ref": "lt1",
+        "is_image": false,
+        "source": "theme"
+      },
       "capacity": {
         "max_bullets": 2,
         "max_chars_body": 178,
@@ -86,6 +92,12 @@
       "shapes": []
     },
     {
+      "background": {
+        "color_hex": "#FFFFFF",
+        "color_ref": "lt1",
+        "is_image": false,
+        "source": "theme"
+      },
       "capacity": {
         "max_bullets": 14,
         "max_chars_body": 1246,
@@ -132,6 +144,12 @@
       "shapes": []
     },
     {
+      "background": {
+        "color_hex": "#FFFFFF",
+        "color_ref": "lt1",
+        "is_image": false,
+        "source": "theme"
+      },
       "capacity": {
         "max_bullets": 28,
         "max_chars_body": 1176,
@@ -190,7 +208,7 @@
       "shapes": []
     }
   ],
-  "parser_version": "1.1.0",
+  "parser_version": "1.2.0",
   "slide_size": {
     "aspect": "16:9",
     "cx_emu": 12192000,

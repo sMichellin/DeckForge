@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from deckforge.domain.base import BBox
-from deckforge.domain.enums import ChartType
+from deckforge.domain.enums import ChartType, ColorRef
 from deckforge.domain.rules import (
     choose_chart_type,
     contrast_ratio,
@@ -14,6 +14,7 @@ from deckforge.domain.rules import (
     meets_wcag_aa,
     next_size_down,
     overlap_ratio,
+    readable_text_ref,
     snap_to_nearest,
 )
 from deckforge.domain.template import TemplateManifest
@@ -28,6 +29,21 @@ def test_contrast_is_symmetric() -> None:
     assert contrast_ratio("#2E6BE6", "#FFFFFF") == pytest.approx(
         contrast_ratio("#FFFFFF", "#2E6BE6")
     )
+
+
+def test_readable_text_ref_follows_the_background(manifest: TemplateManifest) -> None:
+    """Цвет свободного текста выбирается измерением, а не таблицей соответствий."""
+    colors = manifest.theme.colors
+    assert readable_text_ref(manifest, colors.get(ColorRef.DK1)) is ColorRef.LT1
+    assert readable_text_ref(manifest, colors.get(ColorRef.LT1)) is ColorRef.DK1
+
+
+def test_readable_text_ref_beats_the_wcag_threshold(manifest: TemplateManifest) -> None:
+    """Выбранный слот обязан не просто отличаться от фона, а читаться на нём."""
+    for background in (ColorRef.DK1, ColorRef.LT1, ColorRef.DK2, ColorRef.LT2):
+        hex_bg = manifest.theme.colors.get(background)
+        chosen = manifest.theme.colors.get(readable_text_ref(manifest, hex_bg))
+        assert meets_wcag_aa(chosen, hex_bg), background
 
 
 def test_wcag_thresholds() -> None:

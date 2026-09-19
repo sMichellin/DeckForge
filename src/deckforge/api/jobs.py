@@ -130,13 +130,18 @@ def _finish(
     report = result.report()
     # Прогон дошёл до конца, но мог дойти с потерями: они уже в `run.json`, и прятать
     # их за зелёным статусом нельзя — пользователь должен открыть отчёт.
-    trouble = [*report["errors"], *report["degradations"]]
+    #
+    # Потери бывают двух родов, и складывать их в одно поле было неправильно. Деградация
+    # (§15) — это выбор пайплайна: смысловой аудит выключен, превью не сняты, колода
+    # при этом собрана. Ошибка — что-то не отработало. Пока и то и другое ехало в `error`,
+    # удачный прогон приходил в интерфейс с красным текстом и выглядел как сбой.
     return store.write_status(
         run_id,
         state="done",
         stage="export",
         elapsed_s=elapsed_s,
-        error="; ".join(trouble) or None,
+        error="; ".join(report["errors"]) or None,
+        degradations=list(report["degradations"]),
     )
 
 

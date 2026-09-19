@@ -37,7 +37,7 @@ from deckforge.domain.audit import Finding
 from deckforge.domain.enums import AutoFix, ColorRef, Severity, TextRole
 from deckforge.domain.rules import contrast_ratio
 from deckforge.domain.slide import ChartBlock, KpiBlock
-from deckforge.domain.template import TemplateManifest
+from deckforge.domain.template import LayoutSpec, TemplateManifest
 
 
 def template_fonts(manifest: TemplateManifest) -> set[str]:
@@ -369,20 +369,27 @@ def decor_moved(ctx: CheckContext) -> Iterable[Finding]:
 @check(id="template.contrast_below_wcag", deterministic=True, severity=Severity.ERROR,
        title="Контраст текста к фону ниже 4.5:1")
 def contrast_below_wcag(ctx: CheckContext) -> Iterable[Finding]:
-    """Контраст текста к фону ниже 4.5:1."""
+    """Контраст текста к фону ниже 4.5:1.
+
+    Фон берётся **макета**, а не темы. Разница не теоретическая: 19.09 колода из
+    двенадцати заголовков цвета `dk1` на макете, залитом `dk1`, прошла аудит без единой
+    находки — контраст 1:1 сравнивался со светлым слотом темы и выходил 21:1.
+
+    Проверяются блоки, у которых цвет задан **явно**: это наш выбор, и отвечаем за него
+    мы. Блок без `color_ref` наследует цвет плейсхолдера шаблона, и спрашивать за него
+    с генератора нельзя — шаблон не нарушает сам себя (тот же довод, что у
+    `self_positioned_blocks`). Свободный текст без `color_ref` цвет получает по этому же
+    фону при записи, поэтому неразличимым он быть не может.
+    """
     manifest = ctx.manifest
     colors = manifest.theme.colors
     min_ratio = ctx.param("min_ratio", 4.5)
     min_ratio_large = ctx.param("min_ratio_large", 3.0)
     large_text_pt = ctx.param("large_text_pt", 18.0)
 
-    # Фон макета манифест пока не описывает (см. proposal, «что осталось незакрытым»),
-    # поэтому сравнение идёт со светлым слотом темы. На тёмном макете такой вердикт
-    # неполон, и это указано в evidence, а не выдано за полноценную проверку.
-    background = colors.get(ColorRef.LT1)
-
     for slide in ctx.deck.slides:
         layout = layout_of(slide, ctx.manifest)
+        background, background_source = _background_of(layout, manifest)
         for block in slide.blocks:
             if not carries_text(block):
                 continue
@@ -414,7 +421,28 @@ def contrast_below_wcag(ctx: CheckContext) -> Iterable[Finding]:
                 evidence={
                     "foreground": foreground,
                     "background": background,
-                    "background_source": "тема lt1: фон макета в манифесте пока не описан",
+                    "background_source": background_source,
                     "ratio": f"{ratio:.2f}",
                 },
             )
+
+
+def _background_of(layout: LayoutSpec | None, manifest: TemplateManifest) -> tuple[str, str]:
+    """Фон, по которому читается текст слайда, и честное объяснение, откуда он взят.
+
+    Манифест, снятый парсером до change (24), фона не описывает. Подставлять вместо него
+    светлый слот темы молча нельзя — именно это и дало ложное «нарушений нет», — поэтому
+    источник едет в `evidence` каждой находки.
+    """
+    background = layout.background if layout is not None else None
+    if background is None:
+        return (
+            manifest.theme.colors.get(ColorRef.LT1),
+            "тема lt1: манифест снят парсером без разбора фона",
+        )
+    if background.is_image:
+        return (
+            background.color_hex,
+            f"{background.source}: усреднённый цвет подложки, вердикт приблизителен",
+        )
+    return background.color_hex, background.source

@@ -10,6 +10,7 @@ import pytest
 
 from deckforge.audit.deterministic.integrity import (
     chart_labels_missing,
+    content_lost,
     duplicate_slides,
     empty_slide,
     file_opens,
@@ -87,6 +88,47 @@ def test_empty_slide_allows_a_title_layout(manifest: TemplateManifest) -> None:
 def test_empty_slide_silent_when_there_is_content(manifest: TemplateManifest) -> None:
     colony = deck(slide(title(), bullets("первое", "второе")))
     assert list(empty_slide(context_for("integrity.empty_slide", colony, manifest))) == []
+
+
+def test_content_lost_catches_a_title_only_slide_on_a_title_layout(
+    manifest: TemplateManifest,
+) -> None:
+    """Дефект 19.09: двенадцать слайдов, у каждого только заголовок, находок ноль.
+
+    Все двенадцать легли на макет с единственным плейсхолдером-заголовком, потому что
+    других в шаблоне нет. `integrity.empty_slide` такие макеты пропускает — титул из
+    одного заголовка состоит по замыслу, — и колода без единого слова текста прошла
+    аудит. Факты в плане отличают замысел от потери.
+    """
+    colony = deck(slide(title(), layout_id="L01", fact_refs=["f001", "f002"]))
+    findings = list(content_lost(context_for("integrity.content_lost", colony, manifest)))
+    assert [f.slide_id for f in findings] == ["s01"]
+    assert findings[0].evidence["fact_refs"] == "f001, f002"
+    # Та же колода у соседней проверки нареканий не вызывает — в этом и была дыра.
+    assert list(empty_slide(context_for("integrity.empty_slide", colony, manifest))) == []
+
+
+def test_content_lost_silent_when_the_body_survived(manifest: TemplateManifest) -> None:
+    """Норма: факты были и текст на слайде есть — терять нечего."""
+    colony = deck(slide(title(), bullets("первое", "второе"), fact_refs=["f001"]))
+    assert list(content_lost(context_for("integrity.content_lost", colony, manifest))) == []
+
+
+def test_content_lost_silent_on_a_title_slide_without_facts(
+    manifest: TemplateManifest,
+) -> None:
+    """Титул и перебивка фактов не получают: заголовок там и есть всё содержание."""
+    colony = deck(slide(title(), layout_id="L01"))
+    assert list(content_lost(context_for("integrity.content_lost", colony, manifest))) == []
+
+
+def test_content_lost_does_not_count_a_picture_as_substance(
+    manifest: TemplateManifest,
+) -> None:
+    """Факт, который нигде не написан, картинкой не передан (тот же довод, что у C3)."""
+    colony = deck(slide(title(), image(), fact_refs=["f001"]))
+    findings = list(content_lost(context_for("integrity.content_lost", colony, manifest)))
+    assert [f.slide_id for f in findings] == ["s01"]
 
 
 def test_slide_is_image_catches_a_picture_only_slide(manifest: TemplateManifest) -> None:

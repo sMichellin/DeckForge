@@ -25,6 +25,7 @@ from deckforge.domain.enums import (
     LayoutKind,
     TextRole,
 )
+from deckforge.domain.rules import readable_text_ref
 from deckforge.domain.slide import (
     BulletItem,
     BulletsBlock,
@@ -597,6 +598,100 @@ def test_free_text_inherits_the_layout_text_color(template: Path, tmp_path: Path
     assert label_xml.count('<a:schemeClr val="lt1"/>') == 1, "подпись — цветом текста макета"
     assert '<a:schemeClr val="accent1"/>' in label_xml, "значение — акцентом"
     assert '<a:schemeClr val="lt1"/>' in shapes["Сноска"]._element.xml
+
+
+def dark_background_layout(src: Path, dst: Path) -> Path:
+    """Макет, залитый тёмным слотом темы, у которого цвет текста не задан нигде.
+
+    Так выглядят все 15 макетов VK WorkSpace: фон `dk1`, а плейсхолдеры цвет не объявляют.
+    Свободной фигуре на таком макете наследовать цвет не от чего.
+    """
+    bg = (
+        '<p:bg><p:bgPr><a:solidFill><a:schemeClr val="dk1"/></a:solidFill>'
+        "<a:effectLst/></p:bgPr></p:bg>"
+    )
+    return rewrite_part(
+        src, dst, "ppt/slideLayouts/slideLayout1.xml",
+        lambda xml: re.sub(r"(<p:cSld[^>]*>)", rf"\g<1>{bg}", xml, count=1),
+    )
+
+
+def test_every_layout_gets_a_background(template: Path, tmp_path: Path) -> None:
+    """Фон описан у каждого макета, иначе проверка контраста снова меряет догадку.
+
+    У стандартного шаблона python-pptx `p:bg` не объявлен нигде — это и есть случай,
+    когда манифест обязан сказать «фона в шаблоне нет», а не промолчать.
+    """
+    manifest = parse(template, tmp_path)
+    assert manifest.layouts
+    for layout in manifest.layouts:
+        assert layout.background is not None, layout.name
+        assert layout.background.source in {"layout", "master", "picture", "theme"}
+        assert layout.background.color_hex.startswith("#")
+
+
+def test_free_text_is_readable_on_a_dark_layout(template: Path, tmp_path: Path) -> None:
+    """Дефект 19.09: свободный текст на тёмном макете выходил чёрным, то есть невидимым.
+
+    Текстбокс в OOXML не наследует цвет ни от кого — плейсхолдера-родителя у него нет.
+    Цвет роли из типошкалы здесь не спасает: он выведен из плейсхолдеров шаблона и на
+    тёмном макете тоже тёмный. Цвет выбирается по фону макета, измерением контраста,
+    поэтому правило работает и на незнакомом шаблоне.
+    """
+    dark = dark_background_layout(template, tmp_path / "dark.pptx")
+    manifest = parse(dark, tmp_path)
+    title_layout = manifest.layout(layout_of(manifest, LayoutKind.TITLE))
+    assert title_layout is not None and title_layout.background is not None
+    assert title_layout.background.color_ref is ColorRef.DK1
+
+    body_pt = next(s.size_pt for s in manifest.typography_scale if s.role is TextRole.BODY)
+    note = TextBlock(block_id="n", role=TextRole.BODY, text="Сноска", **region(manifest, 1, 2))
+    deck = visual_deck(manifest)
+    slide = deck.slides[0]
+    deck = deck.model_copy(update={"slides": [slide.model_copy(update={
+        "blocks": [*slide.blocks, note],
+        "fit_report": {**slide.fit_report, "n": FitResult(final_size_pt=body_pt)},
+    })]})
+
+    out = PptxWriter(dark, manifest).write(deck, tmp_path / "deck.pptx")
+    written = next(
+        s for s in Presentation(str(out)).slides[0].shapes
+        if s.has_text_frame and s.text_frame.text == "Сноска"
+    )
+    xml = written._element.xml
+    readable = readable_text_ref(manifest, title_layout.background.color_hex)
+    assert readable is not ColorRef.DK1, "на тёмном фоне тёмный слот читаться не может"
+    assert f'<a:schemeClr val="{readable.value}"/>' in xml
+    # Ссылка на тему, а не RGB: смена шаблона обязана перекрашивать колоду (ADR-002).
+    assert "<a:srgbClr" not in xml
+
+
+def test_free_text_keeps_the_layout_color_when_the_template_named_one(
+    template: Path, tmp_path: Path
+) -> None:
+    """Норма к той же правке: решение автора шаблона главнее измерения.
+
+    Макет тёмный **и** называет цвет текста — берётся названный, фон в выборе
+    не участвует. Иначе правка перекрашивала бы шаблоны, которые всё сделали правильно.
+    """
+    dark = dark_background_layout(template, tmp_path / "dark.pptx")
+    styled = dark_title_layout(dark, tmp_path / "styled.pptx")
+    manifest = parse(styled, tmp_path)
+    body_pt = next(s.size_pt for s in manifest.typography_scale if s.role is TextRole.BODY)
+    note = TextBlock(block_id="n", role=TextRole.BODY, text="Сноска", **region(manifest, 1, 2))
+    deck = visual_deck(manifest)
+    slide = deck.slides[0]
+    deck = deck.model_copy(update={"slides": [slide.model_copy(update={
+        "blocks": [*slide.blocks, note],
+        "fit_report": {**slide.fit_report, "n": FitResult(final_size_pt=body_pt)},
+    })]})
+
+    out = PptxWriter(styled, manifest).write(deck, tmp_path / "deck.pptx")
+    written = next(
+        s for s in Presentation(str(out)).slides[0].shapes
+        if s.has_text_frame and s.text_frame.text == "Сноска"
+    )
+    assert '<a:schemeClr val="lt1"/>' in written._element.xml
 
 
 def accent_title_light_body(src: Path, dst: Path) -> Path:

@@ -26,6 +26,7 @@ from pptx.util import Emu, Pt
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage, Dataset
 from deckforge.domain.enums import ColorRef, ImageSource, TextRole
+from deckforge.domain.rules import readable_text_ref
 from deckforge.domain.slide import (
     Block,
     BulletItem,
@@ -468,7 +469,7 @@ class PptxWriter:
         table_style: str | None,
     ) -> None:
         slide = prs.slides.add_slide(layout)  # type: ignore[attr-defined]
-        text_color = _layout_text_color(layout)
+        text_color = _layout_text_color(layout) or self._readable_on_background(slide_ir)
         used: set[int] = set()
         for block in slide_ir.blocks:
             if isinstance(block, TextBlock | BulletsBlock):
@@ -521,6 +522,25 @@ class PptxWriter:
 
         if slide_ir.speaker_note:
             slide.notes_slide.notes_text_frame.text = slide_ir.speaker_note
+
+    def _readable_on_background(self, slide_ir: SlideIR) -> ColorRef | None:
+        """Цвет свободного текста, когда макет не назвал его ни в одном плейсхолдере.
+
+        Свободная фигура в OOXML не наследует цвет ни от кого: родителя-плейсхолдера
+        у неё нет. Без явной ссылки PowerPoint рисует её чёрной, и на тёмном макете
+        это не «цвет по умолчанию», а невидимый текст — ровно то, что случилось
+        с заголовками 19.09.
+
+        До этого места доходят только макеты, у которых цвет не объявлен нигде:
+        решение автора шаблона всегда главнее измерения. Фона нет в манифесте (он снят
+        прежним парсером) — выбирать не из чего, и тогда цвет остаётся за типошкалой,
+        как было.
+        """
+        layout = self.manifest.layout(slide_ir.layout_id)
+        background = layout.background if layout is not None else None
+        if background is None:
+            return None
+        return readable_text_ref(self.manifest, background.color_hex)
 
     def _fill_placeholder(
         self, slide: object, layout: object, block: TextBlock | BulletsBlock, size_pt: float

@@ -19,7 +19,7 @@ from deckforge.audit.geometry import block_bbox, block_text, layout_of, slide_te
 from deckforge.audit.registry import CheckContext, CheckUnavailable, check
 from deckforge.domain.audit import Finding
 from deckforge.domain.enums import ChartType, Severity, TextRole
-from deckforge.domain.slide import ChartBlock, ImageBlock, SlideIR, TextBlock
+from deckforge.domain.slide import ChartBlock, IconBlock, ImageBlock, SlideIR, TextBlock
 
 #: Заглушки, которые остаются от шаблонов промптов и от ручной правки.
 _PLACEHOLDER_PATTERN = r"lorem ipsum|\bTODO\b|\bXXX\b|вставьте текст|\bTBD\b"
@@ -101,6 +101,54 @@ def empty_slide(ctx: CheckContext) -> Iterable[Finding]:
             reason="title_only",
             message="На слайде только заголовок: содержания нет",
         )
+
+
+@check(id="integrity.content_lost", deterministic=True, severity=Severity.ERROR,
+       title="От слайда остался один заголовок, хотя план дал ему факты")
+def content_lost(ctx: CheckContext) -> Iterable[Finding]:
+    """От слайда остался один заголовок, хотя план дал ему факты.
+
+    Это не то же, что `integrity.empty_slide`. Тот пропускает слайд, у макета которого
+    нет места под текст (`max_chars_body == 0`), — титул и перебивка из одного заголовка
+    состоят по замыслу. 19.09 из-за этого прошла колода, где **все двенадцать** слайдов
+    легли на макет с единственным плейсхолдером-заголовком: композиция отбросила блоки,
+    которым не нашлось места, и «слайд по замыслу без текста» стало неотличимо
+    от «слайда, у которого текст потеряли».
+
+    Различает их план. Факты, отданные слайду планировщиком, едут в `provenance.fact_refs`.
+    Были факты, а на слайде ни одного содержательного блока — контент потерян, и это
+    ошибка независимо от того, что позволяет макет.
+
+    Картинка и иконка содержанием не считаются: слайд из одних картинок не засчитывается
+    и по ТЗ (C3, `integrity.slide_is_image`), а факт, который нигде не написан, ею
+    не передан.
+    """
+    for slide in ctx.deck.slides:
+        if not slide.provenance.fact_refs:
+            continue
+        substance = [block for block in slide.blocks if _is_substance(block)]
+        if substance:
+            continue
+        yield make_finding(
+            check_id="integrity.content_lost",
+            slide_id=slide.slide_id,
+            reason="facts_dropped",
+            message=(
+                f"На слайде только заголовок, хотя план дал ему "
+                f"{len(slide.provenance.fact_refs)} факт(ов): содержание потеряно"
+            ),
+            evidence={
+                "fact_refs": ", ".join(slide.provenance.fact_refs),
+                "blocks": ", ".join(block.block_id for block in slide.blocks) or "нет",
+            },
+        )
+
+
+def _is_substance(block: object) -> bool:
+    """Блок несёт содержание слайда, а не оформляет его."""
+    if isinstance(block, ImageBlock | IconBlock):
+        return False
+    return not (isinstance(block, TextBlock) and block.role is TextRole.TITLE)
 
 
 @check(id="integrity.slide_is_image", deterministic=True, severity=Severity.ERROR,

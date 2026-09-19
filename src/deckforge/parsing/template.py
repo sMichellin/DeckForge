@@ -17,6 +17,7 @@ from deckforge.domain.enums import ColorRef, LayoutKind, TextRole
 from deckforge.domain.template import (
     ChartDefaults,
     Decor,
+    LayoutBackground,
     LayoutCapacity,
     LayoutSpec,
     SlideSize,
@@ -27,6 +28,7 @@ from deckforge.domain.template import (
 from deckforge.parsing.capacity import compute_capacity
 from deckforge.parsing.grid import infer_grid
 from deckforge.parsing.layout_kind import LayoutClassifier
+from deckforge.parsing.ooxml.background import full_bleed_blip, parse_background
 from deckforge.parsing.ooxml.decor import extract_decor
 from deckforge.parsing.ooxml.layouts import parse_shapes, resolve_placeholders
 from deckforge.parsing.ooxml.theme import parse_theme
@@ -38,7 +40,7 @@ from deckforge.parsing.typography import (
     observations_from_text_styles,
 )
 
-PARSER_VERSION = "1.1.0"
+PARSER_VERSION = "1.2.0"
 
 #: Цвета серий диаграмм по умолчанию: акценты темы в порядке схемы.
 #: Благодаря этому диаграмма перекрашивается вместе со сменой шаблона (ADR-002).
@@ -166,7 +168,7 @@ class TemplateParser:
             raise ValueError("в шаблоне нет ни одного slideMaster")
 
         theme = self._read_theme(pkg, masters[0])
-        layouts, observations = self._read_layouts(pkg, masters, slide_size)
+        layouts, observations = self._read_layouts(pkg, masters, slide_size, theme)
         if not layouts:
             raise ValueError("в шаблоне нет макетов с пригодными плейсхолдерами")
 
@@ -195,7 +197,7 @@ class TemplateParser:
         return parse_theme(pkg.read(theme_part))
 
     def _read_layouts(
-        self, pkg: TemplatePackage, masters: list[str], slide_size: SlideSize
+        self, pkg: TemplatePackage, masters: list[str], slide_size: SlideSize, theme: Theme
     ) -> tuple[list[LayoutSpec], list[TypographyObservation]]:
         layouts: list[LayoutSpec] = []
         observations: list[TypographyObservation] = []
@@ -233,6 +235,13 @@ class TemplateParser:
                         shapes=parse_shapes(
                             layout_xml, slide_size.cx_emu, slide_size.cy_emu
                         ),
+                        background=self._read_background(
+                            pkg,
+                            (layout_part, layout_xml),
+                            (master_part, master_xml),
+                            theme,
+                            slide_size,
+                        ),
                     )
                 )
                 roles = {p.idx: p.role for p in placeholders if p.role}
@@ -256,6 +265,32 @@ class TemplateParser:
         observations += [obs for obs in style_observations if obs.role not in seen]
 
         return layouts, observations
+
+    def _read_background(
+        self,
+        pkg: TemplatePackage,
+        layout: tuple[str, bytes],
+        master: tuple[str, bytes],
+        theme: Theme,
+        slide_size: SlideSize,
+    ) -> LayoutBackground:
+        """Фон макета с разрешённой подложкой.
+
+        Картинка во весь слайд ищется сначала в макете, затем в мастере: мастер кладёт
+        общую подложку, макет — свою поверх неё. Байты берутся из связей **той** части,
+        в которой картинка нашлась: связь `rId1` в макете и в мастере ведёт к разным
+        файлам, и перепутать их значит померить контраст по чужой картинке.
+        """
+        picture_bytes: bytes | None = None
+        for part, xml in (layout, master):
+            blip = full_bleed_blip(xml, slide_size)
+            if blip is None:
+                continue
+            blobs, targets = pkg.media_of(part)
+            picture_bytes = blobs.get(targets.get(blip, ""))
+            if picture_bytes is not None:
+                break
+        return parse_background(layout[1], master[1], theme, picture_bytes=picture_bytes)
 
     def _fill_capacity(
         self, layouts: list[LayoutSpec], typography: list[TypographyStep], slide_area: int

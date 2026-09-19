@@ -15,7 +15,13 @@ from deckforge.audit.deterministic.template import (
     size_not_in_scale,
 )
 from deckforge.domain.enums import ColorRef, TextRole
-from deckforge.domain.template import Decor, DecorElement, TemplateManifest, TypographyStep
+from deckforge.domain.template import (
+    Decor,
+    DecorElement,
+    LayoutBackground,
+    TemplateManifest,
+    TypographyStep,
+)
 from tests.unit._audit_builders import body, chart, context_for, deck, slide, title
 
 
@@ -168,11 +174,45 @@ def test_decor_moved_silent_when_logo_is_free(manifest: TemplateManifest) -> Non
     assert list(decor_moved(context)) == []
 
 
+def _with_background(
+    manifest: TemplateManifest, background: LayoutBackground
+) -> TemplateManifest:
+    """Тот же манифест, но у всех макетов задан фон. Фикстура общая и правится тимлидом."""
+    return manifest.model_copy(
+        update={
+            "layouts": [
+                layout.model_copy(update={"background": background})
+                for layout in manifest.layouts
+            ]
+        }
+    )
+
+
+def _dark(manifest: TemplateManifest) -> TemplateManifest:
+    """Макеты залиты тёмным слотом темы — как все 15 макетов VK WorkSpace."""
+    return _with_background(
+        manifest,
+        LayoutBackground(
+            color_hex=manifest.theme.colors.get(ColorRef.DK1),
+            color_ref=ColorRef.DK1,
+            source="layout",
+        ),
+    )
+
+
 def test_contrast_below_wcag_catches_pale_text(manifest: TemplateManifest) -> None:
     """`lt2` — почти белый: на светлом фоне такой текст не читается."""
+    light = _with_background(
+        manifest,
+        LayoutBackground(
+            color_hex=manifest.theme.colors.get(ColorRef.LT1),
+            color_ref=ColorRef.LT1,
+            source="layout",
+        ),
+    )
     colony = deck(slide(body("Бледный текст", color_ref=ColorRef.LT2)))
     findings = list(
-        contrast_below_wcag(context_for("template.contrast_below_wcag", colony, manifest))
+        contrast_below_wcag(context_for("template.contrast_below_wcag", colony, light))
     )
     assert len(findings) == 1
     assert float(findings[0].evidence["ratio"]) < 4.5
@@ -184,15 +224,64 @@ def test_contrast_below_wcag_silent_on_dark_text(manifest: TemplateManifest) -> 
     assert list(contrast_below_wcag(context)) == []
 
 
-def test_contrast_finding_admits_that_background_is_assumed(
+def test_contrast_measures_the_layout_background_not_the_theme(
     manifest: TemplateManifest,
 ) -> None:
-    """Фона макета в манифесте пока нет, и находка обязана про это сказать."""
+    """Дефект 19.09: `dk1` по `dk1`, контраст 1:1 — и вердикт «норма».
+
+    Проверка сравнивала цвет текста со светлым слотом темы, поэтому тёмный заголовок
+    на тёмном макете выглядел как 21:1. Колода из двенадцати невидимых заголовков
+    получила «находок 0».
+    """
+    colony = deck(slide(body("Тёмный текст на тёмном фоне", color_ref=ColorRef.DK1)))
+    findings = list(
+        contrast_below_wcag(context_for("template.contrast_below_wcag", colony, _dark(manifest)))
+    )
+    assert len(findings) == 1
+    assert float(findings[0].evidence["ratio"]) == pytest.approx(1.0, abs=0.01)
+    assert findings[0].evidence["background"] == manifest.theme.colors.get(ColorRef.DK1)
+    assert findings[0].evidence["background_source"] == "layout"
+
+
+def test_contrast_silent_when_light_text_lies_on_a_dark_layout(
+    manifest: TemplateManifest,
+) -> None:
+    """Норма к той же правке: на тёмном макете светлый текст читается и находки не даёт."""
+    colony = deck(slide(body("Светлый текст на тёмном фоне", color_ref=ColorRef.LT1)))
+    context = context_for("template.contrast_below_wcag", colony, _dark(manifest))
+    assert list(contrast_below_wcag(context)) == []
+
+
+def test_contrast_admits_when_the_manifest_has_no_background(
+    manifest: TemplateManifest,
+) -> None:
+    """Манифест прежнего парсера фона не знает — находка обязана про это сказать."""
     colony = deck(slide(body("Бледный текст", color_ref=ColorRef.LT2)))
     finding = next(
         iter(contrast_below_wcag(context_for("template.contrast_below_wcag", colony, manifest)))
     )
-    assert "фон макета" in finding.evidence["background_source"]
+    assert "без разбора фона" in finding.evidence["background_source"]
+
+
+def test_contrast_says_when_the_background_is_a_picture(manifest: TemplateManifest) -> None:
+    """Под текстом подложка: цвет усреднён, и вердикт назван приблизительным."""
+    with_picture = _with_background(
+        manifest,
+        LayoutBackground(
+            color_hex=manifest.theme.colors.get(ColorRef.DK1),
+            source="picture",
+            is_image=True,
+        ),
+    )
+    colony = deck(slide(body("Тёмный текст", color_ref=ColorRef.DK1)))
+    finding = next(
+        iter(
+            contrast_below_wcag(
+                context_for("template.contrast_below_wcag", colony, with_picture)
+            )
+        )
+    )
+    assert "приблизителен" in finding.evidence["background_source"]
 
 
 def test_typography_step_helper_is_used_when_block_has_no_own_size(

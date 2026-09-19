@@ -223,6 +223,46 @@
       "title": "Grid",
       "type": "object"
     },
+    "LayoutBackground": {
+      "additionalProperties": false,
+      "description": "Фон макета: то, **по чему** на самом деле читается текст.\n\nБез этого поля проверка контраста сравнивала цвет текста со светлым слотом темы,\nто есть с догадкой. На тёмном макете догадка неверна: `dk1` по `dk1` — контраст\n1:1 — проходил как норма, и колода из двенадцати невидимых заголовков получала\nвердикт «нарушений нет».\n\n`color_hex` — всегда разрешённый цвет, по нему и считается контраст. `color_ref`\nзаполнен тогда, когда фон задан слотом темы: смена шаблона перекрашивает его сама,\nи это важно знать тому, кто подбирает читаемый цвет текста (ADR-002).",
+      "properties": {
+        "color_hex": {
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Color Hex",
+          "type": "string"
+        },
+        "color_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ColorRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Слот темы, если фон задан ссылкой, а не литералом"
+        },
+        "source": {
+          "description": "Откуда взят фон: layout — из p:bg макета; master — унаследован от мастера; picture — усреднённый цвет подложки во весь слайд; theme — ни того, ни другого в шаблоне нет, взят светлый слот темы",
+          "title": "Source",
+          "type": "string"
+        },
+        "is_image": {
+          "default": false,
+          "description": "Под текстом картинка: цвет усреднённый, вердикт по нему приблизителен",
+          "title": "Is Image",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "color_hex",
+        "source"
+      ],
+      "title": "LayoutBackground",
+      "type": "object"
+    },
     "LayoutCapacity": {
       "additionalProperties": false,
       "description": "Вместимость макета. Вычисляется по метрикам шрифта и площади, не константами.",
@@ -402,6 +442,18 @@
           },
           "title": "Shapes",
           "type": "array"
+        },
+        "background": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LayoutBackground"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Фон макета. Пусто у манифестов, снятых до change (24): потребитель обязан это различать, а не подставлять светлый фон молча"
         },
         "preview_png": {
           "anyOf": [

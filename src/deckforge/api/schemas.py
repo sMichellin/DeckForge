@@ -77,6 +77,10 @@ class RunStatus(BaseModel):
     `state` и `stage` — разные вещи: `stage` это узел графа, `state` — что делать
     интерфейсу. `waiting_choice` означает, что граф остановлен и ждёт человека;
     полоска прогресса в этот момент не двигается не потому, что всё зависло.
+
+    `error` и `degradations` тоже разные вещи. Деградация — это «собрано более дешёвым
+    путём», и у прогона `done` она законна; ошибка — «что-то не отработало». У удачного
+    прогона `error` пуст, иначе интерфейс красит успех в красное.
     """
 
     run_id: str
@@ -85,6 +89,7 @@ class RunStatus(BaseModel):
     progress: float = 0.0
     elapsed_s: float = 0.0
     error: str | None = None
+    degradations: list[str] = Field(default_factory=list)
     findings: list[FindingView] = Field(default_factory=list)
 
     @classmethod
@@ -96,6 +101,7 @@ class RunStatus(BaseModel):
             progress=float(raw.get("progress", 0.0)),
             elapsed_s=float(raw.get("elapsed_s", 0.0)),
             error=raw.get("error"),
+            degradations=[str(item) for item in raw.get("degradations") or []],
             findings=[FindingView.of(item) for item in raw.get("findings") or []],
         )
 

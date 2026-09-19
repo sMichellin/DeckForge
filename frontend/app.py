@@ -229,7 +229,8 @@ def send_choice(run_id: str, finding_ids: list[str]) -> None:
 def finished(run_id: str, status: dict[str, Any]) -> None:
     st.success("Колода собрана")
     if status.get("error"):
-        # Дошло до конца, но с потерями. Прятать их за зелёным статусом нельзя.
+        # Дошло до конца, но что-то не отработало. Прятать это за зелёным статусом нельзя.
+        # Деградации сюда больше не попадают: они не сбой, и их показывает `summary`.
         st.warning(status["error"])
 
     report = client().report(run_id) or {}
@@ -258,7 +259,9 @@ def summary(report: dict[str, Any]) -> None:
     numbers[3].metric("Предупреждений", audit.get("warnings", 0))
 
     for line in report.get("degradations") or []:
-        st.warning(line)
+        # Деградация — не сбой: колода собрана более дешёвым путём (§15). Сказать об этом
+        # надо, но не цветом ошибки, иначе удачный прогон выглядит как неудачный.
+        st.info(line)
     for line in report.get("errors") or []:
         st.error(line)
     skipped = report.get("skipped_checks") or []

@@ -192,12 +192,18 @@ class RunStore:
         stage: str | None,
         elapsed_s: float = 0.0,
         error: str | None = None,
+        degradations: list[str] | None = None,
         findings: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Статус переписывается целиком: частичное обновление дало бы несогласованный вид.
 
         `findings` не пусты только в состоянии `waiting_choice` — это те находки,
         на ответ по которым граф остановлен.
+
+        `degradations` и `error` — разные вещи, и у них разные поля. Деградация значит,
+        что колода собрана более дешёвым путём (§15); ошибка — что что-то не отработало.
+        Пока они лежали вместе, удачный прогон показывал в интерфейсе текст в поле
+        ошибки, и это выглядело как сбой.
         """
         payload = {
             "run_id": run_id,
@@ -206,6 +212,7 @@ class RunStore:
             "progress": progress_of(stage, state),
             "elapsed_s": round(elapsed_s, 3),
             "error": error,
+            "degradations": degradations or [],
             "findings": findings or [],
             "updated_at": utcnow(),
         }

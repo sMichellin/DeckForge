@@ -19,7 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from deckforge.api.app import create_app
-from deckforge.api.jobs import _with_relative_boxes
+from deckforge.api.jobs import _finish, _with_relative_boxes
 from deckforge.api.queue import RESUME_JOB, RUN_JOB, InlineQueue
 from deckforge.api.store import RunStore, progress_of
 from deckforge.api.worker import WorkerSettings
@@ -335,6 +335,55 @@ def test_queue_is_closed_with_the_app(store: RunStore, queue: SpyQueue) -> None:
         pass
 
     assert queue.closed is True
+
+
+# --- деградация и ошибка — разные поля ---------------------------------------
+
+
+def finished_result(out_dir: Path, **state: Any) -> RunResult:
+    """Прогон, дошедший до конца. Всё, чего нет в `state`, отчёт считает пустым."""
+    return RunResult(variant="A", run_id="r1", out_dir=out_dir, state=state)  # type: ignore[arg-type]
+
+
+def test_degradation_does_not_land_in_the_error_of_a_successful_run(
+    store: RunStore, tmp_path: Path
+) -> None:
+    """Дефект 19.09: прогон `done` приходил в интерфейс с текстом в поле ошибки.
+
+    `api/jobs.py` складывал `errors` и `degradations` в одно поле, и выключенный
+    по бюджету смысловой аудит выглядел как сбой удачного прогона.
+    """
+    run_id = store.create(request={"variant": "A"})
+    result = finished_result(
+        tmp_path,
+        degradations=["audit: смысловой аудит выключен — остатка бюджета не хватает (§15)"],
+    )
+
+    status = _finish(run_id, store, result, elapsed_s=1.0)
+
+    assert status["state"] == "done"
+    assert status["error"] is None
+    assert status["degradations"] == [
+        "audit: смысловой аудит выключен — остатка бюджета не хватает (§15)"
+    ]
+
+
+def test_real_errors_still_reach_the_error_field(store: RunStore, tmp_path: Path) -> None:
+    """Норма к той же правке: сбой прячется за зелёным статусом не больше прежнего."""
+    run_id = store.create(request={"variant": "A"})
+    result = finished_result(tmp_path, errors=["export: pdf не собрался"], degradations=["x"])
+
+    status = _finish(run_id, store, result, elapsed_s=1.0)
+
+    assert status["error"] == "export: pdf не собрался"
+    assert status["degradations"] == ["x"]
+
+
+def test_status_carries_degradations_to_the_client(client: TestClient, store: RunStore) -> None:
+    run_id = start_run(client)
+    store.write_status(run_id, state="done", stage="export", degradations=["превью не сняты"])
+
+    assert client.get(f"/runs/{run_id}").json()["degradations"] == ["превью не сняты"]
 
 
 # --- рамка находки для подсветки ---------------------------------------------

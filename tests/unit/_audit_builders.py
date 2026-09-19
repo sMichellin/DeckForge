@@ -26,6 +26,7 @@ from deckforge.domain.slide import (
     ImageBlock,
     KpiBlock,
     KpiItem,
+    Provenance,
     SlideIR,
     TableBlock,
     TextBlock,
@@ -169,13 +170,21 @@ def slide(
     slide_id: str = "s01",
     layout_id: str = "L07",
     fit_report: dict[str, object] | None = None,
+    fact_refs: list[str] | None = None,
 ) -> SlideIR:
+    """Слайд колоды. `fact_refs` — то, что планировщик отдал этому слайду.
+
+    По умолчанию их нет: большинству проверок план не нужен. Проверке
+    `integrity.content_lost` он нужен — она отличает слайд без текста по замыслу
+    от слайда, у которого текст потеряли, именно по фактам.
+    """
     return SlideIR(
         slide_id=slide_id,
         layout_id=layout_id,
         variant="A",
         blocks=list(blocks),
         fit_report=fit_report or {},
+        provenance=Provenance(fact_refs=fact_refs or []),
     )
 
 
