@@ -59,5 +59,8 @@ async def compose_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
         "slides": slides,
         "stage_timings_s": timings,
         "errors": errors,
+        # Что композиция поставила свободным блоком, отбросила или урезала: без этого
+        # отчёт о потерянном содержании оставался внутри композитора (#59).
+        "notes": list(composer.notes),
         "degradations": [degraded] if degraded else [],
     }

@@ -307,3 +307,35 @@ async def test_interactive_run_stops_and_resumes_with_the_human_choice(tmp_path:
 
     resumed = await compiled.ainvoke(Command(resume=["f2"]), config=config, context=context)
     assert [f.finding_id for f in resumed["selected_fixes"]] == ["f2"]
+
+
+# --- узел compose ------------------------------------------------------------
+
+
+async def test_composition_notes_reach_the_run_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Композитор пишет, что отбросил или поставил свободно, — это обязано дойти до отчёта."""
+    from deckforge.pipeline.nodes import compose as compose_module
+
+    class NoisyComposer:
+        def __init__(self, *_: Any, **__: Any) -> None:
+            self.notes: list[str] = []
+
+        async def compose(self, slide: SlidePlan, *_: Any, **__: Any) -> SlideIR:
+            self.notes.append(f"слайд {slide.slide_id}: блок b1 поставлен свободным блоком")
+            return slide_ir(slide.slide_id)
+
+    monkeypatch.setattr(compose_module, "SlideComposer", NoisyComposer)
+    state: DeckState = {
+        "plan": plan_of("s01", "s02"),
+        "content": None,  # type: ignore[typeddict-item]
+        "manifest": None,  # type: ignore[typeddict-item]
+        "variant": None,  # type: ignore[typeddict-item]
+        "seed": 1,
+    }
+    out = await compose_module.compose_node(state, runtime(deps(tmp_path, llm=object())))
+    assert sorted(out["notes"]) == [
+        "слайд s01: блок b1 поставлен свободным блоком",
+        "слайд s02: блок b1 поставлен свободным блоком",
+    ]
