@@ -60,17 +60,23 @@ def live_manifest() -> TemplateManifest:
     return TemplateParser().parse(TEMPLATES[0], use_cache=True)
 
 
+@pytest.mark.parametrize("no_think", [False, True], ids=["с размышлением", "без размышления"])
 async def test_planner_produces_a_usable_deck(
-    content: ContentPackage, live_manifest: TemplateManifest
+    content: ContentPackage, live_manifest: TemplateManifest, no_think: bool
 ) -> None:
+    """Два прогона подряд дают и проверку, и замер вклада размышлений в 261 с.
+
+    Команда «/no_think» — из семейства Qwen3. Провайдер, который её не понимает,
+    просто оставит строку в промпте, и тогда времена совпадут: это тоже результат.
+    """
     variant = load_variant_profiles()["C"]
     started = time.monotonic()
     plan = await DeckPlanner(client_for("llm_main")).plan(
-        content, live_manifest, variant, seed=1337
+        content, live_manifest, variant, seed=1337, no_think=no_think
     )
     elapsed = time.monotonic() - started
 
-    _report(plan, content, elapsed)
+    _report(plan, content, elapsed, no_think=no_think)
 
     assert isinstance(plan, DeckPlan)
     assert plan.slides, "план пуст"
@@ -79,9 +85,12 @@ async def test_planner_produces_a_usable_deck(
     assert plan.variant == "C" and plan.seed == 1337
 
 
-def _report(plan: DeckPlan, content: ContentPackage, elapsed: float) -> None:
+def _report(
+    plan: DeckPlan, content: ContentPackage, elapsed: float, *, no_think: bool = False
+) -> None:
     """Печатает план целиком: живой прогон существует ради человеческого взгляда."""
-    print(f"\n\n=== План колоды, {len(plan.slides)} слайдов, {elapsed:.1f} с ===")
+    mode = "без размышления" if no_think else "с размышлением"
+    print(f"\n\n=== План колоды, {len(plan.slides)} слайдов, {elapsed:.1f} с, {mode} ===")
     if elapsed > PLANNING_BUDGET_S:
         print(f"!!! бюджет стадии {PLANNING_BUDGET_S:.0f} с превышен")
     for slide in plan.slides:

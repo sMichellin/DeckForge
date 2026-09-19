@@ -234,3 +234,17 @@ def test_every_purpose_of_the_brief_has_a_frame() -> None:
     for frame in MANDATORY_FRAMES.values():
         assert frame[0] == SlideIntent.TITLE
         assert frame[-1] == SlideIntent.CLOSING
+
+
+@pytest.mark.asyncio
+async def test_no_think_reaches_the_prompt_only_when_asked(
+    content: ContentPackage, manifest: TemplateManifest, variant_c: VariantProfile
+) -> None:
+    """Команду понимают не все провайдеры: по умолчанию её в промпте быть не должно."""
+    quiet = FakeLlm(payload_for(PRODUCT_FRAME))
+    await DeckPlanner(quiet).plan(content, manifest, variant_c, seed=1)
+    assert "/no_think" not in quiet.prompt_text
+
+    fast = FakeLlm(payload_for(PRODUCT_FRAME))
+    await DeckPlanner(fast).plan(content, manifest, variant_c, seed=1, no_think=True)
+    assert "/no_think" in fast.prompt_text

@@ -40,8 +40,16 @@ class DeckPlanner:
         manifest: TemplateManifest,
         variant: VariantProfile,
         seed: int,
+        *,
+        no_think: bool = False,
     ) -> DeckPlan:
-        """Промпт получает только *доступные виды макетов* манифеста, не сам шаблон."""
+        """Промпт получает только *доступные виды макетов* манифеста, не сам шаблон.
+
+        `no_think` добавляет в запрос «/no_think» — команду семейства Qwen3 не размышлять.
+        По умолчанию выключено: отключение размышлений понимают не все провайдеры,
+        а на тех, кто не понимает, строка останется мусором в промпте. Нужна для замера,
+        сколько из 261 с планирования приходится на размышление.
+        """
         bundle = get_prompt_registry().load("deck_planner", profile=self.profile)
         system, user = bundle.render(
             brief=content.brief,
@@ -51,6 +59,7 @@ class DeckPlanner:
             seed=seed,
             language=content.brief.language,
             available_kinds=sorted({layout.kind.value for layout in manifest.layouts}),
+            no_think=no_think,
         )
 
         # generate_model синхронный и сам чинит невалидный ответ, сдвигая seed.
@@ -76,6 +85,8 @@ class DeckPlanner:
         content: ContentPackage,
         variant: VariantProfile,
         seed: int,
+        *,
+        no_think: bool = False,
     ) -> DeckPlan:
         """Привязывает план к реальности: ссылки, вариант, seed, отчёт по нарративу.
 

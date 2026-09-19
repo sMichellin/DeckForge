@@ -16,7 +16,7 @@ from deckforge.composition.composer import MAX_BULLETS_BY_SPEC, CompositionError
 from deckforge.composition.layout_picker import INTENT_LAYOUTS, kind_chain, pick_layout
 from deckforge.composition.visual_selector import looks_like_time_series, select_chart
 from deckforge.domain.content import Brief, ContentPackage, Dataset, Fact, Series
-from deckforge.domain.enums import ChartType, LayoutKind, SlideIntent
+from deckforge.domain.enums import ChartType, LayoutKind, SlideIntent, TextRole
 from deckforge.domain.plan import SlidePlan
 from deckforge.domain.template import TemplateManifest
 from deckforge.domain.variants import VariantProfile
@@ -156,9 +156,14 @@ async def test_layout_and_variant_are_forced_by_the_pipeline(
     assert ir.provenance.prompt_version == "slide_composer@1.0.0"
 
 
-async def test_blocks_pointing_at_foreign_placeholders_are_dropped(
+async def test_text_with_a_foreign_placeholder_is_kept_not_dropped(
     content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
 ) -> None:
+    """Раньше такой блок выбрасывался — это и был дефект интеграционного прогона.
+
+    Плейсхолдера с таким номером в макете нет, но текст от этого не перестаёт быть
+    содержанием слайда: он встаёт свободным блоком в область контента.
+    """
     payload = {
         "slide_id": "s02",
         "layout_id": "L07",
@@ -170,10 +175,13 @@ async def test_blocks_pointing_at_foreign_placeholders_are_dropped(
              "text": "Плейсхолдера 42 в макете нет"},
         ],
     }
-    ir = await SlideComposer(FakeLlm(payload)).compose(
-        plan_slide(), content, manifest, variant_a, seed=1
-    )
-    assert [block.block_id for block in ir.blocks] == ["b1"]
+    composer = SlideComposer(FakeLlm(payload))
+    ir = await composer.compose(plan_slide(), content, manifest, variant_a, seed=1)
+
+    assert [block.block_id for block in ir.blocks] == ["b1", "b2"]
+    body = ir.block("b2")
+    assert body is not None and body.placeholder_idx is None and body.bbox is not None
+    assert any("b2" in note for note in composer.notes)
 
 
 async def test_bullets_are_capped_by_the_spec(
@@ -208,7 +216,10 @@ async def test_slide_without_usable_blocks_is_refused(
         "layout_id": "L07",
         "variant": "A",
         "blocks": [
-            {"block_id": "b1", "type": "text", "placeholder_idx": 77, "role": "body", "text": "x"}
+            # Диаграмма на несуществующих данных: свободным блоком её не поставишь,
+            # рисовать нечего — и от слайда не остаётся ничего.
+            {"block_id": "b9", "type": "chart", "chart_type": "clustered_column",
+             "dataset_ref": "d999"}
         ],
     }
     with pytest.raises(CompositionError):
@@ -317,3 +328,104 @@ async def test_prompt_says_what_is_not_the_models_job(
     assert "Координаты не задавай" in llm.prompt
     assert "Подписи осей" in llm.prompt
     assert "provenance" in llm.prompt.lower()
+
+
+# ------------------------------------- дефекты интеграционного прогона через UI
+
+
+def _title_only_manifest(manifest: TemplateManifest) -> TemplateManifest:
+    """Шаблон, где под текст нет ни одного плейсхолдера, кроме заголовка.
+
+    Так устроен VK WorkSpace: макетов под содержание в нём нет вовсе, и основной
+    текст слайда исчезал молча.
+    """
+    bullets = manifest.layouts[1]
+    title_ph = [ph for ph in bullets.placeholders if ph.role == TextRole.TITLE]
+    crippled = bullets.model_copy(update={"placeholders": title_ph})
+    return manifest.model_copy(update={"layouts": [manifest.layouts[0], crippled]})
+
+
+async def test_text_without_a_placeholder_becomes_a_free_block(
+    content: ContentPackage, variant_a: VariantProfile, manifest: TemplateManifest
+) -> None:
+    """Дефект: основной текст выбрасывался без следа. Теперь он встаёт свободным блоком."""
+    crippled = _title_only_manifest(manifest)
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "L07",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "b1", "type": "text", "placeholder_idx": 0, "role": "title",
+             "text": "Отток снизился втрое за год"},
+            {"block_id": "b2", "type": "bullets", "placeholder_idx": 1,
+             "items": [{"text": "Выручка выросла"}, {"text": "Отток снизился"}]},
+        ],
+    }
+    composer = SlideComposer(FakeLlm(payload))
+    ir = await composer.compose(plan_slide(), content, crippled, variant_a, seed=1)
+
+    body = ir.block("b2")
+    assert body is not None, "основной текст пропал со слайда"
+    assert body.placeholder_idx is None
+    assert body.bbox is not None, "свободному блоку нужны координаты, иначе рендерер откажет"
+    assert crippled.content_bbox.contains(body.bbox), "блок вышел за поля шаблона"
+    assert any("свободным блоком" in note for note in composer.notes)
+
+
+async def test_every_change_and_loss_is_reported(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Молчаливая потеря — худший исход: на слайде нет половины содержания, и непонятно почему."""
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "L07",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "b1", "type": "text", "placeholder_idx": 0, "role": "title", "text": "З"},
+            {"block_id": "b9", "type": "chart", "chart_type": "clustered_column",
+             "dataset_ref": "d999"},
+        ],
+    }
+    composer = SlideComposer(FakeLlm(payload))
+    ir = await composer.compose(plan_slide(), content, manifest, variant_a, seed=1)
+
+    assert ir.block("b9") is None, "диаграмма на несуществующих данных осталась"
+    assert any("b9" in note and "d999" in note for note in composer.notes)
+    assert all(note.startswith("слайд s02:") for note in composer.notes)
+
+
+async def test_text_in_a_placeholder_gets_no_colour(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Дефект: заголовки выходили dk1 поверх тёмного фона. Цвет знает макет, не модель."""
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "L07",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "b1", "type": "text", "placeholder_idx": 0, "role": "title",
+             "text": "Заголовок", "color_ref": "dk1"},
+        ],
+    }
+    ir = await SlideComposer(FakeLlm(payload)).compose(
+        plan_slide(), content, manifest, variant_a, seed=1
+    )
+    title = ir.block("b1")
+    assert title is not None
+    assert title.color_ref is None, "цвет в плейсхолдере перебивает цвет макета"
+
+
+async def test_prompt_forbids_colouring_text_in_placeholders(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "L07",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "b1", "type": "text", "placeholder_idx": 0, "role": "title", "text": "З"}
+        ],
+    }
+    llm = FakeLlm(payload)
+    await SlideComposer(llm).compose(plan_slide(), content, manifest, variant_a, seed=1)
+    assert "цвет не задавай вовсе" in llm.prompt
