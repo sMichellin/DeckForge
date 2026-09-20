@@ -500,3 +500,20 @@ def test_planner_prompt_names_the_vocabulary(
 
     assert "suggested_visual" in llm.prompt_text
     assert "smartart:process" in llm.prompt_text
+
+
+def test_prompt_names_the_signs_of_a_process_not_just_the_word(
+    content: ContentPackage, manifest: TemplateManifest, variant_c: VariantProfile
+) -> None:
+    """Прогоны 2ac85990b2f2 и 34272d11db06: визуализация не заказана ни разу.
+
+    Материал при этом описан процессом (f003–f007 `task_desription.md`), но «этапы» —
+    это понятие, а не признак: модель искала слово, не находила и молчала.
+    """
+    llm = FakeLlm(payload_for(PRODUCT_FRAME))
+    asyncio.run(DeckPlanner(llm).plan(content, manifest, variant_c, seed=1))
+
+    prompt = llm.prompt_text
+    assert "неопределённой форме" in prompt, "признак последовательности не назван"
+    assert "сначала" in prompt and "затем" in prompt
+    assert "ЭТОГО слайда" in prompt, "kpi заказывается по числам всей колоды"
