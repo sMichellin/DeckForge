@@ -517,3 +517,52 @@ def test_prompt_names_the_signs_of_a_process_not_just_the_word(
     assert "неопределённой форме" in prompt, "признак последовательности не назван"
     assert "сначала" in prompt and "затем" in prompt
     assert "ЭТОГО слайда" in prompt, "kpi заказывается по числам всей колоды"
+
+class SequenceLlm:
+    """Отдаёт заготовленные ответы по порядку и запоминает все запросы."""
+
+    model = "fake"
+
+    def __init__(self, *headlines: str) -> None:
+        self.headlines = list(headlines)
+        self.prompts: list[str] = []
+
+    def complete(self, messages: list[dict[str, Any]], **kwargs: Any) -> Completion:
+        self.prompts.append("\n".join(str(m.get("content", "")) for m in messages))
+        text = self.headlines[min(len(self.prompts) - 1, len(self.headlines) - 1)]
+        return Completion(text=json.dumps({"headline": text}, ensure_ascii=False),
+                          model=self.model)
+
+
+def test_second_attempt_tells_the_model_how_much_it_missed(content: ContentPackage) -> None:
+    """Прогон 34272d11db06: шесть заголовков из десяти не уместились и после первого захода.
+
+    Повторить ту же просьбу теми же словами — получить тот же ответ. Новое сведение
+    здесь одно: насколько прошлый вариант оказался длиннее места.
+    """
+    llm = SequenceLlm("Всё ещё слишком длинный заголовок", "Короткий вывод")
+    out, _ = rewrite(plan_with("Исходный очень длинный заголовок слайда"), content, llm)
+
+    assert len(llm.prompts) == 2, "второго захода не было"
+    assert "знаков длиннее места" in llm.prompts[1]
+    assert "Всё ещё слишком длинный заголовок" in llm.prompts[1], "промах назван без примера"
+    assert out.slides[0].headline == "Короткий вывод"
+
+
+def test_one_attempt_is_enough_when_it_fits(content: ContentPackage) -> None:
+    """Лишний вызов на слайд — это время прогона, потраченное впустую."""
+    llm = SequenceLlm("Короткий вывод", "Ещё короче")
+    out, _ = rewrite(plan_with("Исходный очень длинный заголовок слайда"), content, llm)
+
+    assert len(llm.prompts) == 1
+    assert out.slides[0].headline == "Короткий вывод"
+
+
+def test_two_failures_keep_the_shortest_variant(content: ContentPackage) -> None:
+    """Два промаха подряд — потолок модели на этом материале; дальше честнее подрезать."""
+    llm = SequenceLlm("Длинный переписанный заголовок слайда", "Чуть покороче, но всё длинно")
+    out, rewriter = rewrite(plan_with("Исходный очень длинный заголовок слайда"), content, llm)
+
+    assert len(llm.prompts) == 2
+    assert out.slides[0].headline == "Чуть покороче, но всё длинно", "взят не самый короткий"
+    assert any("не встал" in note for note in rewriter.notes)

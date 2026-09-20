@@ -25,6 +25,22 @@ from deckforge.inference.client import InferenceClient, InferenceError
 from deckforge.inference.structured import generate_json
 from deckforge.registry import get_prompt_registry
 
+#: Сколько раз просить модель переписать один заголовок. Два: первый заход называет
+#: предел, второй — промах в знаках. Третий сказать нечего, а вызов стоит денег и времени.
+_ATTEMPTS = 2
+
+
+def _why(headline: str, limit: int, miss: tuple[str, int] | None) -> str:
+    """Что сказать модели о заголовке: в первый раз — предел, во второй — промах."""
+    if miss is None:
+        return f"не помещается в полосу заголовка: {len(headline)} знаков при пределе {limit}"
+    previous, over = miss
+    return (
+        f"твой прошлый вариант «{previous}» тоже не поместился — он на {over} знаков "
+        f"длиннее места. Нужно уложиться в {limit} знаков: выбрось подробность, "
+        "а не сказуемое"
+    )
+
 
 class HeadlineRewriter:
     """Второй заход по заголовкам плана: не уместившиеся пишутся заново."""
@@ -50,8 +66,8 @@ class HeadlineRewriter:
         `fits` меряет текст так же, как потом померяет вёрстка. `limit` — тот же предел
         в знаках, что назван планировщику: он уезжает в промпт, мерилом не служит.
 
-        Один заход на заголовок, без повторов: сервер локальной модели однослотовый,
-        и десять лишних вызовов дороже одного многоточия.
+        До двух заходов на заголовок, и только на те, что не уместились: на прогоне
+        `34272d11db06` это шесть вызовов дешёвой модели вместо десяти.
         """
         overlong = [slide for slide in plan.slides if not fits(slide.headline)]
         if not overlong:
@@ -61,12 +77,40 @@ class HeadlineRewriter:
 
         async def one(slide: SlidePlan) -> tuple[str, str | None]:
             async with gate:
-                return slide.slide_id, await self._rewrite(slide, content, limit, seed)
+                return slide.slide_id, await self._best(slide, content, fits, limit, seed)
 
         rewritten = dict(await asyncio.gather(*(one(slide) for slide in overlong)))
 
         slides = [self._accept(slide, rewritten, fits) for slide in plan.slides]
         return plan.model_copy(update={"slides": slides})
+
+    async def _best(
+        self,
+        slide: SlidePlan,
+        content: ContentPackage,
+        fits: Callable[[str], bool],
+        limit: int,
+        seed: int,
+    ) -> str | None:
+        """Лучший вариант заголовка за отведённые заходы.
+
+        Второй заход отличается от первого не настойчивостью, а сведениями: модели
+        называется промах в знаках — «твой вариант на 6 длиннее места». Повторить
+        ту же просьбу теми же словами значит получить тот же ответ (прогон 34272d11db06:
+        шесть заголовков из десяти не уместились и после первого захода).
+        """
+        best: str | None = None
+        miss: tuple[str, int] | None = None
+        for attempt in range(_ATTEMPTS):
+            fresh = await self._rewrite(slide, content, limit, seed + attempt, miss)
+            if fresh is None:
+                break
+            if best is None or len(fresh) < len(best):
+                best = fresh
+            if fits(fresh):
+                return fresh
+            miss = (fresh, len(fresh) - limit)
+        return best
 
     def _accept(
         self,
@@ -105,19 +149,24 @@ class HeadlineRewriter:
         return slide
 
     async def _rewrite(
-        self, slide: SlidePlan, content: ContentPackage, limit: int, seed: int
+        self,
+        slide: SlidePlan,
+        content: ContentPackage,
+        limit: int,
+        seed: int,
+        miss: tuple[str, int] | None = None,
     ) -> str | None:
-        """Один заголовок заново. `None` — модель не ответила; это не повод ронять прогон."""
+        """Один заголовок заново. `None` — модель не ответила; это не повод ронять прогон.
+
+        `miss` — предыдущий вариант и насколько он оказался длиннее места.
+        """
         facts = [fact for ref in slide.fact_refs if (fact := content.fact(ref)) is not None]
         bundle = get_prompt_registry().load("headline_writer", profile=self.profile)
         system, user = bundle.render(
             max_chars=limit,
             language=content.brief.language,
             current_headline=slide.headline,
-            finding_message=(
-                f"не помещается в полосу заголовка: {len(slide.headline)} знаков "
-                f"при пределе {limit}"
-            ),
+            finding_message=_why(slide.headline, limit, miss),
             slide_text=slide.speaker_note or "",
             facts=facts,
         )
