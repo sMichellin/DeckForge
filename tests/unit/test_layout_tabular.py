@@ -128,12 +128,16 @@ def test_table_that_never_fits_overflows(manifest: TemplateManifest, fonts: Font
 # --- fit_kpi -------------------------------------------------------------------
 
 
-def kpi(*values: str) -> KpiBlock:
+def kpi(*values: str, cy_cm: float = 2) -> KpiBlock:
+    """Показатели в полосе. Полоса тесная: иначе кегль значения поднимется под рамку."""
     return KpiBlock(block_id="k", items=[KpiItem(value=v, label="рост за год") for v in values],
-                    x=0, y=0, cx=24 * EMU_PER_CM, cy=4 * EMU_PER_CM)
+                    x=0, y=0, cx=24 * EMU_PER_CM, cy=int(cy_cm * EMU_PER_CM))
 
 
-def test_kpi_fits_at_subtitle_size(manifest: TemplateManifest, fonts: FontLibrary) -> None:
+def test_kpi_starts_from_the_subtitle_size(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Кегль значения — ступень `subtitle` шаблона, пока рамка не просит крупнее."""
     subtitle = manifest.typography(TextRole.SUBTITLE)
     assert subtitle is not None
     block = kpi("37 %", "×2,3", "1 200")
@@ -232,3 +236,41 @@ def test_first_row_is_bold_only_when_there_is_a_header(
     assert table_has_header(TableBlock(block_id="t", header=["а"], rows=[["б"]]))
     assert table_has_header(TableBlock(block_id="t", dataset_ref="d001"))
     assert not table_has_header(TableBlock(block_id="t", rows=[["а"], ["б"]]))
+
+
+def test_kpi_in_a_tall_frame_is_set_larger(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Прогон f0eb600a3ad7: показатели на восьми слайдах из девяти — и ни одного в норме.
+
+    Решатель отдаёт блоку всю свободную площадь слайда; две строки цифр у верхнего края
+    такой рамки — это пустой слайд, а не заполненный.
+    """
+    subtitle = manifest.typography(TextRole.SUBTITLE)
+    title = manifest.typography(TextRole.TITLE)
+    assert subtitle is not None and title is not None
+    block = KpiBlock(
+        block_id="k",
+        items=[KpiItem(value="37 %", label="рост за год")],
+        x=0, y=0, cx=24 * EMU_PER_CM, cy=12 * EMU_PER_CM,
+    )
+    assert block.bbox is not None
+
+    result = fit_kpi(block, block.bbox, manifest, fonts=fonts)
+
+    assert result.final_size_pt > subtitle.size_pt, "показатель остался у верхнего края"
+    assert result.final_size_pt <= title.size_pt, "цифра крупнее заголовка уже кричит"
+    assert result.final_size_pt in manifest.size_ladder_pt
+    assert result.overflow is False
+
+
+def test_kpi_that_fills_its_frame_is_left_alone(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Расти некуда: в тесной полосе показатели и так занимают рамку."""
+    subtitle = manifest.typography(TextRole.SUBTITLE)
+    assert subtitle is not None
+    block = kpi("37 %", "×2,3", "1 200", cy_cm=2)
+    assert block.bbox is not None
+
+    assert fit_kpi(block, block.bbox, manifest, fonts=fonts).final_size_pt == subtitle.size_pt

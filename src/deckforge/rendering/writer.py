@@ -626,6 +626,10 @@ class PptxWriter:
             )
             frame = shape.text_frame
             frame.word_wrap = True
+            # Колонка показателя получает всю высоту рамки, а занимает две строки:
+            # прижатые к верхнему краю, они оставляли под собой пустое поле
+            # (прогон f0eb600a3ad7: ни одного слайда в норме плотности).
+            frame.vertical_anchor = MSO_ANCHOR.MIDDLE
             frame.clear()
             value = frame.paragraphs[0]
             value.text = item.value

@@ -937,3 +937,20 @@ def test_free_text_is_centred_in_its_frame(template: Path, tmp_path: Path) -> No
 
     assert 'anchor="ctr"' in free._element.xml, "свободный текст прижат к краю рамки"
     assert 'anchor="ctr"' not in in_placeholder._element.xml, "выравнивание задал шаблон"
+
+
+def test_kpi_columns_are_centred_in_their_frame(template: Path, tmp_path: Path) -> None:
+    """Прогон f0eb600a3ad7: показатели полосой в верхней трети, под ними пустое поле."""
+    manifest = parse(template, tmp_path)
+    deck = visual_deck(
+        manifest,
+        KpiBlock(block_id="k", items=[KpiItem(value="37 %", label="рост")],
+                 **region(manifest, 1, 2)),
+    )
+    out = PptxWriter(template, manifest).write(deck, tmp_path / "deck.pptx")
+    column = next(
+        s for s in Presentation(str(out)).slides[0].shapes
+        if s.has_text_frame and "37 %" in s.text_frame.text
+    )
+
+    assert 'anchor="ctr"' in column._element.xml, "колонка показателя прижата к краю рамки"

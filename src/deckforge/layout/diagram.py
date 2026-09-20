@@ -22,6 +22,10 @@ SUPPORTED_PATTERNS = frozenset(
 
 #: process: промежуток между шагами в долях ширины шага; отступ стрелки — в долях промежутка.
 _PROCESS_GAP, _PROCESS_LINK_MARGIN = 0.25, 0.2
+#: process: наибольшая высота карточки в её ширинах. Квадрат — предел: карточка выше
+#: собственной ширины читается колонкой, а не шагом (прогон 693d464d54fb, слайд s04 —
+#: четыре столба 4,4 × 12 см с одной строкой подписи посередине).
+_PROCESS_NODE_ASPECT = 1.0
 #: timeline: диаметр маркера в долях колонки (или высоты рамки, если она ниже).
 _TIMELINE_MARKER = 0.2
 #: cycle: наибольшая ширина узла в высотах; зазор между узлами в высотах узла; отступ
@@ -74,8 +78,12 @@ def diagram_geometry(pattern: SmartArtPattern, count: int, box: BBox) -> Diagram
 def _process(count: int, box: BBox) -> Diagram:
     width = box.cx / (count + (count - 1) * _PROCESS_GAP)
     gap = width * _PROCESS_GAP
+    # Карточка не выше своей ширины, а ряд стоит по середине рамки: решатель отдаёт
+    # блоку всю свободную площадь слайда, и растянутая на неё карточка — не шаг, а столб.
+    height = min(box.cy, max(1, int(width * _PROCESS_NODE_ASPECT)))
+    top = box.y + (box.cy - height) // 2
     nodes = tuple(
-        BBox(x=box.x + int(i * (width + gap)), y=box.y, cx=max(1, int(width)), cy=box.cy)
+        BBox(x=box.x + int(i * (width + gap)), y=top, cx=max(1, int(width)), cy=height)
         for i in range(count)
     )
     labels = tuple(_inset(node, round(min(node.cx, node.cy) * _ROUND_RECT_TEXT_INSET))

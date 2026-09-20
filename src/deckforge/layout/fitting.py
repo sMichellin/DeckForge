@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Any
 
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage, Dataset
@@ -225,21 +226,60 @@ def fit_kpi(
     column = BBox(x=box.x, y=box.y, cx=max(1, box.cx // len(block.items)), cy=box.cy)
     available = usable_height_emu(box)
 
-    size, lines, required = value_step.size_pt, 0, 0
-    for size in _sizes(manifest, value_step.size_pt, allow_shrink=True):
-        one_line = True
-        required = lines = 0
+    def measured(size_pt: float) -> tuple[bool, int, int]:
+        """(значение в одну строку, строк всего, нужная высота) при этом кегле."""
+        one_line, lines, required = True, 0, 0
         for item in block.items:
             value = measure_text(item.value, font_family=_font_of(value_step, manifest),
-                                 size_pt=size, box=column, bold=value_step.bold, fonts=fonts)
+                                 size_pt=size_pt, box=column, bold=value_step.bold, fonts=fonts)
             label = measure_text(item.label, font_family=_font_of(label_step, manifest),
                                  size_pt=label_step.size_pt, box=column, fonts=fonts)
             one_line = one_line and value.lines <= 1
             lines = max(lines, value.lines + label.lines)
             required = max(required, value.height_emu + label.height_emu)
+        return one_line, lines, required
+
+    size, lines, required = value_step.size_pt, 0, 0
+    for size in _sizes(manifest, value_step.size_pt, allow_shrink=True):
+        one_line, lines, required = measured(size)
         if one_line and required <= available:
-            return _fits(size, value_step.size_pt, lines, required)
+            return _grown_kpi(
+                _fits(size, value_step.size_pt, lines, required), measured, manifest, available
+            )
     return _overflow(size, lines, required, available, splittable=False)
+
+
+def _grown_kpi(
+    result: FitResult,
+    measured: Any,
+    manifest: TemplateManifest,
+    available: int,
+) -> FitResult:
+    """Поднимает кегль показателя, пока он занимает меньше половины отведённого.
+
+    Рамку блоку считает решатель, и одна строка цифр в ней — это пустой слайд
+    (прогон f0eb600a3ad7: ни одного слайда в норме плотности при показателях
+    на восьми из девяти). Потолок — кегль заголовка шаблона: цифра вровень
+    с заголовком нормальна, крупнее — уже кричит.
+    """
+    if not available or (result.required_cy_emu or 0) >= FREE_BLOCK_FILL_SHARE * available:
+        return result
+
+    cap = _step_for(TextRole.TITLE, manifest).size_pt
+    best = result
+    size = next_size_up(manifest, result.final_size_pt)
+    while size is not None and size <= cap:
+        one_line, lines, required = measured(size)
+        if not one_line or required > available:
+            break
+        best = FitResult(
+            final_size_pt=size, overflow=False, lines=lines,
+            required_cy_emu=required, strategy=GROW,
+        )
+        if required >= FREE_BLOCK_FILL_SHARE * available:
+            break
+        size = next_size_up(manifest, size)
+    return best
 
 
 def fit_smartart(

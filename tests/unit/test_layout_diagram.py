@@ -240,3 +240,34 @@ def test_cycle_of_two_has_arrows_both_ways_side_by_side() -> None:
     there, back = geometry.links
     assert there.y1 < there.y2 and back.y1 > back.y2
     assert there.x1 != back.x1
+
+
+def test_process_card_is_not_taller_than_it_is_wide() -> None:
+    """Прогон 693d464d54fb, s04: четыре карточки 4,4 × 12 см — это столбы, а не шаги.
+
+    Рамку блоку отдаёт решатель целиком, и растягивать по ней карточку значит
+    принимать границу свободной площади за решение о размере фигуры.
+    """
+    tall = BBox(x=2 * EMU_PER_CM, y=3 * EMU_PER_CM, cx=21 * EMU_PER_CM, cy=12 * EMU_PER_CM)
+    diagram = diagram_geometry(SmartArtPattern.PROCESS, 4, tall)
+
+    for node in diagram.nodes:
+        assert node.cy <= node.cx, "карточка выше своей ширины"
+
+
+def test_process_row_is_centred_in_the_frame() -> None:
+    """Ряд, прижатый к верхнему краю, оставил бы под собой пустое поле."""
+    tall = BBox(x=2 * EMU_PER_CM, y=3 * EMU_PER_CM, cx=21 * EMU_PER_CM, cy=12 * EMU_PER_CM)
+    diagram = diagram_geometry(SmartArtPattern.PROCESS, 4, tall)
+
+    node = diagram.nodes[0]
+    above, below = node.y - tall.y, tall.bottom - node.bottom
+    assert abs(above - below) <= EMU_PER_CM // 10, "ряд стоит не по середине рамки"
+
+
+def test_process_in_a_flat_frame_keeps_the_frame_height() -> None:
+    """Рамка ниже карточки — потолок: расширять её за отведённое нельзя."""
+    flat = BBox(x=2 * EMU_PER_CM, y=3 * EMU_PER_CM, cx=21 * EMU_PER_CM, cy=2 * EMU_PER_CM)
+    diagram = diagram_geometry(SmartArtPattern.PROCESS, 4, flat)
+
+    assert all(node.cy == flat.cy for node in diagram.nodes)
