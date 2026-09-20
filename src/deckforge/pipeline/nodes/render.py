@@ -33,7 +33,13 @@ async def render_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     degradations: list[str] = []
     previews: dict[str, Path] = {}
 
-    wants_previews = bool(deps.run.audit.get("run_semantic", True)) and deps.vlm is not None
+    # Превью нужны не только судье-VLM: по картинке слайда считаются метрики оформления
+    # (`design.ink_balance`), а они детерминированные и идут всегда. Рендер десяти
+    # страниц стоит секунды, и без него проверка уходит в пропущенные — то есть колода
+    # снова оценивается по рамкам, а не по тому, как выглядит.
+    wants_previews = bool(deps.run.audit.get("run_deterministic", True)) or (
+        bool(deps.run.audit.get("run_semantic", True)) and deps.vlm is not None
+    )
     if wants_previews and deps.budget.behind_schedule("render"):
         wants_previews = False
         degradations.append("render: превью не снимаются — остатка бюджета не хватает (§15)")

@@ -83,7 +83,11 @@ def ink_bbox(block: Block, bbox: BBox, slide: SlideIR) -> BBox:
     Блок, который заполняет рамку по определению (диаграмма, картинка, схема), и блок
     без отчёта о вписывании остаются со своей рамкой: догадываться аудит не станет.
     """
-    if not isinstance(block, TEXT_BLOCKS):
+    # Показатели держат поле композицией, а не массой текста: «412 млн ₽» — две строки
+    # чернил на всю колонку, и мерить их высотой текста значит звать полупустым слайд,
+    # который выглядит нормально (прогон 5f20ce07e504). Сколько площади он занял
+    # на самом деле, считает `design.ink_balance` по отрисованному слайду.
+    if isinstance(block, KpiBlock) or not isinstance(block, TEXT_BLOCKS):
         return bbox
     fit = slide.fit_report.get(block.block_id)
     if fit is None or not fit.required_cy_emu:

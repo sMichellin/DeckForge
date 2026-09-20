@@ -3,6 +3,6 @@
 Импорт модуля регистрирует все проверки в `audit.registry.REGISTRY`.
 """
 
-from deckforge.audit.deterministic import density, integrity, layout, template
+from deckforge.audit.deterministic import density, design, integrity, layout, template
 
-__all__ = ["density", "integrity", "layout", "template"]
+__all__ = ["density", "design", "integrity", "layout", "template"]
