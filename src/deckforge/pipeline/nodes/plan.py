@@ -7,7 +7,7 @@ from langgraph.runtime import Runtime
 from deckforge.pipeline.deps import Deps
 from deckforge.pipeline.nodes import timed
 from deckforge.pipeline.state import DeckState
-from deckforge.planning.planner import DeckPlanner
+from deckforge.planning.planner import DeckPlanner, slides_for
 
 
 async def plan_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
@@ -24,6 +24,16 @@ async def plan_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     # Нарратив проверен планировщиком, но чинить его молча нельзя (change 10):
     # замечания едут в отчёт прогона, а не растворяются внутри слоя.
     notes = [f"план: {note}" for note in plan.narrative_check.notes]
+
+    # Материала может не хватить на запрошенное число слайдов. Урезать молча нельзя:
+    # автор просил двенадцать и должен узнать, почему их восемь.
+    brief = state["content"].brief
+    fits = slides_for(state["content"], brief.purpose, brief.target_slides)
+    if fits < brief.target_slides:
+        notes.append(
+            f"план: слайдов {len(plan.slides)} вместо запрошенных {brief.target_slides} — "
+            f"на {len(state['content'].facts)} фактах больше вышло бы полупустыми"
+        )
     return {
         "plan": plan,
         "stage_timings_s": timings,

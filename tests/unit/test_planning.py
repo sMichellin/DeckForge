@@ -282,3 +282,53 @@ def test_planner_is_not_asked_for_fields_the_code_fills() -> None:
         (PROMPTS_DIR / "deck_planner" / "1.0.0" / "schema.json").read_text(encoding="utf-8")
     )
     assert set(schema["properties"]) == {"deck_id", "slides"}
+
+
+# --- сколько слайдов выдержит материал ----------------------------------------
+
+
+def test_thin_content_gets_fewer_slides_than_requested() -> None:
+    """Прогон d573740bddd3: 24 факта на 12 слайдов — занято 10 % площади при норме 25–75."""
+    from deckforge.domain.content import Fact
+    from deckforge.planning.planner import slides_for
+
+    thin = ContentPackage(
+        brief=Brief(purpose="product", audience="правление", target_slides=12),
+        facts=[Fact(fact_id=f"f{i:03d}", text=f"Факт {i}") for i in range(1, 25)],
+    )
+    assert slides_for(thin, "product", 12) == 10
+
+
+def test_rich_content_does_not_exceed_the_brief() -> None:
+    """Целевое число из брифа — потолок: автор просил столько, сколько просил."""
+    from deckforge.domain.content import Fact
+    from deckforge.planning.planner import slides_for
+
+    rich = ContentPackage(
+        brief=Brief(purpose="product", audience="правление", target_slides=12),
+        facts=[Fact(fact_id=f"f{i:03d}", text=f"Факт {i}") for i in range(1, 100)],
+    )
+    assert slides_for(rich, "product", 12) == 12
+
+
+def test_frame_is_the_floor_however_thin_the_content() -> None:
+    """Ниже каркаса назначения опускаться нельзя: это уже не презентация этого жанра."""
+    from deckforge.planning.narrative import MANDATORY_FRAMES
+    from deckforge.planning.planner import slides_for
+
+    almost_empty = ContentPackage(
+        brief=Brief(purpose="product", audience="правление", target_slides=12)
+    )
+    assert slides_for(almost_empty, "product", 12) == len(MANDATORY_FRAMES["product"])
+
+
+def test_headline_limit_comes_from_the_tightest_layout(manifest: TemplateManifest) -> None:
+    """Планировщик макета ещё не знает, поэтому меряет по самому тесному заголовку."""
+    from deckforge.planning.planner import headline_chars
+
+    limits = [
+        layout.capacity.max_chars_title
+        for layout in manifest.layouts
+        if layout.capacity.max_chars_title > 0
+    ]
+    assert headline_chars(manifest) == min(limits)

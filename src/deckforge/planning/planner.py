@@ -19,12 +19,50 @@ from deckforge.domain.template import TemplateManifest
 from deckforge.domain.variants import VariantProfile
 from deckforge.inference.client import InferenceClient
 from deckforge.inference.structured import generate_model
-from deckforge.planning.narrative import check_narrative
+from deckforge.planning.narrative import MANDATORY_FRAMES, check_narrative
 from deckforge.registry import get_prompt_registry
 
 
 class PlanningError(RuntimeError):
     """План получен, но не опирается на контент-пакет."""
+
+
+#: Сколько фактов ложится на один содержательный слайд. Два — жидко, четыре — тесно
+#: (предел ТЗ: шесть тезисов). Три — то, из чего получается слайд с мыслью и доводами.
+FACTS_PER_SLIDE = 3
+
+#: Предел длины заголовка, когда шаблон его не сообщает: ни один макет не объявил
+#: вместимость заголовка. Десять слов из правила 1 промпта — это примерно столько знаков.
+DEFAULT_HEADLINE_CHARS = 70
+
+
+def slides_for(content: ContentPackage, purpose: str, requested: int) -> int:
+    """Сколько слайдов выдержит материал.
+
+    Целевое число из брифа — это **потолок**, а не план: на двадцати четырёх фактах
+    двенадцать слайдов выходят по два факта на слайд, и композитору нечем их наполнить
+    (прогон d573740bddd3: занято 10 % площади при норме 25–75). Снизу ограничивает
+    каркас назначения: меньше его слайдов — это уже не презентация этого жанра.
+    """
+    frame = MANDATORY_FRAMES.get(purpose, ())
+    structural = 2  # титул и финал: фактов не несут
+    by_content = -(-len(content.facts) // FACTS_PER_SLIDE) + structural
+    return max(len(frame), min(requested, by_content))
+
+
+def headline_chars(manifest: TemplateManifest) -> int:
+    """Сколько знаков заголовка держит самый тесный макет шаблона.
+
+    Планировщик макета ещё не знает, поэтому ориентируется на тесный: заголовок,
+    который не влез, обрывается многоточием уже при вёрстке (прогон d573740bddd3,
+    12 заголовков из 12).
+    """
+    limits = [
+        layout.capacity.max_chars_title
+        for layout in manifest.layouts
+        if layout.capacity.max_chars_title > 0
+    ]
+    return min(limits) if limits else DEFAULT_HEADLINE_CHARS
 
 
 class DeckPlanner:
@@ -59,6 +97,9 @@ class DeckPlanner:
             seed=seed,
             language=content.brief.language,
             available_kinds=sorted({layout.kind.value for layout in manifest.layouts}),
+            slides_target=slides_for(content, content.brief.purpose, content.brief.target_slides),
+            facts_per_slide=FACTS_PER_SLIDE,
+            headline_chars=headline_chars(manifest),
             no_think=no_think,
         )
 

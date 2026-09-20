@@ -97,6 +97,7 @@ class SlideComposer:
         # без места под тело своя — ноль, и промпт просил «не более 0 знаков»: модель
         # честно отдавала один заголовок, а колода выходила без текста (#62).
         body_free = not has_body_slot(layout)
+        capacity = effective_capacity(layout, manifest)
 
         bundle = get_prompt_registry().load("slide_composer", profile=self.profile)
         system, user = bundle.render(
@@ -107,7 +108,9 @@ class SlideComposer:
             variant=variant.variant_id,
             seed=seed,
             size_ladder=manifest.size_ladder_pt,
-            capacity=effective_capacity(layout, manifest),
+            capacity=capacity,
+            target_chars=round(capacity.max_chars_body * variant.capacity_ratio()),
+            target_bullets=max(2, min(capacity.max_bullets, len(facts) or 3)),
             body_free=body_free,
             smartart_patterns=sorted(pattern.value for pattern in SUPPORTED_PATTERNS),
             capacity_ratio=variant.capacity_ratio(),
