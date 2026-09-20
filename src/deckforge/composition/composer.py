@@ -19,6 +19,7 @@ from deckforge.composition.layout_picker import pick_layout
 from deckforge.composition.visual_selector import select_chart
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage
+from deckforge.domain.enums import TextRole
 from deckforge.domain.plan import SlidePlan
 from deckforge.domain.slide import (
     Block,
@@ -40,6 +41,10 @@ from deckforge.layout.constraints import solve_positions
 from deckforge.layout.diagram import SUPPORTED_PATTERNS
 from deckforge.layout.errors import LayoutFitError
 from deckforge.registry import get_prompt_registry
+
+#: Многоточие, которым кончается подрезанный заголовок. Знак того, что мысль
+#: не уместилась, а не того, что автор так задумал.
+_ELLIPSIS = "…"
 
 #: Предел Приложения 1 ТЗ. Вместимость макета может быть мягче — берётся строгий.
 MAX_BULLETS_BY_SPEC = 6
@@ -144,6 +149,32 @@ class SlideComposer:
             raw, slide, layout, manifest, variant, seed, content, chart_type, bundle.ref
         )
 
+    def _trim_headline(self, block: TextBlock, limit: int, slide_id: str) -> TextBlock:
+        """Заголовок по границе слова под предел макета.
+
+        Предел модели названа (`headline_chars` планировщика, правило 4 композитора),
+        но она его не держит: прогоны d573740bddd3 и 05884387b999 — 10 заголовков из 10
+        длиннее места. Дальше режет вёрстка, по буквам и вслепую. Резать по словам здесь
+        честнее: композиция знает, где кончается мысль.
+        """
+        if limit <= 0 or len(block.text) <= limit:
+            return block
+
+        words = block.text.split()
+        kept: list[str] = []
+        for word in words:
+            candidate = " ".join([*kept, word])
+            if len(candidate) + len(_ELLIPSIS) > limit:
+                break
+            kept.append(word)
+        trimmed = (" ".join(kept).rstrip(" ,;:—-") + _ELLIPSIS) if kept else block.text[:limit]
+        self._note(
+            slide_id,
+            f"заголовок подрезан под макет: {len(block.text)} → {len(trimmed)} знаков "
+            f"(место — {limit})",
+        )
+        return block.model_copy(update={"text": trimmed})
+
     def _note(self, slide_id: str, text: str) -> None:
         """Отчёт о том, что композиция изменила или выбросила.
 
@@ -214,9 +245,13 @@ class SlideComposer:
         known_assets = {a.asset_id for a in content.assets}
         max_bullets = min(MAX_BULLETS_BY_SPEC, layout.capacity.max_bullets or MAX_BULLETS_BY_SPEC)
 
+        headline_limit = layout.capacity.max_chars_title
+
         blocks: list[Block] = []
         freed: list[str] = []
         for block in ir.blocks:
+            if isinstance(block, TextBlock) and block.role is TextRole.TITLE:
+                block = self._trim_headline(block, headline_limit, slide.slide_id)
             idx = getattr(block, "placeholder_idx", None)
 
             if idx is not None and idx not in known_placeholders:

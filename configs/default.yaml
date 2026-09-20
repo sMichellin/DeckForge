@@ -18,7 +18,11 @@ models:
 
 audit:
   run_deterministic: true
-  run_semantic: true
+  # Судья-VLM на локальном сервере с одним слотом даёт 36 минут на колоду из десяти
+  # слайдов при бюджете C5 в 5 минут (прогон 05884387b999: 2164 с из 2266 с).
+  # Детерминированные проверки укладываются в секунды и остаются включёнными всегда.
+  # Включать осознанно: профилем прогона или `audit.run_semantic` в запросе.
+  run_semantic: false
   vlm_votes: 3
   vlm_confidence_threshold: 0.6
   auto_fix: true

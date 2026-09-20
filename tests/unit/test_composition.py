@@ -24,6 +24,7 @@ from deckforge.composition.visual_selector import looks_like_time_series, select
 from deckforge.domain.content import Brief, ContentPackage, Dataset, Fact, Series
 from deckforge.domain.enums import ChartType, LayoutKind, SlideIntent, TextRole
 from deckforge.domain.plan import SlidePlan
+from deckforge.domain.slide import TextBlock
 from deckforge.domain.template import LayoutBackground, TemplateManifest
 from deckforge.domain.variants import VariantProfile
 from deckforge.inference.client import Completion
@@ -808,3 +809,70 @@ def roomy_and_cover_template(manifest: TemplateManifest) -> TemplateManifest:
             ]
         }
     )
+
+
+async def test_headline_is_trimmed_to_what_the_layout_holds(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Прогоны d573740bddd3 и 05884387b999: 10 заголовков из 10 длиннее места.
+
+    Предел модели названа, но она его не держит, и дальше режет вёрстка — вслепую
+    и по буквам. Композиция режет по словам и говорит об этом в отчёте.
+    """
+    # Тесная полоса заголовка у всех макетов, как у VK WorkSpace: 32 знака.
+    limit = 32
+    tight = manifest.model_copy(
+        update={
+            "layouts": [
+                item.model_copy(
+                    update={"capacity": item.capacity.model_copy(update={"max_chars_title": limit})}
+                )
+                for item in manifest.layouts
+            ]
+        }
+    )
+    layout = tight.layouts[0]
+    long_headline = "Автоматизация создания презентаций в фирменном стиле компании за минуты"
+    assert len(long_headline) > limit
+
+    payload = {
+        "slide_id": "s02",
+        "layout_id": layout.layout_id,
+        "variant": "A",
+        "blocks": [
+            {"block_id": "t", "type": "text", "placeholder_idx": 0,
+             "role": "title", "text": long_headline},
+            {"block_id": "b", "type": "text", "placeholder_idx": 1,
+             "role": "body", "text": "Клиенты остаются дольше"},
+        ],
+    }
+    composer = SlideComposer(FakeLlm(payload))
+    ir = await composer.compose(plan_slide(), content, tight, variant_a, seed=1)
+
+    title = ir.block("t")
+    assert title is not None and isinstance(title, TextBlock)
+    assert len(title.text) <= limit
+    assert title.text.endswith("…") and " " in title.text, "режем по словам, а не по буквам"
+    assert any("заголовок подрезан" in note for note in composer.notes)
+
+
+async def test_headline_that_fits_is_left_word_for_word(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    layout = next(item for item in manifest.layouts if item.capacity.max_chars_title > 20)
+    payload = {
+        "slide_id": "s02",
+        "layout_id": layout.layout_id,
+        "variant": "A",
+        "blocks": [
+            {"block_id": "t", "type": "text", "placeholder_idx": 0,
+             "role": "title", "text": "Отток снизился"},
+            {"block_id": "b", "type": "text", "placeholder_idx": 1,
+             "role": "body", "text": "Клиенты остаются дольше"},
+        ],
+    }
+    composer = SlideComposer(FakeLlm(payload))
+    ir = await composer.compose(plan_slide(), content, manifest, variant_a, seed=1)
+
+    assert ir.block("t").text == "Отток снизился"
+    assert not any("подрезан" in note for note in composer.notes)
