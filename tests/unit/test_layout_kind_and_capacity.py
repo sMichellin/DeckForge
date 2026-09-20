@@ -327,3 +327,37 @@ def test_a_row_of_narrow_top_blocks_is_not_taken_for_a_title() -> None:
     ]
     kind, _ = classify_heuristic(row, SLIDE)
     assert kind is LayoutKind.KPI
+
+
+def test_column_of_equal_slots_is_a_list() -> None:
+    """У VK Tech список размечен по пункту на плейсхолдер, а не одним блоком на шесть строк.
+
+    Эвристика искала «широкий высокий блок под заголовком» и не находила: 37 макетов,
+    ни одного `bullets`.
+    """
+    slots = [
+        ph(i, "BODY", 800_000, 2_000_000 + i * 500_000, 3_500_000, 380_000, TextRole.BODY)
+        for i in range(1, 6)
+    ]
+    kind, confidence = classify_heuristic([TITLE, *slots], SLIDE)
+
+    assert kind is LayoutKind.BULLETS
+    assert confidence >= 0.6, "такой макет не должен уходить к VLM"
+
+
+def test_two_slots_in_a_column_are_not_a_list() -> None:
+    """Два блока подряд — это пара «вопрос-ответ» или подпись, а не перечисление."""
+    slots = [
+        ph(i, "BODY", 800_000, 2_000_000 + i * 500_000, 3_500_000, 380_000, TextRole.BODY)
+        for i in range(1, 3)
+    ]
+    assert classify_heuristic([TITLE, *slots], SLIDE)[0] is not LayoutKind.BULLETS
+
+
+def test_the_same_slots_in_a_row_stay_metrics() -> None:
+    """Ряд одинаковых блоков — показатели; столбец — список. Различает геометрия."""
+    row = [
+        ph(i, "BODY", 800_000 + i * 2_500_000, 2_000_000, 2_000_000, 900_000, TextRole.BODY)
+        for i in range(1, 4)
+    ]
+    assert classify_heuristic([TITLE, *row], SLIDE)[0] is LayoutKind.KPI

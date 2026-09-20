@@ -154,6 +154,10 @@ class SlideComposer:
         # честно отдавала один заголовок, а колода выходила без текста (#62).
         body_free = not has_body_slot(layout)
         capacity = effective_capacity(layout, manifest)
+        # Мест под текст может быть несколько: у VK Tech список размечен шестью
+        # плейсхолдерами по строке вместо одного блока на шесть строк. Модель об этом
+        # обязана знать, иначе весь список уедет в первое место высотой 0,4 см.
+        body_slots = sum(1 for ph in layout.placeholders if ph.role is TextRole.BODY)
 
         bundle = get_prompt_registry().load("slide_composer", profile=self.profile)
         system, user = bundle.render(
@@ -168,6 +172,7 @@ class SlideComposer:
             target_chars=round(capacity.max_chars_body * variant.capacity_ratio()),
             target_bullets=max(2, min(capacity.max_bullets, len(facts) or 3)),
             body_free=body_free,
+            body_slots=body_slots,
             smartart_patterns=sorted(pattern.value for pattern in SUPPORTED_PATTERNS),
             capacity_ratio=variant.capacity_ratio(),
             language=content.brief.language,

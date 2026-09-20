@@ -61,6 +61,10 @@ _TITLE_BAND_TOP = 0.15
 _TITLE_BAND_HEIGHT = 0.12
 _TITLE_BAND_WIDTH = 0.4
 
+#: Сколько одинаковых блоков в столбце делают макет списком. Два — это ещё пара
+#: «вопрос-ответ» или заголовок с подзаголовком; три подряд — уже перечисление.
+_LIST_SLOTS = 3
+
 #: Уверенность для макета, где кроме заголовка есть только места под картинки.
 #: Ниже, чем у картинки на весь слайд: вид ясен, но сколько картинок и какого
 #: они размера, эвристика не взвешивает.
@@ -78,6 +82,15 @@ def _content_placeholders(placeholders: list[PlaceholderSpec]) -> list[Placehold
 
 def _same_row(a: PlaceholderSpec, b: PlaceholderSpec, tolerance: int) -> bool:
     return abs(a.y - b.y) <= tolerance and abs(a.cy - b.cy) <= tolerance
+
+
+def _same_column(a: PlaceholderSpec, b: PlaceholderSpec, tolerance: int) -> bool:
+    """Блоки стоят друг под другом: та же левая граница и та же ширина, разные `y`."""
+    return (
+        abs(a.x - b.x) <= tolerance
+        and abs(a.cx - b.cx) <= tolerance
+        and abs(a.y - b.y) > tolerance
+    )
 
 
 def classify_heuristic(
@@ -171,6 +184,12 @@ def classify_heuristic(
             return LayoutKind.KPI, 0.8
         if len(rows) == 2:
             return LayoutKind.TWO_COLUMN, 0.85
+        # Столбец одинаковых блоков — это список, размеченный по пункту на плейсхолдер.
+        # Так собран VK Tech: шесть мест 3,8 × 0,4 см вместо одного на шесть строк,
+        # и эвристика «широкий высокий блок под заголовком» его не видела.
+        column = [p for p in bodies if _same_column(p, bodies[0], tolerance)]
+        if titles and len(column) + 1 >= _LIST_SLOTS:
+            return LayoutKind.BULLETS, 0.8
         if len(bodies) == 1 and titles:
             body = bodies[0]
             # Широкий и высокий одиночный блок под заголовком — классические буллеты.

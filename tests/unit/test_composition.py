@@ -1041,3 +1041,31 @@ async def test_fact_without_significant_words_raises_no_suspicion(
     await composer.compose(plan_slide(fact_refs=["f001"]), thin, manifest, variant_a, seed=1)
 
     assert not any("не попали" in note for note in composer.notes)
+
+
+async def test_prompt_explains_a_layout_with_several_text_slots(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """У VK Tech список размечен шестью местами по строке: весь список в первое не влезет."""
+    layout = manifest.layout("L07")
+    assert layout is not None
+    body = next(ph for ph in layout.placeholders if ph.role is TextRole.BODY)
+    extra = [
+        body.model_copy(update={"idx": 50 + i, "y": body.y + i * body.cy // 3,
+                                "cy": max(1, body.cy // 4)})
+        for i in range(3)
+    ]
+    wide = manifest.model_copy(update={"layouts": [
+        item.model_copy(update={"placeholders": [*item.placeholders, *extra]})
+        if item.layout_id == "L07" else item
+        for item in manifest.layouts
+    ]})
+    payload = {
+        "slide_id": "s02", "layout_id": "L07", "variant": "A",
+        "blocks": [{"block_id": "b1", "type": "text", "placeholder_idx": 0,
+                    "role": "title", "text": "Вывод"}],
+    }
+    llm = FakeLlm(payload)
+    await SlideComposer(llm).compose(plan_slide(), content, wide, variant_a, seed=1)
+
+    assert "Мест под текст в этом макете" in llm.prompt
