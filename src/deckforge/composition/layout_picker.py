@@ -12,6 +12,7 @@ from __future__ import annotations
 import zlib
 from typing import Final
 
+from deckforge.composition.free_space import free_capacity
 from deckforge.domain.enums import LayoutKind, SlideIntent
 from deckforge.domain.plan import SlidePlan
 from deckforge.domain.template import LayoutSpec, TemplateManifest
@@ -102,6 +103,31 @@ def kind_chain(slide: SlidePlan, variant: VariantProfile) -> list[LayoutKind]:
 MAX_CONTENT_LAYOUTS: Final = 2
 
 
+#: Виды, у которых слайд — обложка: крупный заголовок посреди пустого поля. Содержанию
+#: они годятся последними. Структура презентации держится на том, что титул один и стоит
+#: первым: титульный макет, встреченный в середине, читается как начало новой презентации.
+_COVERISH: Final = frozenset(
+    {LayoutKind.TITLE, LayoutKind.SECTION, LayoutKind.CLOSING, LayoutKind.IMAGE_FULL}
+)
+
+
+def ranked_for_content(manifest: TemplateManifest, layouts: list[LayoutSpec]) -> list[LayoutSpec]:
+    """Макеты в порядке пригодности под содержание: сначала не-обложки, потом по месту.
+
+    На шаблоне без макетов под текст (у VK WorkSpace их нет вовсе) пригодность меряется
+    свободным местом — тем самым, которое потом достанется тексту (`free_capacity`).
+    Обложка с заголовком по центру его почти не оставляет, макет с заголовком-полосой
+    сверху — оставляет. Прежде порядок задавал манифест, и все двенадцать слайдов
+    ложились на обложки (прогон 80e7af41ab54).
+    """
+
+    def rank(layout: LayoutSpec) -> tuple[int, int, str]:
+        cover = 1 if layout.kind in _COVERISH else 0
+        return (cover, -free_capacity(layout, manifest).max_chars_body, layout.layout_id)
+
+    return sorted(layouts, key=rank)
+
+
 def _equally_fit(manifest: TemplateManifest, kind: LayoutKind) -> list[LayoutSpec]:
     """Макеты этого вида, между которыми выбор уже не по вместимости.
 
@@ -128,7 +154,36 @@ def structural_layout(manifest: TemplateManifest, intent: SlideIntent) -> Layout
     """
     for kind in INTENT_LAYOUTS.get(intent, ()):
         if tied := _equally_fit(manifest, kind):
-            return tied[0]
+            return _structural_choice(tied, intent, manifest)
+    return None
+
+
+def _structural_choice(
+    candidates: list[LayoutSpec], intent: SlideIntent, manifest: TemplateManifest
+) -> LayoutSpec:
+    """Макет титула, перебивки или финала: самый «обложечный» из равно пригодных.
+
+    Крупный заголовок посреди пустого поля — это и есть обложка, и она нужна именно
+    здесь. Содержание берёт обратный конец того же порядка. Прежде титул забирал макет
+    с заголовком-полосой, а содержание ложилось на парадные обложки, и колода читалась
+    как стопка титульных слайдов (прогон 80e7af41ab54).
+
+    Финал вдобавок не повторяет макет титула: у шаблона своего макета финала может
+    не быть вовсе, а титул в конце читается как начало второй презентации.
+    """
+    ranked = ranked_for_content(manifest, candidates)
+    if intent is SlideIntent.CLOSING:
+        title = _title_layout_id(manifest)
+        other = [item for item in ranked if item.layout_id != title]
+        return (other or ranked)[-1]
+    return ranked[-1]
+
+
+def _title_layout_id(manifest: TemplateManifest) -> str | None:
+    """Макет титула — без рекурсии через `structural_layout`."""
+    for kind in INTENT_LAYOUTS[SlideIntent.TITLE]:
+        if tied := _equally_fit(manifest, kind):
+            return ranked_for_content(manifest, tied)[-1].layout_id
     return None
 
 
@@ -192,8 +247,15 @@ def _rotation(slide_id: str, size: int) -> int:
 def _choose(
     candidates: list[LayoutSpec], slide: SlidePlan, manifest: TemplateManifest
 ) -> LayoutSpec:
-    """Один макет из равно пригодных."""
-    if len(candidates) == 1 or slide.intent in _STRUCTURAL:
+    """Один макет из равно пригодных.
+
+    Структурный слайд берёт самый «обложечный» конец порядка, содержательный — самый
+    вместительный. Порядок один и тот же (`ranked_for_content`), поэтому титул
+    и содержание не тянут один и тот же макет.
+    """
+    if slide.intent in _STRUCTURAL:
+        return _structural_choice(candidates, slide.intent, manifest)
+    if len(candidates) == 1:
         return candidates[0]
     palette = content_palette(manifest, candidates)
     return palette[_rotation(slide.slide_id, len(palette))]
@@ -226,5 +288,5 @@ def _last_resort(slide: SlidePlan, manifest: TemplateManifest) -> list[LayoutSpe
         best = max(layout.capacity.max_chars_body for layout in with_body)
         return [layout for layout in with_body if layout.capacity.max_chars_body == best]
     if manifest.layouts:
-        return list(manifest.layouts)
+        return ranked_for_content(manifest, list(manifest.layouts))
     raise LayoutPickError(f"слайд {slide.slide_id}: в манифесте нет ни одного макета")

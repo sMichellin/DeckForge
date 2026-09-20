@@ -320,3 +320,36 @@ def test_missing_block_is_reported_not_swallowed(manifest: TemplateManifest) -> 
     _, report = FixApplier().apply(colony, [orphan], manifest)
 
     assert "block_id" in skip_reason(report)
+
+
+def test_guide_that_would_push_the_block_off_the_page_is_refused(
+    manifest: TemplateManifest,
+) -> None:
+    """Прогон 80e7af41ab54: починка сдвинула блок на 0,12 см вниз, и записать колоду стало нельзя.
+
+    Правка, после которой файл не пишется, хуже ненайденной находки.
+    """
+    bottom = manifest.content_bbox.bottom
+    # Направляющая в 0,1 см ниже блока — это внутри допуска (45720 EMU ≈ 0,13 см),
+    # и блок, стоящий впритык к нижнему полю, после сдвига вылезет за него.
+    guide = bottom - cm(1) + cm(0.1)
+    aligned = manifest.model_copy(
+        update={"grid": manifest.grid.model_copy(update={"guides_y_emu": [guide]})}
+    )
+    box = (3, (bottom - cm(1)) / 360000, 8, 1.0)
+    colony = deck(slide(title(), bullets("раз", "два", box=box)))
+    nudge = make_finding(
+        check_id="layout.off_guides",
+        slide_id="s01",
+        block_id="b2",
+        reason="off:y",
+        message="почти на направляющей",
+        evidence={"axis": "y"},
+    )
+
+    fixed, report = FixApplier().apply(colony, [nudge], aligned)
+
+    moved = fixed.slides[0].block("b2")
+    assert moved is not None and moved.bbox is not None
+    assert aligned.content_bbox.contains(moved.bbox), "колода перестала быть записываемой"
+    assert "за поля шаблона" in skip_reason(report)

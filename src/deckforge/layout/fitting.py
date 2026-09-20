@@ -288,6 +288,18 @@ def _box_for(block: TextBlock | BulletsBlock, layout: LayoutSpec) -> BBox:
     return placeholder.bbox
 
 
+def _band_holds_the_role_size(box: BBox, step: TypographyStep) -> bool:
+    """Помещается ли в рамку хотя бы одна строка кеглем роли.
+
+    Правило «заголовок не уменьшается» защищает иерархию: заголовок крупнее тела,
+    и жертвовать этим ради лишнего слова нельзя. Но когда ограничивает **рамка**,
+    а не текст — полоса заголовка ниже одной строки, — сокращать нечего: на VK WorkSpace
+    так обрезались многоточием 7 заголовков из 12 (прогон 80e7af41ab54).
+    """
+    line = round(line_height_emu(step.size_pt) * (step.line_spacing or 1.0))
+    return usable_height_emu(box) >= line
+
+
 def fit_block(
     block: TextBlock | BulletsBlock,
     layout: LayoutSpec,
@@ -298,13 +310,15 @@ def fit_block(
     """Вписывает текстовый блок: кегль и гарнитура — из типошкалы его роли."""
     step = _step_for(block.role, manifest)
     text = block.text if isinstance(block, TextBlock) else "\n".join(i.text for i in block.items)
+    box = _box_for(block, layout)
+    shrinkable = block.role is not TextRole.TITLE or not _band_holds_the_role_size(box, step)
     return fit_text(
         text,
-        box=_box_for(block, layout),
+        box=box,
         manifest=manifest,
         start_size_pt=block.size_pt or step.size_pt,
         font_family=_font_of(step, manifest),
-        allow_shrink=block.role is not TextRole.TITLE,
+        allow_shrink=shrinkable,
         bold=step.bold,
         italic=step.italic,
         line_spacing=step.line_spacing or 1.0,

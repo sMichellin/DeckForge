@@ -740,3 +740,71 @@ async def test_model_coordinates_on_a_free_block_are_not_trusted(
     assert body is not None and body.bbox is not None
     assert body.bbox.cx > 1 and body.bbox.cy > 1, "точка модели осталась на месте"
     assert template.content_bbox.contains(body.bbox)
+
+
+def test_title_takes_the_cover_and_content_takes_the_roomiest(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Прогон 80e7af41ab54: титул забирал скромный макет, содержание ложилось на обложки.
+
+    Колода читалась как стопка титульных слайдов. Порядок один: обложка — структурным
+    слайдам, вместительный макет — содержательным.
+    """
+    template = roomy_and_cover_template(manifest)
+    title = pick_layout(plan_slide(SlideIntent.TITLE, slide_id="s01"), template, variant_a)
+    body = pick_layout(plan_slide(SlideIntent.PROBLEM, slide_id="s02"), template, variant_a)
+
+    assert title.layout_id == "T_COVER"
+    assert body.layout_id == "T_ROOMY"
+
+
+def test_closing_does_not_repeat_the_title_layout(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Титульный макет в конце читается как начало второй презентации."""
+    template = roomy_and_cover_template(manifest)
+    title = pick_layout(plan_slide(SlideIntent.TITLE, slide_id="s01"), template, variant_a)
+    closing = pick_layout(plan_slide(SlideIntent.CLOSING, slide_id="s12"), template, variant_a)
+
+    assert closing.layout_id != title.layout_id
+
+
+def roomy_and_cover_template(manifest: TemplateManifest) -> TemplateManifest:
+    """Шаблон без макетов под текст: обложка с заголовком по центру и макет с полосой.
+
+    Разница только в геометрии заголовка — та же, что у VK WorkSpace между
+    «14_Титульный слайд» и «11_Заголовок».
+    """
+    source = next(item for item in manifest.layouts if item.kind is LayoutKind.TITLE)
+    slide_cy = manifest.slide_size.cy_emu
+    band, centre = source.placeholders[0], source.placeholders[0]
+    return manifest.model_copy(
+        update={
+            "layouts": [
+                source.model_copy(
+                    update={
+                        "layout_id": "T_ROOMY",
+                        "name": "Заголовок полосой",
+                        "kind": LayoutKind.TITLE,
+                        "placeholders": [
+                            band.model_copy(
+                                update={"y": manifest.grid.margins_emu.top, "cy": slide_cy // 10}
+                            )
+                        ],
+                    }
+                ),
+                source.model_copy(
+                    update={
+                        "layout_id": "T_COVER",
+                        "name": "Обложка",
+                        "kind": LayoutKind.TITLE,
+                        "placeholders": [
+                            centre.model_copy(
+                                update={"y": slide_cy // 4, "cy": slide_cy // 2}
+                            )
+                        ],
+                    }
+                ),
+            ]
+        }
+    )

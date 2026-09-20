@@ -286,3 +286,48 @@ def test_fit_slide_measures_with_theme_fonts_of_the_role(
     )
     assert result.fit_report["t"].overflow is True
     assert result.fit_report["b"].overflow is False
+
+
+# --- заголовок и рамка, которая не держит кегль роли --------------------------
+
+
+def test_title_shrinks_when_the_band_cannot_hold_one_line(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Ограничивает рамка, а не текст: сокращать нечего, и шаг вниз по шкале законен.
+
+    Прогон 80e7af41ab54: 7 заголовков из 12 обрывались многоточием, потому что полоса
+    заголовка ниже одной строки кеглем роли, а уменьшать его было запрещено.
+    """
+    title_ph = PlaceholderSpec(
+        idx=9, ph_type="TITLE", role=TextRole.TITLE,
+        x=manifest.grid.margins_emu.left, y=EMU_PER_CM, cx=20 * EMU_PER_CM, cy=EMU_PER_CM,
+    )
+    base = manifest.layout("L07")
+    assert base is not None
+    flat = manifest.model_copy(
+        update={
+            "layouts": [
+                *manifest.layouts,
+                base.model_copy(
+                    update={"layout_id": "L_BAND", "placeholders": [*base.placeholders, title_ph]}
+                ),
+            ]
+        }
+    )
+    block = TextBlock(block_id="t", placeholder_idx=9, role=TextRole.TITLE, text="Итоги года")
+    result = fit_slide(slide(block, layout_id="L_BAND"), flat, fonts=fonts).fit_report["t"]
+
+    assert result.final_size_pt < manifest.typography(TextRole.TITLE).size_pt
+    assert result.overflow is False
+
+
+def test_title_in_a_roomy_band_is_still_not_shrunk(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Правило иерархии в силе: если рамка держит кегль роли, заголовок не уменьшается."""
+    long_title = "Итоги года и планы на следующий период работы компании " * 2
+    block = TextBlock(block_id="t", placeholder_idx=0, role=TextRole.TITLE, text=long_title)
+    result = fit_slide(slide(block), manifest, fonts=fonts).fit_report["t"]
+
+    assert result.final_size_pt == manifest.typography(TextRole.TITLE).size_pt

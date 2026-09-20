@@ -203,8 +203,20 @@ class FixApplier:
         if snapped == value:
             return slide, Outcome(False, "ближайшая направляющая дальше допуска")
 
+        # Починка обязана оставить колоду записываемой. Направляющая может оказаться
+        # такой, что блок вылезет за поля, и писатель отвергнет уже собранный файл:
+        # прогон 80e7af41ab54 упал на витке починки, сдвинув три блока на 0,12 см вниз.
+        moved = _replace(block, **{axis: snapped})
+        box = moved.bbox
+        if box is not None and not manifest.content_bbox.contains(box):
+            return slide, Outcome(
+                False,
+                f"направляющая вывела бы блок за поля шаблона "
+                f"({emu_to_cm(value):.2f} → {emu_to_cm(snapped):.2f} см)",
+            )
+
         return (
-            _replace(slide, blocks=_with_block(slide, _replace(block, **{axis: snapped}))),
+            _replace(slide, blocks=_with_block(slide, moved)),
             Outcome(True, f"{axis}: {emu_to_cm(value):.2f} → {emu_to_cm(snapped):.2f} см"),
         )
 
