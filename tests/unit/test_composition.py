@@ -899,3 +899,73 @@ async def test_headline_that_fits_is_left_word_for_word(
 
     assert ir.block("t").text == "Отток снизился"
     assert not any("подрезан" in note for note in composer.notes)
+
+
+async def test_visual_the_plan_ordered_but_the_model_did_not_give_is_reported(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Блок за модель код не выдумывает — показатели без чисел были бы выдуманными числами.
+
+    Но и молчать нельзя: план просил показать мысль, а слайд пересказал её абзацем.
+    """
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "L07",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "b1", "type": "text", "placeholder_idx": 0, "role": "title", "text": "З"},
+            {"block_id": "b2", "type": "text", "placeholder_idx": 1, "role": "body",
+             "text": "Показателей нет, есть абзац"},
+        ],
+    }
+    composer = SlideComposer(FakeLlm(payload))
+    await composer.compose(
+        plan_slide(suggested_visual="kpi"), content, manifest, variant_a, seed=1
+    )
+
+    assert any("kpi" in note and "не дала" in note for note in composer.notes)
+
+
+async def test_ordered_visual_that_arrived_is_not_reported(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "L07",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "b1", "type": "text", "placeholder_idx": 0, "role": "title", "text": "З"},
+            {"block_id": "b2", "type": "smartart", "pattern": "process",
+             "items": ["Разобрать", "Сверстать"]},
+        ],
+    }
+    composer = SlideComposer(FakeLlm(payload))
+    await composer.compose(
+        plan_slide(suggested_visual="smartart:process"), content, manifest, variant_a, seed=1
+    )
+
+    assert not any("не дала" in note for note in composer.notes)
+
+
+async def test_prompt_passes_the_order_as_a_decision_not_a_hint(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """«Рекомендованная визуализация: section» модель игнорировала — и была права."""
+    payload = {
+        "slide_id": "s02", "layout_id": "L07", "variant": "A",
+        "blocks": [
+            {"block_id": "b1", "type": "text", "placeholder_idx": 0, "role": "title", "text": "З"}
+        ],
+    }
+    llm = FakeLlm(payload)
+    await composer_compose(llm, content, manifest, variant_a)
+
+    assert "kpi" in llm.prompt
+
+
+async def composer_compose(
+    llm: Any, content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    await SlideComposer(llm).compose(
+        plan_slide(suggested_visual="kpi"), content, manifest, variant_a, seed=1
+    )

@@ -440,3 +440,63 @@ def test_model_failure_does_not_break_the_run(content: ContentPackage) -> None:
 
     assert out.slides[0].headline == long_headline
     assert any("не переписала заголовок" in note for note in rewriter.notes)
+
+
+# --- заказ визуализации ------------------------------------------------------
+
+
+def test_layout_kind_in_suggested_visual_is_dropped(
+    content: ContentPackage, manifest: TemplateManifest, variant_c: VariantProfile
+) -> None:
+    """Прогон 693d464d54fb: `visual: section` на восьми слайдах из десяти.
+
+    Это вид макета, а не визуализация: поле в промпте не объяснено, и модель заполняла
+    его словарём, который видела рядом. Композитор печатал мусор в свой промпт.
+    """
+    payload = payload_for(PRODUCT_FRAME)
+    for slide in payload["slides"]:
+        slide["suggested_visual"] = "section"
+    plan = asyncio.run(
+        DeckPlanner(FakeLlm(payload)).plan(content, manifest, variant_c, seed=1)
+    )
+
+    assert {s.suggested_visual for s in plan.slides} == {None}
+    assert any("визуализация не из словаря" in n for n in plan.narrative_check.notes)
+
+
+def test_visual_from_the_vocabulary_survives(
+    content: ContentPackage, manifest: TemplateManifest, variant_c: VariantProfile
+) -> None:
+    payload = payload_for(PRODUCT_FRAME)
+    payload["slides"][0]["suggested_visual"] = "kpi"
+    payload["slides"][1]["suggested_visual"] = "smartart:process"
+    plan = asyncio.run(
+        DeckPlanner(FakeLlm(payload)).plan(content, manifest, variant_c, seed=1)
+    )
+
+    assert [plan.slides[0].suggested_visual, plan.slides[1].suggested_visual] == [
+        "kpi",
+        "smartart:process",
+    ]
+    assert not any("визуализация не из словаря" in n for n in plan.narrative_check.notes)
+
+
+def test_vocabulary_is_built_from_domain_enums_not_literals() -> None:
+    """Новый тип диаграммы обязан попадать в словарь сам, без правки кода словаря."""
+    from deckforge.domain.enums import ChartType, SmartArtPattern
+    from deckforge.planning.visuals import vocabulary
+
+    words = set(vocabulary())
+    assert {f"chart:{item.value}" for item in ChartType} <= words
+    assert {f"smartart:{item.value}" for item in SmartArtPattern} <= words
+
+
+def test_planner_prompt_names_the_vocabulary(
+    content: ContentPackage, manifest: TemplateManifest, variant_c: VariantProfile
+) -> None:
+    """Поле, которое в промпте не объяснено, модель заполняет чем попало."""
+    llm = FakeLlm(payload_for(PRODUCT_FRAME))
+    asyncio.run(DeckPlanner(llm).plan(content, manifest, variant_c, seed=1))
+
+    assert "suggested_visual" in llm.prompt_text
+    assert "smartart:process" in llm.prompt_text

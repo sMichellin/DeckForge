@@ -54,6 +54,16 @@ _ELLIPSIS = "…"
 #: Предел Приложения 1 ТЗ. Вместимость макета может быть мягче — берётся строгий.
 MAX_BULLETS_BY_SPEC = 6
 
+#: Какой блок IR отвечает заказу плана (`SlidePlan.suggested_visual`). Словарь заказов
+#: собирает слой планирования; здесь — только соответствие заказа типу блока.
+_ORDERED_BLOCK: dict[str, type[Block]] = {
+    "kpi": KpiBlock,
+    "table": TableBlockIR,
+    "image": ImageBlock,
+    "chart": ChartBlock,
+    "smartart": SmartArtBlock,
+}
+
 
 class CompositionError(RuntimeError):
     """Слайд собрать не удалось: от модели не осталось ни одного пригодного блока."""
@@ -198,6 +208,21 @@ class SlideComposer:
             f"заголовок подрезан под рамку макета: {len(block.text)} → {len(trimmed)} знаков",
         )
         return block.model_copy(update={"text": trimmed})
+
+    def _note_missing_visual(self, slide: SlidePlan, blocks: list[Block]) -> None:
+        """Заказ плана на визуализацию, который модель не выполнила.
+
+        Блок за модель код не выдумывает: показатели без чисел в материалах — это
+        выдуманные числа, а схема из ничего — оформление ради оформления. Но молчать
+        тоже нельзя: план просил показать мысль, а слайд её пересказал абзацем.
+        """
+        ordered = slide.suggested_visual
+        if not ordered:
+            return
+        wanted = _ORDERED_BLOCK.get(ordered.split(":")[0])
+        if wanted is None or any(isinstance(block, wanted) for block in blocks):
+            return
+        self._note(slide.slide_id, f"план заказал «{ordered}», модель такого блока не дала")
 
     def _note(self, slide_id: str, text: str) -> None:
         """Отчёт о том, что композиция изменила или выбросила.
@@ -365,6 +390,8 @@ class SlideComposer:
             raise CompositionError(
                 f"слайд {slide.slide_id}: после отбраковки не осталось ни одного блока"
             )
+
+        self._note_missing_visual(slide, blocks)
 
         return ir.model_copy(
             update={

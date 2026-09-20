@@ -20,6 +20,8 @@ from deckforge.domain.variants import VariantProfile
 from deckforge.inference.client import InferenceClient
 from deckforge.inference.structured import generate_model
 from deckforge.planning.narrative import MANDATORY_FRAMES, check_narrative
+from deckforge.planning.visuals import normalize as normalize_visual
+from deckforge.planning.visuals import vocabulary as visual_vocabulary
 from deckforge.registry import get_prompt_registry
 
 
@@ -110,6 +112,7 @@ class DeckPlanner:
             slides_target=slides_for(content, content.brief.purpose, content.brief.target_slides),
             facts_per_slide=FACTS_PER_SLIDE,
             headline_chars=headline_limit or headline_chars(manifest),
+            visual_vocabulary=visual_vocabulary(),
             no_think=no_think,
         )
 
@@ -157,8 +160,17 @@ class DeckPlanner:
 
         slides: list[SlidePlan] = []
         dropped: list[str] = []
+        bad_visuals: list[str] = []
         for slide in plan.slides:
             update: dict[str, Any] = {}
+            # Заказ визуализации — единственный канал «здесь нужны показатели, здесь схема».
+            # Незнакомое значение снимается: прогон 693d464d54fb, `visual: section` —
+            # это вид макета, а не визуализация, и композитор печатал его в свой промпт.
+            visual = normalize_visual(slide.suggested_visual)
+            if visual != slide.suggested_visual:
+                if slide.suggested_visual:
+                    bad_visuals.append(f"{slide.slide_id}: {slide.suggested_visual}")
+                update["suggested_visual"] = visual
             bad_facts = [ref for ref in slide.fact_refs if ref not in known_facts]
             if bad_facts:
                 dropped.extend(bad_facts)
@@ -180,6 +192,15 @@ class DeckPlanner:
             purpose=content.brief.purpose,
             grouping=variant.grouping,
         )
+        if bad_visuals:
+            narrative = narrative.model_copy(
+                update={
+                    "notes": [
+                        *narrative.notes,
+                        "визуализация не из словаря, заказ снят: " + ", ".join(bad_visuals),
+                    ]
+                }
+            )
         if dropped:
             unique = sorted(set(dropped))
             narrative = narrative.model_copy(
