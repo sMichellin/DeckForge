@@ -20,6 +20,7 @@ from pathlib import Path
 from lxml import etree
 from PIL import Image, UnidentifiedImageError
 from pptx import Presentation
+from pptx.enum.text import MSO_ANCHOR
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Pt
 
@@ -587,6 +588,11 @@ class PptxWriter:
             Emu(box.x), Emu(box.y), Emu(box.cx), Emu(box.cy)
         )
         shape.text_frame.word_wrap = True
+        # Рамку свободному блоку считает решатель: он делит свободную площадь слайда,
+        # и её верхний край — граница области, а не решение о том, где начинается текст.
+        # Прижатый к нему текст оставлял под собой восемь сантиметров пустоты
+        # (прогон 2ac85990b2f2, s04: занято 16 % при норме 25–75).
+        shape.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
         # Текстбокс ничего не наследует: гарнитура и цвет — ссылками на тему из типошкалы.
         color = block.color_ref if isinstance(block, TextBlock) else None
         self._write_paragraphs(

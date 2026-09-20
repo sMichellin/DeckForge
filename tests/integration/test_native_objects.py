@@ -908,3 +908,32 @@ def test_plain_text_gets_no_marker(template: Path, tmp_path: Path) -> None:
         if shape.has_text_frame and "Сплошной абзац" in shape.text_frame.text
     )
     assert "buChar" not in box._element.xml
+
+
+def test_free_text_is_centred_in_its_frame(template: Path, tmp_path: Path) -> None:
+    """Прогон 2ac85990b2f2, s04: два тезиса сверху и восемь сантиметров пустоты под ними.
+
+    Рамку свободному блоку считает решатель — её верхний край не решение дизайнера
+    о том, где начинается текст.
+    """
+    manifest = parse(template, tmp_path)
+    body_pt = next(s.size_pt for s in manifest.typography_scale if s.role is TextRole.BODY)
+    note = TextBlock(block_id="n", role=TextRole.BODY, text="Короткая мысль",
+                     **region(manifest, 1, 2))
+    deck = visual_deck(manifest)
+    slide = deck.slides[0]
+    deck = deck.model_copy(update={"slides": [slide.model_copy(update={
+        "blocks": [*slide.blocks, note],
+        "fit_report": {**slide.fit_report, "n": FitResult(final_size_pt=body_pt)},
+    })]})
+
+    out = PptxWriter(template, manifest).write(deck, tmp_path / "deck.pptx")
+    shapes = list(Presentation(str(out)).slides[0].shapes)
+    free = next(s for s in shapes if s.has_text_frame and "Короткая мысль" in s.text_frame.text)
+    in_placeholder = next(
+        s for s in shapes if s.has_text_frame and s.text_frame.text and s is not free
+        and s.shape_type != MSO_SHAPE_TYPE.TEXT_BOX
+    )
+
+    assert 'anchor="ctr"' in free._element.xml, "свободный текст прижат к краю рамки"
+    assert 'anchor="ctr"' not in in_placeholder._element.xml, "выравнивание задал шаблон"
