@@ -836,6 +836,49 @@ def test_switching_the_template_recolors_components_and_icons(
             == [strip.sub("", x) for x in slide_xml(second).values()])
 
 
+def master_with_two_levels(src: Path, dst: Path) -> Path:
+    """Мастер, объявивший маркеры двух уровней: «•» и «–» с большим отступом."""
+    second = (
+        '<a:lvl2pPr marL="720000" indent="-360000"><a:buFont typeface="Arial"/>'
+        '<a:buChar char="–"/></a:lvl2pPr>'
+    )
+    return rewrite_part(
+        src, dst, "ppt/slideMasters/slideMaster1.xml",
+        lambda xml: re.sub(r"(</a:lvl1pPr>)", rf"\g<1>{second}", xml, count=1),
+    )
+
+
+def test_nested_bullet_gets_the_marker_of_its_level(template: Path, tmp_path: Path) -> None:
+    """До этого вложенный пункт получал знак и отступ первого уровня — то есть не уровень."""
+    marked = master_with_two_levels(template, tmp_path / "levels.pptx")
+    manifest = parse(marked, tmp_path)
+    assert [item.char for item in manifest.bullet_levels][:2] == ["•", "–"]
+
+    body_pt = next(s.size_pt for s in manifest.typography_scale if s.role is TextRole.BODY)
+    free = BulletsBlock(
+        block_id="fb",
+        items=[BulletItem(text="Первый довод"), BulletItem(text="Подробность", level=1)],
+        **region(manifest, 1, 2),
+    )
+    deck = visual_deck(manifest)
+    slide = deck.slides[0]
+    deck = deck.model_copy(update={"slides": [slide.model_copy(update={
+        "blocks": [*slide.blocks, free],
+        "fit_report": {**slide.fit_report, "fb": FitResult(final_size_pt=body_pt)},
+    })]})
+
+    out = PptxWriter(marked, manifest).write(deck, tmp_path / "deck.pptx")
+    box = next(
+        shape for shape in Presentation(str(out)).slides[0].shapes
+        if shape.has_text_frame and "Первый довод" in shape.text_frame.text
+    )
+    first, second_p = box.text_frame.paragraphs[0], box.text_frame.paragraphs[1]
+
+    assert '<a:buChar char="•"/>' in first._p.xml
+    assert '<a:buChar char="–"/>' in second_p._p.xml, "вложенный пункт со знаком верхнего уровня"
+    assert int(second_p._pPr.get("marL")) > int(first._pPr.get("marL")), "уровни без сдвига"
+
+
 def master_with_coloured_bullet(src: Path, dst: Path) -> Path:
     """Мастер, где маркер списка покрашен слотом темы.
 

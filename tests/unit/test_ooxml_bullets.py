@@ -67,3 +67,43 @@ def test_literal_colour_becomes_a_theme_slot() -> None:
     bullet = parse_bullet(xml, colors())
 
     assert bullet is not None and bullet.color_ref is ColorRef.ACCENT1
+
+
+def test_levels_are_read_one_after_another() -> None:
+    """Вложенный пункт со знаком первого уровня — список без уровней."""
+    from deckforge.parsing.ooxml.bullets import parse_bullets
+
+    xml = master(
+        '<a:lvl1pPr marL="180000" indent="-180000"><a:buChar char="•"/></a:lvl1pPr>'
+        '<a:lvl2pPr marL="360000" indent="-180000"><a:buChar char="–"/></a:lvl2pPr>'
+    )
+    levels = parse_bullets(xml, colors())
+
+    assert [item.char for item in levels] == ["•", "–"]
+    assert levels[1].margin_left_emu > levels[0].margin_left_emu
+
+
+def test_reading_stops_at_the_first_level_the_template_skipped() -> None:
+    """Дырку посередине писатель всё равно закрыл бы ближайшим уровнем сверху."""
+    from deckforge.parsing.ooxml.bullets import parse_bullets
+
+    xml = master(
+        '<a:lvl1pPr><a:buChar char="•"/></a:lvl1pPr>'
+        '<a:lvl2pPr><a:buNone/></a:lvl2pPr>'
+        '<a:lvl3pPr><a:buChar char="»"/></a:lvl3pPr>'
+    )
+    assert [item.char for item in parse_bullets(xml, colors())] == ["•"]
+
+
+def test_manifest_gives_the_nearest_declared_level() -> None:
+    """Уровень, которого в шаблоне нет, наследует ближайший сверху — как в PowerPoint."""
+    from deckforge.domain.template import BulletStyle, TemplateManifest
+
+    manifest = TemplateManifest.model_construct(
+        bullet_levels=[BulletStyle(char="•"), BulletStyle(char="–")]
+    )
+
+    assert manifest.bullet_for(0).char == "•"
+    assert manifest.bullet_for(1).char == "–"
+    assert manifest.bullet_for(5).char == "–", "глубокий уровень остался без маркера"
+    assert TemplateManifest.model_construct(bullet_levels=[]).bullet_for(0) is None

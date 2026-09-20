@@ -293,7 +293,10 @@ class TemplateManifest(DomainModel):
     grid: Grid
     layouts: list[LayoutSpec]
     decor: Decor = Field(default_factory=Decor)
-    bullet: BulletStyle | None = None
+    bullet_levels: list[BulletStyle] = Field(
+        default_factory=list,
+        description="Маркеры списка по уровням, начиная с первого. Пусто — шаблон их не задаёт",
+    )
     chart_defaults: ChartDefaults = Field(default_factory=ChartDefaults)
     parser_version: str
 
@@ -310,6 +313,21 @@ class TemplateManifest(DomainModel):
         if len(ids) != len(set(ids)):
             raise ValueError("layout_id должны быть уникальны в пределах манифеста")
         return self
+
+    @property
+    def bullet(self) -> BulletStyle | None:
+        """Маркер первого уровня — самый частый случай: список без вложенности."""
+        return self.bullet_levels[0] if self.bullet_levels else None
+
+    def bullet_for(self, level: int) -> BulletStyle | None:
+        """Маркер для уровня пункта.
+
+        Уровень, которого в шаблоне нет, наследует ближайший объявленный сверху —
+        так же поступает и PowerPoint, когда уровень не описан в `txStyles`.
+        """
+        if not self.bullet_levels:
+            return None
+        return self.bullet_levels[min(max(level, 0), len(self.bullet_levels) - 1)]
 
     def layout(self, layout_id: str) -> LayoutSpec | None:
         return next((layout for layout in self.layouts if layout.layout_id == layout_id), None)

@@ -21,35 +21,61 @@ A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 P = "http://schemas.openxmlformats.org/presentationml/2006/main"
 
 
-def parse_bullet(master_xml: bytes, colors: ThemeColors) -> BulletStyle | None:
-    """Маркер из `p:txStyles/p:bodyStyle/a:lvl1pPr`. `None` — шаблон его не задаёт.
+#: Глубже третьего уровня не читаем: композитор столько не даёт (правило 7 промпта —
+#: не больше шести тезисов), а четвёртый уровень в деловой презентации уже не список.
+_LEVELS = 3
+
+
+def parse_bullets(master_xml: bytes, colors: ThemeColors) -> list[BulletStyle]:
+    """Маркеры уровней из `p:txStyles/p:bodyStyle`. Пустой список — шаблон их не задаёт.
 
     Явный `buNone` — тоже решение автора, и оно означает список без маркера. Шаблон,
     который молчит, остаётся без маркера по той же причине: придумывать «типовую точку»
     значит дорисовывать чужой дизайн.
+
+    Уровни идут подряд с первого: как только уровень не объявлен или объявлен без знака,
+    чтение прекращается. Дырку посередине писатель всё равно заполнил бы ближайшим
+    уровнем сверху — пусть это будет одно правило, а не два.
     """
     root = etree.fromstring(master_xml)
     body = root.find(f".//{{{P}}}txStyles/{{{P}}}bodyStyle")
     if body is None:
-        return None
-    lvl1 = body.find(f"{{{A}}}lvl1pPr")
-    if lvl1 is None or lvl1.find(f"{{{A}}}buNone") is not None:
+        return []
+
+    levels: list[BulletStyle] = []
+    for number in range(1, _LEVELS + 1):
+        style = _level(body.find(f"{{{A}}}lvl{number}pPr"), colors)
+        if style is None:
+            break
+        levels.append(style)
+    return levels
+
+
+def parse_bullet(master_xml: bytes, colors: ThemeColors) -> BulletStyle | None:
+    """Маркер первого уровня. Остаётся ради вызовов, которым вложенность не нужна."""
+    levels = parse_bullets(master_xml, colors)
+    return levels[0] if levels else None
+
+
+def _level(node: etree._Element | None, colors: ThemeColors) -> BulletStyle | None:
+    """Маркер одного уровня. `None` — уровня нет, он отключён или знак не задан."""
+    if node is None or node.find(f"{{{A}}}buNone") is not None:
         return None
 
-    char_node = lvl1.find(f"{{{A}}}buChar")
+    char_node = node.find(f"{{{A}}}buChar")
     char = (char_node.get("char") or "").strip() if char_node is not None else ""
     if not char:
         return None
 
-    font_node = lvl1.find(f"{{{A}}}buFont")
+    font_node = node.find(f"{{{A}}}buFont")
     font = (font_node.get("typeface") or None) if font_node is not None else None
 
     return BulletStyle(
         char=char[:4],
         font=font,
-        color_ref=_color_ref(lvl1, colors),
-        margin_left_emu=max(0, _int_attr(lvl1, "marL")),
-        indent_emu=min(0, _int_attr(lvl1, "indent")),
+        color_ref=_color_ref(node, colors),
+        margin_left_emu=max(0, _int_attr(node, "marL")),
+        indent_emu=min(0, _int_attr(node, "indent")),
     )
 
 

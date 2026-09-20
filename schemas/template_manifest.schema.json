@@ -971,16 +971,13 @@
     "decor": {
       "$ref": "#/$defs/Decor"
     },
-    "bullet": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/BulletStyle"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
+    "bullet_levels": {
+      "description": "Маркеры списка по уровням, начиная с первого. Пусто — шаблон их не задаёт",
+      "items": {
+        "$ref": "#/$defs/BulletStyle"
+      },
+      "title": "Bullet Levels",
+      "type": "array"
     },
     "chart_defaults": {
       "$ref": "#/$defs/ChartDefaults"

@@ -605,8 +605,8 @@ class PptxWriter:
         )
         # Маркер списка текстбокс тоже не наследует: без него тезисы читаются абзацами
         # (прогон 2ac85990b2f2). Знак, гарнитура, цвет и вынос — из мастера шаблона.
-        if isinstance(block, BulletsBlock) and self.manifest.bullet is not None:
-            _apply_bullet(shape.text_frame, self.manifest.bullet, size_pt)
+        if isinstance(block, BulletsBlock) and self.manifest.bullet_levels:
+            _apply_bullets(shape.text_frame, self.manifest, size_pt)
 
     def _add_kpi(
         self, slide: object, block: KpiBlock, size_pt: float, text_color: ColorRef | None
@@ -668,33 +668,55 @@ class PptxWriter:
             _style_runs(paragraph, size_pt, color, font_token, bold)
 
 
-def _apply_bullet(text_frame: object, bullet: BulletStyle, size_pt: float) -> None:
-    """Ставит маркер шаблона каждому абзацу свободного списка.
+def _apply_bullets(text_frame: object, manifest: TemplateManifest, size_pt: float) -> None:
+    """Ставит маркер шаблона каждому абзацу свободного списка — по уровню пункта.
 
     python-pptx маркеров не умеет, поэтому свойства абзаца пишутся в XML напрямую —
     теми же узлами, которыми их записал бы PowerPoint: `buChar`, `buFont`, `buClr`.
+    """
+    declared = len(manifest.bullet_levels)
+    for paragraph in text_frame.paragraphs:  # type: ignore[attr-defined]
+        level = int(getattr(paragraph, "level", 0) or 0)
+        bullet = manifest.bullet_for(level)
+        if bullet is None:
+            continue
+        # Уровни глубже объявленных в шаблоне: маркер берётся ближайший сверху,
+        # а сдвиг добавляется — иначе вложенность, видимая в IR, на слайде исчезнет.
+        _write_bullet(paragraph, bullet, size_pt, max(0, level - (declared - 1)))
+
+
+def _write_bullet(
+    paragraph: object, bullet: BulletStyle, size_pt: float, extra_levels: int
+) -> None:
+    """Маркер и вынос одного абзаца.
 
     Отступы шаблон задаёт не всегда. Когда их нет, вынос считается от кегля — это
     типографская арифметика, а не константа шаблона: маркер отодвигается на ширину
-    примерно одного знака, иначе он налезает на текст.
+    примерно одного знака, иначе он налезает на текст. Уровень, не объявленный
+    в шаблоне, сдвигается от объявленного на тот же вынос — иначе вложенность,
+    видимая в IR, на слайде исчезнет.
     """
     indent = bullet.indent_emu or -round(size_pt * EMU_PER_PT)
     margin = bullet.margin_left_emu or -indent
-    for paragraph in text_frame.paragraphs:  # type: ignore[attr-defined]
-        props = paragraph._pPr if paragraph._pPr is not None else paragraph._p.get_or_add_pPr()
-        props.set("marL", str(margin))
-        props.set("indent", str(indent))
-        for tag in ("a:buClr", "a:buFont", "a:buChar", "a:buNone", "a:buAutoNum"):
-            for node in props.findall(qn(tag)):
-                props.remove(node)
-        if bullet.color_ref is not None:
-            clr = props.makeelement(qn("a:buClr"), {})
-            scheme = clr.makeelement(qn("a:schemeClr"), {"val": scheme_token(bullet.color_ref)})
-            clr.append(scheme)
-            props.append(clr)
-        if bullet.font:
-            props.append(props.makeelement(qn("a:buFont"), {"typeface": bullet.font}))
-        props.append(props.makeelement(qn("a:buChar"), {"char": bullet.char}))
+    extra = extra_levels * -indent
+    props = (
+        paragraph._pPr  # type: ignore[attr-defined]
+        if paragraph._pPr is not None  # type: ignore[attr-defined]
+        else paragraph._p.get_or_add_pPr()  # type: ignore[attr-defined]
+    )
+    props.set("marL", str(margin + extra))
+    props.set("indent", str(indent))
+    for tag in ("a:buClr", "a:buFont", "a:buChar", "a:buNone", "a:buAutoNum"):
+        for node in props.findall(qn(tag)):
+            props.remove(node)
+    if bullet.color_ref is not None:
+        clr = props.makeelement(qn("a:buClr"), {})
+        scheme = clr.makeelement(qn("a:schemeClr"), {"val": scheme_token(bullet.color_ref)})
+        clr.append(scheme)
+        props.append(clr)
+    if bullet.font:
+        props.append(props.makeelement(qn("a:buFont"), {"typeface": bullet.font}))
+    props.append(props.makeelement(qn("a:buChar"), {"char": bullet.char}))
 
 
 def _style_runs(
