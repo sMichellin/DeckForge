@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -139,3 +140,59 @@ def test_report_says_yes_within_budget(capsys: pytest.CaptureFixture[str]) -> No
     ok = time_bench.report([fake_result({"plan": 10.0, "compose": 20.0})], budget_s=300)
     assert ok is True
     capsys.readouterr()
+
+
+# --- сводка по прогонам -------------------------------------------------------
+
+
+def write_run(root: Path, run_id: str, **report: object) -> Path:
+    run = root / run_id
+    (run / "out").mkdir(parents=True)
+    (run / "out" / "run.json").write_text(
+        json.dumps({"slides": 10, "total_s": 150.0, "audit": {"errors": 1, "warnings": 2},
+                    "notes": [], **report}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return run
+
+
+def test_run_metrics_counts_what_the_notes_say(tmp_path: Path) -> None:
+    """Подрезанный заголовок и потерянный факт видны в заметках прогона — их и считаем."""
+    import run_metrics
+
+    run = write_run(
+        tmp_path, "aaaa", notes=[
+            "слайд s01: заголовок подрезан под рамку макета: 40 → 25 знаков",
+            "слайд s02: заголовок подрезан под рамку макета: 38 → 24 знаков",
+            "слайд s03: факты f003 на слайд не попали: ни одного их значащего слова в тексте",
+        ],
+    )
+    values = run_metrics.metrics(run)
+
+    assert values["заголовков подрезано"] == 2
+    assert values["фактов потеряно"] == 1
+    assert values["секунд"] == 150.0
+
+
+def test_run_metrics_prints_median_and_spread(tmp_path: Path, capsys: pytest.CaptureFixture[str]
+                                              ) -> None:
+    """Смысл скрипта — показать разброс: по одному прогону судить нельзя."""
+    import run_metrics
+
+    trimmed = "слайд s01: заголовок подрезан под рамку макета: 40 → 25 знаков"
+    first = write_run(tmp_path, "aaaa", notes=[trimmed], total_s=100.0)
+    second = write_run(tmp_path, "bbbb", notes=[trimmed] * 5, total_s=200.0)
+
+    assert run_metrics.main([str(first), str(second)]) == 0
+    printed = capsys.readouterr().out
+
+    assert "медиана" in printed and "разброс" in printed
+    assert "1–5" in printed, "разброс по заголовкам не показан"
+    assert "меньше трёх" in printed, "молчит о том, что двух прогонов мало"
+
+
+def test_run_metrics_without_runs_explains_itself(capsys: pytest.CaptureFixture[str]) -> None:
+    import run_metrics
+
+    assert run_metrics.main([]) == 2
+    assert "медиана и разброс" in capsys.readouterr().out
