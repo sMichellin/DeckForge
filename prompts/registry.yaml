@@ -10,7 +10,7 @@ skills:
     pinned:
       dev: "1.0.0"
   headline_writer:
-    active: "1.1.0"
+    active: "1.2.0"
     model_ref: llm_fast
   visual_selector:
     active: "1.0.0"

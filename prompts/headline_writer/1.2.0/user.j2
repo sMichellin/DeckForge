@@ -1,0 +1,13 @@
+Перепиши эти заголовки. У каждого — свой предел в знаках.
+
+{% for item in items %}
+## {{ item.slide_id }} (предел {{ item.limit }} знаков)
+Сейчас: {{ item.headline }}
+Что не так: {{ item.why }}
+{% if item.facts %}
+Факты слайда:
+{% for f in item.facts %}
+- [{{ f.fact_id }}] {{ f.text }}
+{% endfor %}
+{% endif %}
+{% endfor %}

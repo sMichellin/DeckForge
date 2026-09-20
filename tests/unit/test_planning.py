@@ -618,3 +618,67 @@ def test_slide_the_model_forgot_keeps_its_headline(content: ContentPackage) -> N
 
     assert out.slides[0].headline == "Короткий вывод"
     assert out.slides[1].headline == "Очень длинный заголовок второго слайда"
+
+
+def variants(*rows: tuple[str, list[str]]) -> dict[str, Any]:
+    """Ответ скилла `headline_writer@1.2.0`: по нескольку вариантов на слайд."""
+    return {"headlines": [{"slide_id": sid, "variants": texts} for sid, texts in rows]}
+
+
+def test_longest_variant_that_fits_wins(content: ContentPackage) -> None:
+    """Влез — значит годен, а из влезших длиннее значит содержательнее.
+
+    Это best-of-N с проверяющим: «влезает ли» решает измерение, а не модель.
+    """
+    llm = FakeLlm(variants(("s01", [
+        "Выручка выросла на 37 % за счёт корпоративных клиентов",  # не влезает
+        "Выручка выросла на 37 %",                                  # влезает, 23
+        "Выручка выросла",                                          # влезает, 16
+    ])))
+    out, _ = rewrite(plan_with("Исходный очень длинный заголовок слайда"), content, llm)
+
+    assert out.slides[0].headline == "Выручка выросла на 37 %"
+    assert llm.calls == 1, "второй заход не нужен: вариант уже влез"
+
+
+def test_when_nothing_fits_the_shortest_goes_to_the_second_attempt(
+    content: ContentPackage,
+) -> None:
+    """Самому короткому ближе всех до рамки — с ним и идёт второй заход."""
+    class TwoRounds:
+        model = "fake"
+
+        def __init__(self) -> None:
+            self.prompts: list[str] = []
+
+        def complete(self, messages: list[dict[str, Any]], **kwargs: Any) -> Completion:
+            self.prompts.append("\n".join(str(m.get("content", "")) for m in messages))
+            payload = (
+                variants(("s01", ["Совсем длинный заголовок слайда о выручке",
+                                  "Длинный заголовок про выручку"]))
+                if len(self.prompts) == 1
+                else variants(("s01", ["Выручка выросла"]))
+            )
+            return Completion(text=json.dumps(payload, ensure_ascii=False), model=self.model)
+
+    client = TwoRounds()
+    out, _ = rewrite(plan_with("Исходный очень длинный заголовок слайда"), content, client)
+
+    assert len(client.prompts) == 2
+    assert "Длинный заголовок про выручку" in client.prompts[1], "в промах ушёл не короткий"
+    assert out.slides[0].headline == "Выручка выросла"
+
+
+def test_single_string_answer_still_works(content: ContentPackage) -> None:
+    """Профиль может быть закреплён на промпте 1.1.0 — падать из-за этого нельзя."""
+    llm = FakeLlm(headlines(("s01", "Выручка выросла на 37 %")))
+    out, _ = rewrite(plan_with("Исходный очень длинный заголовок слайда"), content, llm)
+
+    assert out.slides[0].headline == "Выручка выросла на 37 %"
+
+
+def test_empty_and_foreign_variants_are_dropped(content: ContentPackage) -> None:
+    llm = FakeLlm(variants(("s01", ["  ", "Выручка выросла"]), ("s99", ["Чужой слайд"])))
+    out, _ = rewrite(plan_with("Исходный очень длинный заголовок слайда"), content, llm)
+
+    assert out.slides[0].headline == "Выручка выросла"

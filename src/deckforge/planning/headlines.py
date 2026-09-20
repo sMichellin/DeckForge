@@ -29,6 +29,11 @@ from deckforge.registry import get_prompt_registry
 #: предел, второй — промах в знаках. Третий сказать нечего, а вызов стоит денег и времени.
 _ATTEMPTS = 2
 
+#: Сколько вариантов заголовка просить за раз. Выбор делает измерение, а не модель:
+#: чтобы промахнуться, ей теперь надо промахнуться трижды подряд. Больше трёх —
+#: лишние токены: варианты начинают повторять друг друга.
+_VARIANTS = 3
+
 
 def _why(headline: str, limit: int, miss: tuple[str, int] | None) -> str:
     """Что сказать модели о заголовке: в первый раз — предел, во второй — промах."""
@@ -40,6 +45,27 @@ def _why(headline: str, limit: int, miss: tuple[str, int] | None) -> str:
         f"длиннее места. Нужно уложиться в {limit} знаков: выбрось подробность, "
         "а не сказуемое"
     )
+
+
+def _best_variant(variants: list[str], fits: Callable[[str], bool]) -> str | None:
+    """Лучший из предложенных вариантов — по измерению, а не по порядку в ответе.
+
+    Влез — значит годен, и из влезших берётся самый длинный: он содержательнее.
+    Не влез ни один — берётся самый короткий: ему ближе всех до рамки, и с ним
+    пойдёт второй заход.
+    """
+    clean = [text for text in (item.strip() for item in variants) if text]
+    if not clean:
+        return None
+    fitting = [text for text in clean if fits(text)]
+    return max(fitting, key=len) if fitting else min(clean, key=len)
+
+
+def _better(candidate: str, current: str, fits: Callable[[str], bool]) -> bool:
+    """Правило выбора между заходами: поместившийся бьёт непоместившийся."""
+    if fits(candidate) != fits(current):
+        return fits(candidate)
+    return len(candidate) > len(current) if fits(candidate) else len(candidate) < len(current)
 
 
 class HeadlineRewriter:
@@ -88,16 +114,17 @@ class HeadlineRewriter:
                 break
             still: list[SlidePlan] = []
             for slide in pending:
-                candidate = fresh.get(slide.slide_id)
-                if candidate is None:
+                variants = fresh.get(slide.slide_id) or []
+                chosen = _best_variant(variants, fits)
+                if chosen is None:
                     continue
                 current = best.get(slide.slide_id)
-                if current is None or len(candidate) < len(current):
-                    best[slide.slide_id] = candidate
-                if not fits(candidate):
+                if current is None or _better(chosen, current, fits):
+                    best[slide.slide_id] = chosen
+                if not fits(chosen):
                     still.append(slide)
                     why[slide.slide_id] = _why(
-                        slide.headline, limit, (candidate, len(candidate) - limit)
+                        slide.headline, limit, (chosen, len(chosen) - limit)
                     )
             pending = still
             if not pending:
@@ -146,8 +173,8 @@ class HeadlineRewriter:
         limit: int,
         seed: int,
         why: dict[str, str],
-    ) -> dict[str, str]:
-        """Заголовки всей пачки за один вызов. Пустой словарь — модель не ответила.
+    ) -> dict[str, list[str]]:
+        """Варианты заголовков всей пачки за один вызов. Пустой словарь — модель молчит.
 
         Модель может вернуть не все слайды или придумать чужой `slide_id`: лишнее
         отбрасывается, недостающие остаются с прежним заголовком. Ронять из-за этого
@@ -166,7 +193,9 @@ class HeadlineRewriter:
             }
             for slide in slides
         ]
-        system, user = bundle.render(items=items, language=content.brief.language)
+        system, user = bundle.render(
+            items=items, language=content.brief.language, variants=_VARIANTS
+        )
         call = partial(
             generate_json,
             self.llm,
@@ -189,14 +218,20 @@ class HeadlineRewriter:
             return {}
 
         known = {slide.slide_id for slide in slides}
-        out: dict[str, str] = {}
+        out: dict[str, list[str]] = {}
         for row in data.get("headlines") or []:
             if not isinstance(row, dict):
                 continue
             slide_id = str(row.get("slide_id") or "")
-            headline = str(row.get("headline") or "").strip()
-            if slide_id in known and headline:
-                out[slide_id] = headline
+            if slide_id not in known:
+                continue
+            # Модель может вернуть и список вариантов (1.2.0), и одну строку (1.1.0):
+            # разбирать оба вида дешевле, чем падать из-за версии промпта в профиле.
+            raw = row.get("variants")
+            variants = raw if isinstance(raw, list) else [row.get("headline")]
+            texts = [str(item).strip() for item in variants if str(item or "").strip()]
+            if texts:
+                out[slide_id] = texts
         return out
 
     def _note(self, slide_id: str, text: str) -> None:
