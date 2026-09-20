@@ -12,7 +12,12 @@ from typing import Any
 
 import pytest
 
-from deckforge.composition.composer import MAX_BULLETS_BY_SPEC, CompositionError, SlideComposer
+from deckforge.composition.composer import (
+    _MIN_HEADLINE_WORDS,
+    MAX_BULLETS_BY_SPEC,
+    CompositionError,
+    SlideComposer,
+)
 from deckforge.composition.layout_picker import (
     INTENT_LAYOUTS,
     MAX_CONTENT_LAYOUTS,
@@ -25,7 +30,8 @@ from deckforge.domain.content import Brief, ContentPackage, Dataset, Fact, Serie
 from deckforge.domain.enums import ChartType, LayoutKind, SlideIntent, TextRole
 from deckforge.domain.plan import SlidePlan
 from deckforge.domain.slide import TextBlock
-from deckforge.domain.template import LayoutBackground, TemplateManifest
+from deckforge.domain.template import LayoutBackground, PlaceholderSpec, TemplateManifest
+from deckforge.domain.units import EMU_PER_CM
 from deckforge.domain.variants import VariantProfile
 from deckforge.inference.client import Completion
 from deckforge.registry import load_variant_profiles
@@ -814,30 +820,39 @@ def roomy_and_cover_template(manifest: TemplateManifest) -> TemplateManifest:
 async def test_headline_is_trimmed_to_what_the_layout_holds(
     content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
 ) -> None:
-    """Прогоны d573740bddd3 и 05884387b999: 10 заголовков из 10 длиннее места.
+    """Прогоны d573740bddd3, 05884387b999 и 4a196eb4f56b: 10 заголовков из 10 длиннее места.
 
-    Предел модели названа, но она его не держит, и дальше режет вёрстка — вслепую
-    и по буквам. Композиция режет по словам и говорит об этом в отчёте.
+    Предел модели названа, но она его не держит, и дальше режет вёрстка — по буквам.
+    Композиция режет по словам и ровно до того, что влезает в рамку **по измерению**:
+    предел в знаках считается по средней ширине знака и врёт в обе стороны.
     """
-    # Тесная полоса заголовка у всех макетов, как у VK WorkSpace: 32 знака.
-    limit = 32
+    from deckforge.layout.fitting import fit_block
+
+    narrow_title = PlaceholderSpec(
+        idx=0, ph_type="TITLE", role=TextRole.TITLE,
+        x=manifest.grid.margins_emu.left, y=manifest.grid.margins_emu.top,
+        cx=20 * EMU_PER_CM, cy=4 * EMU_PER_CM,
+    )
     tight = manifest.model_copy(
         update={
             "layouts": [
                 item.model_copy(
-                    update={"capacity": item.capacity.model_copy(update={"max_chars_title": limit})}
+                    update={
+                        "placeholders": [
+                            narrow_title if ph.role is TextRole.TITLE else ph
+                            for ph in item.placeholders
+                        ]
+                    }
                 )
                 for item in manifest.layouts
             ]
         }
     )
-    layout = tight.layouts[0]
     long_headline = "Автоматизация создания презентаций в фирменном стиле компании за минуты"
-    assert len(long_headline) > limit
 
     payload = {
         "slide_id": "s02",
-        "layout_id": layout.layout_id,
+        "layout_id": tight.layouts[0].layout_id,
         "variant": "A",
         "blocks": [
             {"block_id": "t", "type": "text", "placeholder_idx": 0,
@@ -851,8 +866,16 @@ async def test_headline_is_trimmed_to_what_the_layout_holds(
 
     title = ir.block("t")
     assert title is not None and isinstance(title, TextBlock)
-    assert len(title.text) <= limit
+    assert len(title.text) < len(long_headline), "заголовок не подрезан"
     assert title.text.endswith("…") and " " in title.text, "режем по словам, а не по буквам"
+    layout = tight.layout(ir.layout_id)
+    assert layout is not None
+    # Либо текст влез, либо дошли до минимума в два слова: ниже него рамка мала для любого
+    # заголовка, и это уже забота вёрстки (шаг вниз по шкале). Что именно из двух — зависит
+    # от метрик гарнитуры окружения, поэтому проверяем оба законных исхода.
+    fitted = fit_block(title, layout, tight).overflow is False
+    at_floor = len(title.text.split()) == _MIN_HEADLINE_WORDS
+    assert fitted or at_floor, "подрезка остановилась, хотя текст ещё не влез"
     assert any("заголовок подрезан" in note for note in composer.notes)
 
 

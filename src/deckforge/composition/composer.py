@@ -40,7 +40,12 @@ from deckforge.inference.structured import generate_model
 from deckforge.layout.constraints import solve_positions
 from deckforge.layout.diagram import SUPPORTED_PATTERNS
 from deckforge.layout.errors import LayoutFitError
+from deckforge.layout.fitting import fit_block
 from deckforge.registry import get_prompt_registry
+
+#: Короче этого заголовок не режется: два слова — уже не вывод, а обрубок. Такой случай
+#: означает, что рамка мала для любого текста, и дальше это забота вёрстки (кегль вниз).
+_MIN_HEADLINE_WORDS = 2
 
 #: Многоточие, которым кончается подрезанный заголовок. Знак того, что мысль
 #: не уместилась, а не того, что автор так задумал.
@@ -62,6 +67,12 @@ class CompositionError(RuntimeError):
 #: а не оформление. Диаграммы и таблицы в набор не входят — им нужен не просто
 #: прямоугольник, а макет, который их допускает (`capacity.supports_*`).
 _PLACEABLE_FREELY = (TextBlock, BulletsBlock, SmartArtBlock, KpiBlock)
+
+
+def _headline_text(words: list[str], whole: int) -> str:
+    """Заголовок из оставшихся слов: с многоточием, если слова выброшены."""
+    text = " ".join(words)
+    return text if len(words) == whole else text.rstrip(" ,;:—-") + _ELLIPSIS
 
 
 class SlideComposer:
@@ -149,29 +160,42 @@ class SlideComposer:
             raw, slide, layout, manifest, variant, seed, content, chart_type, bundle.ref
         )
 
-    def _trim_headline(self, block: TextBlock, limit: int, slide_id: str) -> TextBlock:
-        """Заголовок по границе слова под предел макета.
+    def _trim_headline(
+        self, block: TextBlock, layout: LayoutSpec, manifest: TemplateManifest, slide_id: str
+    ) -> TextBlock:
+        """Заголовок по границе слова — ровно до того, что помещается в его рамку.
 
         Предел модели названа (`headline_chars` планировщика, правило 4 композитора),
-        но она его не держит: прогоны d573740bddd3 и 05884387b999 — 10 заголовков из 10
-        длиннее места. Дальше режет вёрстка, по буквам и вслепую. Резать по словам здесь
-        честнее: композиция знает, где кончается мысль.
+        но она его не держит: прогоны d573740bddd3, 05884387b999 и 4a196eb4f56b —
+        10 заголовков из 10 длиннее места, и дальше их режет вёрстка, по буквам.
+
+        Мерило — то же `fit_block`, которым потом меряет слой вёрстки: предел в знаках
+        считается по средней ширине знака и врёт в обе стороны (на VK WorkSpace он давал
+        46 знаков там, где помещается 30). Слово выбрасывается, пока текст не влезет.
         """
-        if limit <= 0 or len(block.text) <= limit:
-            return block
+        if block.placeholder_idx is None or layout.placeholder(block.placeholder_idx) is None:
+            return block  # свободному блоку рамку ещё не дали: мерить нечего
 
         words = block.text.split()
-        kept: list[str] = []
-        for word in words:
-            candidate = " ".join([*kept, word])
-            if len(candidate) + len(_ELLIPSIS) > limit:
+        whole = len(words)
+        while True:
+            # Меряется ровно то, что будет записано: многоточие занимает место, и без него
+            # подрезка останавливалась на строку раньше, чем нужно (CI #73 — 46 знаков
+            # вместо 45, и заголовок снова переполнял рамку).
+            candidate = block.model_copy(update={"text": _headline_text(words, whole)})
+            if not fit_block(candidate, layout, manifest).overflow:
                 break
-            kept.append(word)
-        trimmed = (" ".join(kept).rstrip(" ,;:—-") + _ELLIPSIS) if kept else block.text[:limit]
+            if len(words) <= _MIN_HEADLINE_WORDS:
+                break
+            words = words[:-1]
+
+        if len(words) == whole:
+            return block
+
+        trimmed = _headline_text(words, whole)
         self._note(
             slide_id,
-            f"заголовок подрезан под макет: {len(block.text)} → {len(trimmed)} знаков "
-            f"(место — {limit})",
+            f"заголовок подрезан под рамку макета: {len(block.text)} → {len(trimmed)} знаков",
         )
         return block.model_copy(update={"text": trimmed})
 
@@ -245,13 +269,11 @@ class SlideComposer:
         known_assets = {a.asset_id for a in content.assets}
         max_bullets = min(MAX_BULLETS_BY_SPEC, layout.capacity.max_bullets or MAX_BULLETS_BY_SPEC)
 
-        headline_limit = layout.capacity.max_chars_title
-
         blocks: list[Block] = []
         freed: list[str] = []
         for block in ir.blocks:
             if isinstance(block, TextBlock) and block.role is TextRole.TITLE:
-                block = self._trim_headline(block, headline_limit, slide.slide_id)
+                block = self._trim_headline(block, layout, manifest, slide.slide_id)
             idx = getattr(block, "placeholder_idx", None)
 
             if idx is not None and idx not in known_placeholders:
