@@ -969,3 +969,75 @@ async def composer_compose(
     await SlideComposer(llm).compose(
         plan_slide(suggested_visual="kpi"), content, manifest, variant_a, seed=1
     )
+
+
+def two_facts() -> ContentPackage:
+    return ContentPackage(
+        brief=Brief(purpose="product", audience="правление", target_slides=6, language="ru"),
+        facts=[
+            Fact(fact_id="f001", text="Выручка выросла на 37,5 процента за год"),
+            Fact(fact_id="f002", text="Клиентов стало более пятисот компаний"),
+        ],
+    )
+
+
+def slide_with(text: str) -> dict[str, Any]:
+    return {
+        "slide_id": "s02",
+        "layout_id": "L07",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "b1", "type": "text", "placeholder_idx": 0, "role": "title",
+             "text": "Вывод"},
+            {"block_id": "b2", "type": "text", "placeholder_idx": 1, "role": "body",
+             "text": text},
+        ],
+    }
+
+
+async def test_fact_that_did_not_reach_the_slide_is_named(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Прогон 2ac85990b2f2, s04: три факта по плану, два тезиса на слайде, и ни слова об этом.
+
+    Промпт требует использовать все переданные факты. Требование без проверки —
+    пожелание: ровно так было с пределом заголовка до #74.
+    """
+    payload = slide_with("Выручка выросла на 37,5 процента за год")
+    composer = SlideComposer(FakeLlm(payload))
+    await composer.compose(
+        plan_slide(fact_refs=["f001", "f002"]), two_facts(), manifest, variant_a, seed=1
+    )
+
+    assert any("f002" in note and "не попали" in note for note in composer.notes)
+    assert not any("f001" in note for note in composer.notes)
+
+
+async def test_fact_retold_in_other_words_is_not_suspected(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Сверка грубая и снисходительная: одно общее слово снимает подозрение.
+
+    Иначе заметка будет стоять на каждом слайде и её перестанут читать.
+    """
+    payload = slide_with("Клиентов у компании больше пятисот, выручка растёт")
+    composer = SlideComposer(FakeLlm(payload))
+    await composer.compose(
+        plan_slide(fact_refs=["f001", "f002"]), two_facts(), manifest, variant_a, seed=1
+    )
+
+    assert not any("не попали" in note for note in composer.notes)
+
+
+async def test_fact_without_significant_words_raises_no_suspicion(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """«Для этого:» — факт-зачин: сверять в нём нечего, и обвинять композицию не в чем."""
+    thin = ContentPackage(
+        brief=Brief(purpose="product", audience="правление", target_slides=6),
+        facts=[Fact(fact_id="f001", text="Для них:")],
+    )
+    composer = SlideComposer(FakeLlm(slide_with("Совсем о другом")))
+    await composer.compose(plan_slide(fact_refs=["f001"]), thin, manifest, variant_a, seed=1)
+
+    assert not any("не попали" in note for note in composer.notes)

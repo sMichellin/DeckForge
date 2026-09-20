@@ -11,6 +11,7 @@ Change (11) `slide-composition`. Модель возвращает только 
 from __future__ import annotations
 
 import asyncio
+import re
 from functools import partial
 from typing import Any
 
@@ -54,6 +55,13 @@ _ELLIPSIS = "…"
 #: Предел Приложения 1 ТЗ. Вместимость макета может быть мягче — берётся строгий.
 MAX_BULLETS_BY_SPEC = 6
 
+#: Короче этого слово ничего не различает: «этот», «есть», «для» стоят в любом тексте.
+_SIGNIFICANT_WORD = 5
+
+#: Сколько первых букв берётся от слова при сверке. Русский текст склоняется,
+#: и «дизайн-систему» с «дизайн-система» — одно слово, а не два разных.
+_STEM = 6
+
 #: Какой блок IR отвечает заказу плана (`SlidePlan.suggested_visual`). Словарь заказов
 #: собирает слой планирования; здесь — только соответствие заказа типу блока.
 _ORDERED_BLOCK: dict[str, type[Block]] = {
@@ -77,6 +85,28 @@ class CompositionError(RuntimeError):
 #: а не оформление. Диаграммы и таблицы в набор не входят — им нужен не просто
 #: прямоугольник, а макет, который их допускает (`capacity.supports_*`).
 _PLACEABLE_FREELY = (TextBlock, BulletsBlock, SmartArtBlock, KpiBlock)
+
+
+def _stems(text: str) -> set[str]:
+    """Начала значащих слов текста — тем и сверяются факт и слайд."""
+    words = re.findall(r"[0-9a-zа-яё]+", text.lower())
+    return {word[:_STEM] for word in words if len(word) >= _SIGNIFICANT_WORD}
+
+
+def _text_of(block: Block) -> str:
+    """Весь текст блока одной строкой. Картинка и диаграмма содержания в словах не несут."""
+    if isinstance(block, TextBlock):
+        return block.text
+    if isinstance(block, BulletsBlock):
+        return " ".join(item.text for item in block.items)
+    if isinstance(block, SmartArtBlock):
+        # Элементы схемы — строки, а не объекты с текстом: у схемы подпись и есть элемент.
+        return " ".join(block.items)
+    if isinstance(block, KpiBlock):
+        return " ".join(f"{item.value} {item.label}" for item in block.items)
+    if isinstance(block, TableBlockIR):
+        return " ".join([*block.header, *(cell for row in block.rows for cell in row)])
+    return ""
 
 
 def _headline_text(words: list[str], whole: int) -> str:
@@ -208,6 +238,33 @@ class SlideComposer:
             f"заголовок подрезан под рамку макета: {len(block.text)} → {len(trimmed)} знаков",
         )
         return block.model_copy(update={"text": trimmed})
+
+    def _note_facts_left_out(
+        self, slide: SlidePlan, blocks: list[Block], content: ContentPackage
+    ) -> None:
+        """Факты плана, от которых на слайде не осталось ни одного слова.
+
+        Промпт требует использовать все переданные факты, но требование без проверки
+        остаётся пожеланием: прогон 2ac85990b2f2, слайд s04 — три факта по плану,
+        два тезиса на слайде. Аудит такую потерю не видит: `integrity.content_lost`
+        ловит только слайд, где содержания нет вовсе.
+
+        Сверка грубая и намеренно снисходительная: одно общее слово снимает подозрение.
+        Цель — поймать выброшенный факт, а не измерить полноту пересказа.
+        """
+        written = _stems(" ".join(_text_of(block) for block in blocks))
+        left_out = [
+            fact.fact_id
+            for ref in slide.fact_refs
+            if (fact := content.fact(ref)) is not None and (words := _stems(fact.text))
+            and not words & written
+        ]
+        if left_out:
+            self._note(
+                slide.slide_id,
+                f"факты {', '.join(left_out)} на слайд не попали: "
+                "ни одного их значащего слова в тексте",
+            )
 
     def _note_missing_visual(self, slide: SlidePlan, blocks: list[Block]) -> None:
         """Заказ плана на визуализацию, который модель не выполнила.
@@ -392,6 +449,7 @@ class SlideComposer:
             )
 
         self._note_missing_visual(slide, blocks)
+        self._note_facts_left_out(slide, blocks, content)
 
         return ir.model_copy(
             update={
