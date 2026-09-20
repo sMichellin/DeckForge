@@ -31,6 +31,12 @@ class PlanningError(RuntimeError):
 #: (предел ТЗ: шесть тезисов). Три — то, из чего получается слайд с мыслью и доводами.
 FACTS_PER_SLIDE = 3
 
+#: Ниже этого предел заголовка не опускается, каким бы тесным ни был шаблон. У VK Education
+#: заголовок набирается кеглем 60 pt, и в типичную полосу помещается семь знаков — просить
+#: у модели заголовок в семь знаков бессмысленно, вывода в них не поместится. На таких
+#: шаблонах заголовок подрежет композиция, и это честнее, чем планировать заведомую бессмыслицу.
+MIN_HEADLINE_CHARS = 25
+
 #: Предел длины заголовка, когда шаблон его не сообщает: ни один макет не объявил
 #: вместимость заголовка. Десять слов из правила 1 промпта — это примерно столько знаков.
 DEFAULT_HEADLINE_CHARS = 70
@@ -51,18 +57,21 @@ def slides_for(content: ContentPackage, purpose: str, requested: int) -> int:
 
 
 def headline_chars(manifest: TemplateManifest) -> int:
-    """Сколько знаков заголовка держит самый тесный макет шаблона.
+    """Запасной предел заголовка: оценка шаблона по средней ширине знака.
 
-    Планировщик макета ещё не знает, поэтому ориентируется на тесный: заголовок,
-    который не влез, обрывается многоточием уже при вёрстке (прогон d573740bddd3,
-    12 заголовков из 12).
+    Оценка врёт — на VK WorkSpace обещает 46 знаков там, где помещается 27, — поэтому
+    настоящий предел меряет узел графа (`pipeline/nodes/plan.py`) и передаёт его
+    параметром: мерило живёт в слое вёрстки, а `planning` слой вёрстки не импортирует
+    (правило 1 AGENTS.md). Эта функция остаётся для вызовов без узла — CLI и тестов.
     """
-    limits = [
+    limits = sorted(
         layout.capacity.max_chars_title
         for layout in manifest.layouts
         if layout.capacity.max_chars_title > 0
-    ]
-    return min(limits) if limits else DEFAULT_HEADLINE_CHARS
+    )
+    if not limits:
+        return DEFAULT_HEADLINE_CHARS
+    return max(MIN_HEADLINE_CHARS, limits[len(limits) // 2])
 
 
 class DeckPlanner:
@@ -79,6 +88,7 @@ class DeckPlanner:
         variant: VariantProfile,
         seed: int,
         *,
+        headline_limit: int | None = None,
         no_think: bool = False,
     ) -> DeckPlan:
         """Промпт получает только *доступные виды макетов* манифеста, не сам шаблон.
@@ -99,7 +109,7 @@ class DeckPlanner:
             available_kinds=sorted({layout.kind.value for layout in manifest.layouts}),
             slides_target=slides_for(content, content.brief.purpose, content.brief.target_slides),
             facts_per_slide=FACTS_PER_SLIDE,
-            headline_chars=headline_chars(manifest),
+            headline_chars=headline_limit or headline_chars(manifest),
             no_think=no_think,
         )
 

@@ -352,3 +352,33 @@ def test_single_slot_backend_limits_parallel_composition(tmp_path: Path) -> None
     unlimited = deps(tmp_path, llm=SimpleNamespace(spec=SimpleNamespace(max_concurrency=None)),
                      run={"parallel_slides": 6})
     assert unlimited.slots()._value == 6
+
+
+def test_headline_limit_is_measured_on_the_template(manifest: TemplateManifest) -> None:
+    """Предел заголовка меряется тем же `fit_block`, что и вёрстка, а не «средним знаком».
+
+    Прогоны d573740bddd3, 05884387b999 и eab2860439e7: оценка обещала вдвое больше места,
+    планировщик писал длинные заголовки, и все они обрезались многоточием.
+    """
+    from deckforge.domain.enums import TextRole
+    from deckforge.domain.slide import TextBlock
+    from deckforge.layout.fitting import fit_block
+    from deckforge.pipeline.nodes.plan import _HEADLINE_SAMPLE, headline_limit
+
+    limit = headline_limit(manifest)
+    layout = next(
+        item
+        for item in manifest.layouts
+        if item.capacity.max_chars_body > 0
+        and any(ph.role is TextRole.TITLE for ph in item.placeholders)
+    )
+    idx = next(ph.idx for ph in layout.placeholders if ph.role is TextRole.TITLE)
+
+    words: list[str] = []
+    for word in _HEADLINE_SAMPLE.split():
+        if len(" ".join([*words, word])) > limit:
+            break
+        words.append(word)
+    probe = TextBlock(block_id="t", placeholder_idx=idx, role=TextRole.TITLE, text=" ".join(words))
+
+    assert fit_block(probe, layout, manifest).overflow is False, "обещано больше, чем влезает"

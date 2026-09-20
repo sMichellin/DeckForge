@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -322,13 +323,31 @@ def test_frame_is_the_floor_however_thin_the_content() -> None:
     assert slides_for(almost_empty, "product", 12) == len(MANDATORY_FRAMES["product"])
 
 
-def test_headline_limit_comes_from_the_tightest_layout(manifest: TemplateManifest) -> None:
-    """Планировщик макета ещё не знает, поэтому меряет по самому тесному заголовку."""
-    from deckforge.planning.planner import headline_chars
+def test_planner_uses_the_limit_the_node_measured(
+    content: ContentPackage, manifest: TemplateManifest, variant_c: VariantProfile
+) -> None:
+    """Мерило живёт в слое вёрстки, а `planning` его не импортирует (правило 1).
 
-    limits = [
-        layout.capacity.max_chars_title
-        for layout in manifest.layouts
-        if layout.capacity.max_chars_title > 0
-    ]
-    assert headline_chars(manifest) == min(limits)
+    Узел графа меряет предел и передаёт параметром; промпт печатает именно его.
+    """
+    llm = FakeLlm(payload_for(PRODUCT_FRAME))
+    asyncio.run(DeckPlanner(llm).plan(content, manifest, variant_c, seed=1, headline_limit=27))
+
+    assert "27 знаков" in llm.prompt_text
+
+
+def test_headline_limit_never_drops_below_a_usable_length() -> None:
+    """У VK Education заголовок кеглем 60 pt: в полосу влезает семь знаков.
+
+    Просить у модели вывод в семь знаков бессмысленно — там подрежет композиция.
+    """
+    from deckforge.domain.template import TemplateManifest as TM
+    from deckforge.planning.planner import (
+        DEFAULT_HEADLINE_CHARS,
+        MIN_HEADLINE_CHARS,
+        headline_chars,
+    )
+
+    assert MIN_HEADLINE_CHARS >= 25
+    # Шаблон, который о заголовке молчит вовсе: остаётся умолчание.
+    assert headline_chars(TM.model_construct(layouts=[])) == DEFAULT_HEADLINE_CHARS
