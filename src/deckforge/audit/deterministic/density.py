@@ -16,6 +16,7 @@ from deckforge.audit.geometry import (
     FULL_BLEED_SHARE,
     block_bbox,
     covers,
+    ink_bbox,
     layout_of,
     positioned_blocks,
 )
@@ -140,7 +141,15 @@ def fill_ratio(ctx: CheckContext) -> Iterable[Finding]:
         placed = positioned_blocks(slide, ctx.manifest)
         # Полноэкранная подложка заняла бы весь слайд и сделала бы проверку бессмысленной:
         # слайд с фотографией в край всегда «переполнен», хотя это приём шаблона.
-        boxes = [bbox for _, bbox in placed if not covers(bbox, slide_box, FULL_BLEED_SHARE)]
+        #
+        # Считается занятое, а не отведённое: свободный блок получает всю свободную
+        # площадь слайда, и четыре строки в нём — это пустой слайд, а не заполненный
+        # на 60 % (прогон 693d464d54fb: десять слайдов, ни одной находки).
+        boxes = [
+            ink_bbox(block, bbox, slide)
+            for block, bbox in placed
+            if not covers(bbox, slide_box, FULL_BLEED_SHARE)
+        ]
         if not boxes:
             continue
         ratio = sum(bbox.area for bbox in boxes) / slide_box.area

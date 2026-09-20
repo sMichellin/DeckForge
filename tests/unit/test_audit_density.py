@@ -104,3 +104,37 @@ def test_fill_ratio_ignores_a_full_bleed_backdrop(manifest: TemplateManifest) ->
     content_block = body("Тезис поверх", block_id="b2", box=(2, 2, 24, 10))
     colony = deck(slide(backdrop, content_block))
     assert list(fill_ratio(context_for("density.fill_ratio", colony, manifest))) == []
+
+
+def test_fill_ratio_counts_the_text_not_the_frame(manifest: TemplateManifest) -> None:
+    """Прогон 693d464d54fb: четыре строки сверху, пустое поле под ними — и ни одной находки.
+
+    Свободный блок получает всю свободную площадь слайда, и рамка «заполнена» независимо
+    от того, четыре в ней строки или сорок. Считать надо занятое.
+    """
+    from deckforge.domain.slide import FitResult
+    from deckforge.domain.units import EMU_PER_CM
+
+    block = body("Четыре строки в рамке на всю область контента", box=(2, 2, 24, 12))
+    four_lines = deck(
+        slide(block, fit_report={block.block_id: FitResult(
+            final_size_pt=14, overflow=False, lines=4, required_cy_emu=2 * EMU_PER_CM,
+        )})
+    )
+    findings = list(fill_ratio(context_for("density.fill_ratio", four_lines, manifest)))
+    assert findings and "полупустой" in findings[0].message
+
+    dense = deck(
+        slide(block, fit_report={block.block_id: FitResult(
+            final_size_pt=14, overflow=False, lines=24, required_cy_emu=11 * EMU_PER_CM,
+        )})
+    )
+    assert list(fill_ratio(context_for("density.fill_ratio", dense, manifest))) == []
+
+
+def test_fill_ratio_falls_back_to_the_frame_without_a_fit_report(
+    manifest: TemplateManifest,
+) -> None:
+    """Отчёта о вписывании может не быть — догадываться о высоте текста аудит не станет."""
+    colony = deck(slide(body("Содержательный блок", box=(2, 2, 24, 10))))
+    assert list(fill_ratio(context_for("density.fill_ratio", colony, manifest))) == []

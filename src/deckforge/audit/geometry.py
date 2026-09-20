@@ -72,6 +72,25 @@ def positioned_blocks(
     return out
 
 
+def ink_bbox(block: Block, bbox: BBox, slide: SlideIR) -> BBox:
+    """Часть рамки, которую текст действительно занял.
+
+    Рамка блока и его содержимое — разные вещи: свободный блок получает всю свободную
+    площадь слайда, и четыре строки в нём занимают пятую часть отведённого. Высоту
+    занятого меряет слой вёрстки (`fit_report.required_cy_emu`) — тем же кодом, которым
+    потом пишет файл.
+
+    Блок, который заполняет рамку по определению (диаграмма, картинка, схема), и блок
+    без отчёта о вписывании остаются со своей рамкой: догадываться аудит не станет.
+    """
+    if not isinstance(block, TEXT_BLOCKS):
+        return bbox
+    fit = slide.fit_report.get(block.block_id)
+    if fit is None or not fit.required_cy_emu:
+        return bbox
+    return bbox.model_copy(update={"cy": min(bbox.cy, fit.required_cy_emu)})
+
+
 def self_positioned_blocks(
     slide: SlideIR, manifest: TemplateManifest
 ) -> list[tuple[Block, BBox]]:
