@@ -382,3 +382,66 @@ def test_headline_limit_is_measured_on_the_template(manifest: TemplateManifest) 
     probe = TextBlock(block_id="t", placeholder_idx=idx, role=TextRole.TITLE, text=" ".join(words))
 
     assert fit_block(probe, layout, manifest).overflow is False, "обещано больше, чем влезает"
+
+
+async def test_overlong_headline_goes_back_to_the_model(
+    manifest: TemplateManifest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Узел меряет заголовки плана и отдаёт не уместившиеся на переписывание.
+
+    Проверяется стык: измерение живёт здесь (слой `planning` вёрстку не импортирует),
+    решение — в `planning`, а исход обязан дойти до отчёта прогона.
+    """
+    from deckforge.domain.content import Brief as ContentBrief
+    from deckforge.domain.content import ContentPackage
+    from deckforge.pipeline.nodes import plan as plan_module
+
+    long_headline = "Выручка выросла на треть за счёт корпоративных клиентов и новых рынков"
+    short_headline = "Выручка выросла на треть"
+
+    class StubPlanner:
+        def __init__(self, *_: Any, **__: Any) -> None:
+            pass
+
+        async def plan(self, *_: Any, **__: Any) -> DeckPlan:
+            return DeckPlan(
+                deck_id="d1",
+                variant="A",
+                seed=1,
+                slides=[
+                    SlidePlan(
+                        slide_id="s01", intent=SlideIntent.PROBLEM, headline=long_headline
+                    )
+                ],
+            )
+
+    class StubRewriter:
+        def __init__(self, *_: Any, **__: Any) -> None:
+            self.notes: list[str] = []
+            self.seen: list[bool] = []
+
+        async def rewrite_overlong(
+            self, plan: DeckPlan, _content: Any, *, fits: Any, **__: Any
+        ) -> DeckPlan:
+            self.seen = [fits(long_headline), fits(short_headline)]
+            self.notes.append("слайд s01: заголовок переписан под рамку: 69 → 24")
+            slides = [plan.slides[0].model_copy(update={"headline": short_headline})]
+            return plan.model_copy(update={"slides": slides})
+
+    rewriter = StubRewriter()
+    monkeypatch.setattr(plan_module, "DeckPlanner", StubPlanner)
+    monkeypatch.setattr(plan_module, "HeadlineRewriter", lambda *a, **k: rewriter)
+
+    state: DeckState = {
+        "content": ContentPackage(
+            brief=ContentBrief(purpose="product", audience="правление", target_slides=6)
+        ),
+        "manifest": manifest,
+        "variant": None,  # type: ignore[typeddict-item]
+        "seed": 1,
+    }
+    out = await plan_module.plan_node(state, runtime(deps(tmp_path, llm=object())))
+
+    assert rewriter.seen == [False, True], "узел померял заголовки не по рамке шаблона"
+    assert out["plan"].slides[0].headline == short_headline
+    assert "план: слайд s01: заголовок переписан под рамку: 69 → 24" in out["notes"]

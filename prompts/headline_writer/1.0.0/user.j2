@@ -1,10 +1,14 @@
 Текущий заголовок: {{ current_headline }}
-Замечание аудита: {{ finding_message }}
+Что с ним не так: {{ finding_message }}
 
+{% if slide_text %}
 Содержимое слайда:
 {{ slide_text }}
-
+{% endif %}
 Факты:
 {% for f in facts %}
 - [{{ f.fact_id }}] {{ f.text }}
 {% endfor %}
+{% if not facts %}
+Фактов у слайда нет: перепиши тот же смысл короче, ничего не добавляя.
+{% endif %}

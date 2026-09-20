@@ -351,3 +351,92 @@ def test_headline_limit_never_drops_below_a_usable_length() -> None:
     assert MIN_HEADLINE_CHARS >= 25
     # Шаблон, который о заголовке молчит вовсе: остаётся умолчание.
     assert headline_chars(TM.model_construct(layouts=[])) == DEFAULT_HEADLINE_CHARS
+
+
+# --- переписывание заголовков, которые не уместились -------------------------
+
+
+def plan_with(*headlines: str) -> DeckPlan:
+    from deckforge.domain.plan import SlidePlan
+
+    return DeckPlan(
+        deck_id="d1",
+        variant="A",
+        seed=1,
+        slides=[
+            SlidePlan(
+                slide_id=f"s{i:02d}",
+                intent=SlideIntent.PROBLEM,
+                headline=headline,
+                fact_refs=["f001"],
+            )
+            for i, headline in enumerate(headlines, start=1)
+        ],
+    )
+
+
+def shorter_than(limit: int):
+    """Мерило узла графа, подделанное длиной: слой планирования о рамках не знает."""
+    return lambda text: len(text) <= limit
+
+
+def rewrite(plan: DeckPlan, content: ContentPackage, llm: Any, limit: int = 27) -> Any:
+    from deckforge.planning.headlines import HeadlineRewriter
+
+    rewriter = HeadlineRewriter(llm)
+    out = asyncio.run(
+        rewriter.rewrite_overlong(
+            plan, content, fits=shorter_than(limit), limit=limit, seed=1
+        )
+    )
+    return out, rewriter
+
+
+def test_headline_that_did_not_fit_is_rewritten_not_trimmed(content: ContentPackage) -> None:
+    """Прогон ea732e59510c: 9 заголовков из 10 длиннее рамки, все обрезаны многоточием.
+
+    Обрубок теряет вывод, ради которого заголовок и писался, — переписывает модель.
+    """
+    llm = FakeLlm({"headline": "Выручка выросла на 37 %"})
+    plan = plan_with("Выручка выросла на 37 % за счёт корпоративных клиентов")
+    out, rewriter = rewrite(plan, content, llm)
+
+    assert out.slides[0].headline == "Выручка выросла на 37 %"
+    assert any("переписан под рамку" in note for note in rewriter.notes)
+
+
+def test_headline_that_fits_is_not_touched(content: ContentPackage) -> None:
+    """Лишний вызов модели на слайд — это время прогона, потраченное впустую."""
+    llm = FakeLlm({"headline": "Что-то другое"})
+    out, rewriter = rewrite(plan_with("Выручка выросла на 37 %"), content, llm)
+
+    assert out.slides[0].headline == "Выручка выросла на 37 %"
+    assert llm.messages == [], "модель звали, хотя заголовок помещался"
+    assert rewriter.notes == []
+
+
+def test_rewrite_that_is_no_shorter_keeps_the_original(content: ContentPackage) -> None:
+    """Менять один длинный заголовок на другой длинный незачем: исходный хотя бы по фактам."""
+    long_headline = "Выручка выросла на 37 % за счёт корпоративных клиентов"
+    llm = FakeLlm({"headline": long_headline + " и новых рынков"})
+    out, rewriter = rewrite(plan_with(long_headline), content, llm)
+
+    assert out.slides[0].headline == long_headline
+    assert any("не короче исходного" in note for note in rewriter.notes)
+
+
+def test_model_failure_does_not_break_the_run(content: ContentPackage) -> None:
+    """Заголовок длиннее рамки — не отказ прогона: колода соберётся и с подрезанным."""
+    from deckforge.inference.client import InferenceError
+
+    class Broken:
+        model = "fake"
+
+        def complete(self, *_: Any, **__: Any) -> Completion:
+            raise InferenceError("сервер не ответил")
+
+    long_headline = "Выручка выросла на 37 % за счёт корпоративных клиентов"
+    out, rewriter = rewrite(plan_with(long_headline), content, Broken())
+
+    assert out.slides[0].headline == long_headline
+    assert any("не переписала заголовок" in note for note in rewriter.notes)

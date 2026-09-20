@@ -3,4 +3,7 @@ temperature: 0.4
 max_tokens: 256
 author: DeckForge team
 changelog: |
-  1.0.0 — перегенерация одного заголовка по авто-фиксу regenerate_headline.
+  1.0.0 — перегенерация одного заголовка: по авто-фиксу regenerate_headline и по
+    измерению рамки в узле `plan` (заголовок длиннее полосы макета переписывается,
+    а не режется многоточием). Версия не поднята: до change
+    `headline-rewritten-not-trimmed` у промпта не было ни одного потребителя.
