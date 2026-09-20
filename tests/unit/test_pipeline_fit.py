@@ -159,3 +159,29 @@ def test_title_may_be_cut_to_two_words_but_body_not_below_three() -> None:
         title = _shortened(title) or title
     assert len(title.text.split()) == 2
     assert _shortened(body) is None, "тело короче трёх слов не сокращается"
+
+
+def test_title_yields_size_when_there_is_nothing_left_to_cut(
+    narrow: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Прогон 5561f47fdd8f: заголовок из двух слов не влез и уронил запись всей колоды.
+
+    Порядок уступок: сначала слова, и только когда резать нечего — кегль.
+    """
+    two_words = TextBlock(
+        block_id="t", placeholder_idx=NARROW_IDX, role=TextRole.TITLE,
+        text="Существующие инструменты",
+    )
+    fitted, notes = _fit_shortening(_slide(two_words), narrow, fonts, CONTENT)
+
+    result = fitted.fit_report["t"]
+    assert result.final_size_pt < narrow.typography(TextRole.TITLE).size_pt
+    assert any("кегль заголовка уменьшен" in note for note in notes)
+
+
+def test_title_that_fits_keeps_its_size(narrow: TemplateManifest, fonts: FontLibrary) -> None:
+    """Иерархия заголовка — не расходный материал: влезает, значит остаётся крупным."""
+    fitted, notes = _fit_shortening(_slide(TITLE), narrow, fonts, CONTENT)
+
+    assert fitted.fit_report["t"].final_size_pt == narrow.typography(TextRole.TITLE).size_pt
+    assert not any("кегль заголовка" in note for note in notes)

@@ -9,6 +9,7 @@ from langgraph.runtime import Runtime
 from deckforge.audit.fixes.apply import shorten_to_words
 from deckforge.domain.content import ContentPackage
 from deckforge.domain.enums import TextRole
+from deckforge.domain.rules import next_size_down
 from deckforge.domain.slide import Block, BulletsBlock, DeckIR, SlideIR, TextBlock
 from deckforge.domain.template import TemplateManifest
 from deckforge.layout.errors import LayoutFitError
@@ -31,6 +32,11 @@ _MIN_WORDS = 3
 #: из-за заголовка в 34 знака при месте на 32. Два слова хуже трёх, но лучше колоды,
 #: которой нет; заметка это называет, аудит видит.
 _MIN_TITLE_WORDS = 2
+
+#: Сколько ступеней шкалы уступает заголовок, когда сокращать в нём уже нечего.
+#: Правило «заголовок не уменьшается» защищает иерархию, но колода, которая не пишется,
+#: не защищает ничего: прогон 5561f47fdd8f упал на заголовке из двух слов.
+_TITLE_STEPS_DOWN = 2
 
 
 def _ordered(state: DeckState) -> list[SlideIR]:
@@ -141,6 +147,8 @@ def _fit_shortening(
             content=content,
         )
 
+    fitted, shrunk = _titles_yield_size(fitted, manifest, fonts, content)
+
     notes = [
         f"{fitted.slide_id}/{block_id}: текст сокращён, чтобы влезть"
         + (
@@ -151,7 +159,52 @@ def _fit_shortening(
         + ("" if not fitted.fit_report[block_id].overflow else " — и всё равно не влез")
         for block_id in sorted(touched)
     ]
+    notes += shrunk
     return fitted, notes
+
+
+def _titles_yield_size(
+    slide: SlideIR,
+    manifest: TemplateManifest,
+    fonts: FontLibrary | None,
+    content: ContentPackage,
+) -> tuple[SlideIR, list[str]]:
+    """Заголовку, в котором сокращать уже нечего, уступает кегль.
+
+    Порядок уступок такой: сначала слова (их режет композиция и цикл выше), и только когда
+    резать больше нечего — кегль. Иначе заголовок из двух слов, не влезший в полосу, роняет
+    запись всей колоды: прогон 5561f47fdd8f, «Существующие AI-инструменты…» в полосе 3,2 см.
+    Каждая уступка попадает в отчёт: иерархия заголовка — осознанный размен, а не случайность.
+    """
+    notes: list[str] = []
+    for _ in range(_TITLE_STEPS_DOWN):
+        blocks: list[Block] = []
+        changed = False
+        for block in slide.blocks:
+            fit = slide.fit_report.get(block.block_id)
+            title = isinstance(block, TextBlock) and block.role is TextRole.TITLE
+            if not title or fit is None or not fit.overflow:
+                blocks.append(block)
+                continue
+            smaller = next_size_down(manifest, fit.final_size_pt)
+            if smaller is None:
+                blocks.append(block)
+                continue
+            changed = True
+            notes.append(
+                f"{slide.slide_id}/{block.block_id}: кегль заголовка уменьшен "
+                f"{fit.final_size_pt:g} → {smaller:g} pt — сокращать было уже нечего"
+            )
+            blocks.append(block.model_copy(update={"size_pt": smaller}))
+        if not changed:
+            break
+        slide = fit_slide(
+            slide.model_copy(update={"blocks": blocks, "fit_report": {}}),
+            manifest,
+            fonts=fonts,
+            content=content,
+        )
+    return slide, notes
 
 
 async def fit_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
