@@ -158,7 +158,9 @@ class FitResult(DomainModel):
     overflow: bool = False
     lines: int | None = Field(default=None, ge=0)
     required_cy_emu: int | None = Field(default=None, ge=0)
-    strategy: str | None = Field(default=None, description="as_is | shrink | shorten | split")
+    strategy: str | None = Field(
+        default=None, description="as_is | shrink | grow | shorten | split"
+    )
 
 
 class SlideIR(DomainModel):

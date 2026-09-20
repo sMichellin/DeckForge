@@ -17,7 +17,7 @@ from collections.abc import Iterator
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage, Dataset
 from deckforge.domain.enums import TextRole
-from deckforge.domain.rules import next_size_down
+from deckforge.domain.rules import next_size_down, next_size_up
 from deckforge.domain.slide import (
     BulletsBlock,
     FitResult,
@@ -60,6 +60,12 @@ AS_IS = "as_is"
 SHRINK = "shrink"
 SHORTEN = "shorten"
 SPLIT = "split"
+GROW = "grow"
+
+#: Ниже этой доли своей рамки свободный блок теряется в пустоте: текст жмётся к верхнему
+#: краю, а остальное поле остаётся белым. Прогон 693d464d54fb: четыре строки в рамке
+#: высотой двенадцать сантиметров — слайд выглядит пустым, хотя переполнения нет.
+FREE_BLOCK_FILL_SHARE = 0.5
 
 
 def _sizes(manifest: TemplateManifest, start_pt: float, allow_shrink: bool) -> Iterator[float]:
@@ -312,18 +318,93 @@ def fit_block(
     text = block.text if isinstance(block, TextBlock) else "\n".join(i.text for i in block.items)
     box = _box_for(block, layout)
     shrinkable = block.role is not TextRole.TITLE or not _band_holds_the_role_size(box, step)
-    return fit_text(
+    font_family = _font_of(step, manifest)
+    line_spacing = step.line_spacing or 1.0
+    result = fit_text(
         text,
         box=box,
         manifest=manifest,
         start_size_pt=block.size_pt or step.size_pt,
-        font_family=_font_of(step, manifest),
+        font_family=font_family,
         allow_shrink=shrinkable,
         bold=step.bold,
         italic=step.italic,
-        line_spacing=step.line_spacing or 1.0,
+        line_spacing=line_spacing,
         fonts=fonts,
     )
+    if _grows_to_its_space(block, result):
+        return _grown(
+            result,
+            text=text,
+            box=box,
+            manifest=manifest,
+            font_family=font_family,
+            bold=step.bold,
+            italic=step.italic,
+            line_spacing=line_spacing,
+            fonts=fonts,
+        )
+    return result
+
+
+def _grows_to_its_space(block: TextBlock | BulletsBlock, result: FitResult) -> bool:
+    """Растёт ли этот блок, если места ему дали больше, чем нужно тексту.
+
+    Растёт только свободный блок с основным текстом. Плейсхолдер — решение автора
+    шаблона, и его кегль наш; заголовок задаёт иерархию слайда и не растёт вовсе;
+    блок, которому кегль назначили явно (`size_pt`), тоже не трогается — его назначили
+    не просто так. Переполненному блоку расти некуда по определению.
+    """
+    return (
+        block.placeholder_idx is None
+        and block.role is not TextRole.TITLE
+        and block.size_pt is None
+        and not result.overflow
+    )
+
+
+def _grown(
+    result: FitResult,
+    *,
+    text: str,
+    box: BBox,
+    manifest: TemplateManifest,
+    font_family: str,
+    bold: bool,
+    italic: bool,
+    line_spacing: float,
+    fonts: FontLibrary | None,
+) -> FitResult:
+    """Поднимает кегль по шкале шаблона, пока блок не займёт свою рамку.
+
+    Потолок — ступень **под** заголовком этого шаблона: тело, набранное вровень
+    с заголовком, стирает иерархию не хуже, чем тело крупнее него. Ни одной константы:
+    и шкала, и потолок берутся из манифеста.
+    """
+    available = usable_height_emu(box)
+    required = result.required_cy_emu or 0
+    if not available or required >= FREE_BLOCK_FILL_SHARE * available:
+        return result
+
+    title_pt = _step_for(TextRole.TITLE, manifest).size_pt
+    cap = next_size_down(manifest, title_pt) or title_pt
+    best = result
+    size = next_size_up(manifest, result.final_size_pt)
+    while size is not None and size <= cap:
+        m = measure_text(
+            text, font_family=font_family, size_pt=size, box=box,
+            line_spacing=line_spacing, bold=bold, italic=italic, fonts=fonts,
+        )
+        if m.height_emu > available:
+            break
+        best = FitResult(
+            final_size_pt=size, overflow=False, lines=m.lines,
+            required_cy_emu=m.height_emu, strategy=GROW,
+        )
+        if m.height_emu >= FREE_BLOCK_FILL_SHARE * available:
+            break
+        size = next_size_up(manifest, size)
+    return best
 
 
 def fit_slide(

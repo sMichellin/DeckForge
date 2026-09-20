@@ -328,7 +328,7 @@
             }
           ],
           "default": null,
-          "description": "as_is | shrink | shorten | split",
+          "description": "as_is | shrink | grow | shorten | split",
           "title": "Strategy"
         }
       },

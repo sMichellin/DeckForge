@@ -331,3 +331,89 @@ def test_title_in_a_roomy_band_is_still_not_shrunk(
     result = fit_slide(slide(block), manifest, fonts=fonts).fit_report["t"]
 
     assert result.final_size_pt == manifest.typography(TextRole.TITLE).size_pt
+
+
+# --- свободный блок растёт под свою рамку ------------------------------------
+
+
+def free_block(text: str, manifest: TemplateManifest, *, role: TextRole = TextRole.BODY,
+               size_pt: float | None = None) -> TextBlock:
+    """Свободный блок во всю область контента: столько места отдаёт решатель, когда
+    в макете нет плейсхолдера под тело (у VK WorkSpace таких макетов нет вовсе)."""
+    box = manifest.content_bbox
+    return TextBlock(
+        block_id="free", role=role, text=text, size_pt=size_pt,
+        x=box.x, y=box.y, cx=box.cx, cy=box.cy,
+    )
+
+
+def test_free_block_with_little_text_grows_up_the_ladder(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Прогон 693d464d54fb: четыре строки кеглем тела в рамке на всю область контента.
+
+    Переполнения нет, и порядок деградации молчит — а слайд выглядит пустым.
+    """
+    layout = manifest.layout("L07")
+    assert layout is not None
+    body_step = manifest.typography(TextRole.BODY)
+    assert body_step is not None
+
+    grown = fit_block(free_block("Короткая мысль на слайде", manifest), layout, manifest,
+                      fonts=fonts)
+
+    assert grown.final_size_pt > body_step.size_pt, "блок остался жаться к верхнему краю"
+    assert grown.final_size_pt in manifest.size_ladder_pt, "кегль вне шкалы шаблона"
+    assert grown.strategy == "grow"
+    assert grown.overflow is False
+
+
+def test_growth_stops_below_the_title_size_of_this_template(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Тело вровень с заголовком стирает иерархию не хуже, чем тело крупнее него."""
+    from deckforge.domain.rules import next_size_down
+
+    layout = manifest.layout("L07")
+    assert layout is not None
+    title_step = manifest.typography(TextRole.TITLE)
+    assert title_step is not None
+    cap = next_size_down(manifest, title_step.size_pt) or title_step.size_pt
+
+    grown = fit_block(free_block("Два слова", manifest), layout, manifest, fonts=fonts)
+
+    assert grown.final_size_pt <= cap
+
+
+def test_block_that_fills_its_frame_is_left_alone(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Расти некуда: текст и так занимает рамку. Лишняя ступень — переполнение."""
+    layout = manifest.layout("L07")
+    assert layout is not None
+    long_text = "Плотный абзац про выручку и корпоративных клиентов. " * 40
+
+    fitted = fit_block(free_block(long_text, manifest), layout, manifest, fonts=fonts)
+
+    assert fitted.strategy != "grow"
+
+
+def test_placeholder_and_title_never_grow(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Плейсхолдер — решение автора шаблона; заголовок задаёт иерархию слайда."""
+    layout = manifest.layout("L07")
+    assert layout is not None
+    body_step = manifest.typography(TextRole.BODY)
+    assert body_step is not None
+
+    in_placeholder = TextBlock(
+        block_id="b", placeholder_idx=1, role=TextRole.BODY, text="Короткая мысль"
+    )
+    assert fit_block(in_placeholder, layout, manifest, fonts=fonts).strategy != "grow"
+
+    title = free_block("Короткий вывод", manifest, role=TextRole.TITLE)
+    assert fit_block(title, layout, manifest, fonts=fonts).strategy != "grow"
+
+    fixed = free_block("Короткая мысль", manifest, size_pt=body_step.size_pt)
+    assert fit_block(fixed, layout, manifest, fonts=fonts).strategy != "grow"

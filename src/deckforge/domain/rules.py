@@ -79,6 +79,17 @@ def next_size_down(manifest: TemplateManifest, current_pt: float) -> float | Non
     return max(smaller) if smaller else None
 
 
+def next_size_up(manifest: TemplateManifest, current_pt: float) -> float | None:
+    """Следующий кегль вверх по шкале шаблона.
+
+    Нужен там, где текста мало, а места много: свободный блок, занявший пятую часть
+    отведённой ему площади, набирается крупнее — это приём вёрстки, а не вольность.
+    Значения по-прежнему только из шкалы шаблона (ADR-002).
+    """
+    larger = [s for s in manifest.size_ladder_pt if s > current_pt]
+    return min(larger) if larger else None
+
+
 def choose_chart_type(
     *, series_count: int, category_count: int, is_time_series: bool, is_shares: bool
 ) -> ChartType:

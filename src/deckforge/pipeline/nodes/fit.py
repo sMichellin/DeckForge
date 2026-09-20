@@ -13,7 +13,7 @@ from deckforge.domain.rules import next_size_down
 from deckforge.domain.slide import Block, BulletsBlock, DeckIR, SlideIR, TextBlock
 from deckforge.domain.template import TemplateManifest
 from deckforge.layout.errors import LayoutFitError
-from deckforge.layout.fitting import SHORTEN, SPLIT, fit_slide
+from deckforge.layout.fitting import GROW, SHORTEN, SPLIT, fit_slide
 from deckforge.layout.fonts import FontLibrary
 from deckforge.pipeline.deps import Deps
 from deckforge.pipeline.nodes import timed
@@ -148,6 +148,12 @@ def _fit_shortening(
         )
 
     fitted, shrunk = _titles_yield_size(fitted, manifest, fonts, content)
+    grown = [
+        f"{fitted.slide_id}/{block_id}: кегль поднят до {fit.final_size_pt:g} pt — "
+        "текста было мало для отведённой рамки"
+        for block_id, fit in sorted(fitted.fit_report.items())
+        if fit.strategy == GROW
+    ]
 
     notes = [
         f"{fitted.slide_id}/{block_id}: текст сокращён, чтобы влезть"
@@ -159,7 +165,7 @@ def _fit_shortening(
         + ("" if not fitted.fit_report[block_id].overflow else " — и всё равно не влез")
         for block_id in sorted(touched)
     ]
-    notes += shrunk
+    notes += shrunk + grown
     return fitted, notes
 
 
