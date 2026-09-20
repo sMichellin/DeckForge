@@ -66,56 +66,50 @@ class HeadlineRewriter:
         `fits` меряет текст так же, как потом померяет вёрстка. `limit` — тот же предел
         в знаках, что назван планировщику: он уезжает в промпт, мерилом не служит.
 
-        До двух заходов на заголовок, и только на те, что не уместились: на прогоне
-        `34272d11db06` это шесть вызовов дешёвой модели вместо десяти.
+        Заходов два и вызовов два: вся колода уходит одним запросом, второй заход —
+        тоже одним, для тех, кто не уместился. По вызову на заголовок стоило 130 с
+        стадии `plan` на однослотовом сервере (прогон e6e1f2283ca8).
+
+        `slots` не используется: вызов один, и делить нечего. Параметр остаётся ради
+        вызывающего — узел графа отдаёт ограничитель всем, кто ходит к модели.
         """
-        overlong = [slide for slide in plan.slides if not fits(slide.headline)]
-        if not overlong:
+        _ = slots
+        pending = [slide for slide in plan.slides if not fits(slide.headline)]
+        if not pending:
             return plan
 
-        gate = slots or asyncio.Semaphore(len(overlong))
-
-        async def one(slide: SlidePlan) -> tuple[str, str | None]:
-            async with gate:
-                return slide.slide_id, await self._best(slide, content, fits, limit, seed)
-
-        rewritten = dict(await asyncio.gather(*(one(slide) for slide in overlong)))
-
-        slides = [self._accept(slide, rewritten, fits) for slide in plan.slides]
-        return plan.model_copy(update={"slides": slides})
-
-    async def _best(
-        self,
-        slide: SlidePlan,
-        content: ContentPackage,
-        fits: Callable[[str], bool],
-        limit: int,
-        seed: int,
-    ) -> str | None:
-        """Лучший вариант заголовка за отведённые заходы.
-
-        Второй заход отличается от первого не настойчивостью, а сведениями: модели
-        называется промах в знаках — «твой вариант на 6 длиннее места». Повторить
-        ту же просьбу теми же словами значит получить тот же ответ (прогон 34272d11db06:
-        шесть заголовков из десяти не уместились и после первого захода).
-        """
-        best: str | None = None
-        miss: tuple[str, int] | None = None
+        best: dict[str, str] = {}
+        why: dict[str, str] = {
+            slide.slide_id: _why(slide.headline, limit, None) for slide in pending
+        }
         for attempt in range(_ATTEMPTS):
-            fresh = await self._rewrite(slide, content, limit, seed + attempt, miss)
-            if fresh is None:
+            fresh = await self._rewrite_batch(pending, content, limit, seed + attempt, why)
+            if not fresh:
                 break
-            if best is None or len(fresh) < len(best):
-                best = fresh
-            if fits(fresh):
-                return fresh
-            miss = (fresh, len(fresh) - limit)
-        return best
+            still: list[SlidePlan] = []
+            for slide in pending:
+                candidate = fresh.get(slide.slide_id)
+                if candidate is None:
+                    continue
+                current = best.get(slide.slide_id)
+                if current is None or len(candidate) < len(current):
+                    best[slide.slide_id] = candidate
+                if not fits(candidate):
+                    still.append(slide)
+                    why[slide.slide_id] = _why(
+                        slide.headline, limit, (candidate, len(candidate) - limit)
+                    )
+            pending = still
+            if not pending:
+                break
+
+        slides = [self._accept(slide, best, fits) for slide in plan.slides]
+        return plan.model_copy(update={"slides": slides})
 
     def _accept(
         self,
         slide: SlidePlan,
-        rewritten: dict[str, str | None],
+        rewritten: dict[str, str],
         fits: Callable[[str], bool],
     ) -> SlidePlan:
         """Брать ли переписанный заголовок вместо исходного.
@@ -124,13 +118,10 @@ class HeadlineRewriter:
         меньше слов. Не короче — значит модель не справилась, и менять один длинный
         заголовок на другой длинный незачем: исходный хотя бы написан по материалам.
         """
-        if slide.slide_id not in rewritten:
-            return slide
-
-        fresh = rewritten[slide.slide_id]
-        was = len(slide.headline)
+        fresh = rewritten.get(slide.slide_id)
         if fresh is None:
-            return slide  # причину уже назвал `_rewrite`
+            return slide
+        was = len(slide.headline)
         if fits(fresh):
             self._note(slide.slide_id, f"заголовок переписан под рамку: {was} → {len(fresh)}")
             return slide.model_copy(update={"headline": fresh})
@@ -148,28 +139,34 @@ class HeadlineRewriter:
         )
         return slide
 
-    async def _rewrite(
+    async def _rewrite_batch(
         self,
-        slide: SlidePlan,
+        slides: list[SlidePlan],
         content: ContentPackage,
         limit: int,
         seed: int,
-        miss: tuple[str, int] | None = None,
-    ) -> str | None:
-        """Один заголовок заново. `None` — модель не ответила; это не повод ронять прогон.
+        why: dict[str, str],
+    ) -> dict[str, str]:
+        """Заголовки всей пачки за один вызов. Пустой словарь — модель не ответила.
 
-        `miss` — предыдущий вариант и насколько он оказался длиннее места.
+        Модель может вернуть не все слайды или придумать чужой `slide_id`: лишнее
+        отбрасывается, недостающие остаются с прежним заголовком. Ронять из-за этого
+        прогон нельзя — колода соберётся и с подрезанным заголовком.
         """
-        facts = [fact for ref in slide.fact_refs if (fact := content.fact(ref)) is not None]
         bundle = get_prompt_registry().load("headline_writer", profile=self.profile)
-        system, user = bundle.render(
-            max_chars=limit,
-            language=content.brief.language,
-            current_headline=slide.headline,
-            finding_message=_why(slide.headline, limit, miss),
-            slide_text=slide.speaker_note or "",
-            facts=facts,
-        )
+        items = [
+            {
+                "slide_id": slide.slide_id,
+                "headline": slide.headline,
+                "limit": limit,
+                "why": why[slide.slide_id],
+                "facts": [
+                    fact for ref in slide.fact_refs if (fact := content.fact(ref)) is not None
+                ],
+            }
+            for slide in slides
+        ]
+        system, user = bundle.render(items=items, language=content.brief.language)
         call = partial(
             generate_json,
             self.llm,
@@ -180,7 +177,7 @@ class HeadlineRewriter:
             temperature=bundle.meta.temperature,
             top_p=bundle.meta.top_p,
             max_tokens=bundle.meta.max_tokens,
-            schema_name="Headline",
+            schema_name="Headlines",
             skill_ref=bundle.ref,
         )
         try:
@@ -188,13 +185,19 @@ class HeadlineRewriter:
         except InferenceError as error:
             # Заголовок, который не уместился, — не отказ прогона: колода соберётся
             # и с подрезанным. Причина уезжает в отчёт, а не в трейсбек.
-            self._note(slide.slide_id, f"модель не переписала заголовок: {error}")
-            return None
-        headline = str(data.get("headline") or "").strip()
-        if not headline:
-            self._note(slide.slide_id, "модель вернула пустой заголовок — оставлен исходный")
-            return None
-        return headline
+            self.notes.append(f"заголовки переписать не удалось: {error}")
+            return {}
+
+        known = {slide.slide_id for slide in slides}
+        out: dict[str, str] = {}
+        for row in data.get("headlines") or []:
+            if not isinstance(row, dict):
+                continue
+            slide_id = str(row.get("slide_id") or "")
+            headline = str(row.get("headline") or "").strip()
+            if slide_id in known and headline:
+                out[slide_id] = headline
+        return out
 
     def _note(self, slide_id: str, text: str) -> None:
         self.notes.append(f"слайд {slide_id}: {text}")

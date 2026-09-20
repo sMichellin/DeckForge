@@ -35,9 +35,11 @@ class FakeLlm:
     def __init__(self, payload: dict[str, Any]) -> None:
         self.payload = payload
         self.messages: list[dict[str, Any]] = []
+        self.calls = 0
 
     def complete(self, messages: list[dict[str, Any]], **kwargs: Any) -> Completion:
         self.messages = messages
+        self.calls += 1
         return Completion(text=json.dumps(self.payload, ensure_ascii=False), model=self.model)
 
     @property
@@ -375,6 +377,11 @@ def plan_with(*headlines: str) -> DeckPlan:
     )
 
 
+def headlines(*pairs: tuple[str, str]) -> dict[str, Any]:
+    """Ответ скилла `headline_writer@1.1.0`: список пар slide_id → заголовок."""
+    return {"headlines": [{"slide_id": sid, "headline": text} for sid, text in pairs]}
+
+
 def shorter_than(limit: int):
     """Мерило узла графа, подделанное длиной: слой планирования о рамках не знает."""
     return lambda text: len(text) <= limit
@@ -397,7 +404,7 @@ def test_headline_that_did_not_fit_is_rewritten_not_trimmed(content: ContentPack
 
     Обрубок теряет вывод, ради которого заголовок и писался, — переписывает модель.
     """
-    llm = FakeLlm({"headline": "Выручка выросла на 37 %"})
+    llm = FakeLlm(headlines(("s01", "Выручка выросла на 37 %")))
     plan = plan_with("Выручка выросла на 37 % за счёт корпоративных клиентов")
     out, rewriter = rewrite(plan, content, llm)
 
@@ -407,7 +414,7 @@ def test_headline_that_did_not_fit_is_rewritten_not_trimmed(content: ContentPack
 
 def test_headline_that_fits_is_not_touched(content: ContentPackage) -> None:
     """Лишний вызов модели на слайд — это время прогона, потраченное впустую."""
-    llm = FakeLlm({"headline": "Что-то другое"})
+    llm = FakeLlm(headlines(("s01", "Что-то другое")))
     out, rewriter = rewrite(plan_with("Выручка выросла на 37 %"), content, llm)
 
     assert out.slides[0].headline == "Выручка выросла на 37 %"
@@ -418,7 +425,7 @@ def test_headline_that_fits_is_not_touched(content: ContentPackage) -> None:
 def test_rewrite_that_is_no_shorter_keeps_the_original(content: ContentPackage) -> None:
     """Менять один длинный заголовок на другой длинный незачем: исходный хотя бы по фактам."""
     long_headline = "Выручка выросла на 37 % за счёт корпоративных клиентов"
-    llm = FakeLlm({"headline": long_headline + " и новых рынков"})
+    llm = FakeLlm(headlines(("s01", long_headline + " и новых рынков")))
     out, rewriter = rewrite(plan_with(long_headline), content, llm)
 
     assert out.slides[0].headline == long_headline
@@ -439,7 +446,7 @@ def test_model_failure_does_not_break_the_run(content: ContentPackage) -> None:
     out, rewriter = rewrite(plan_with(long_headline), content, Broken())
 
     assert out.slides[0].headline == long_headline
-    assert any("не переписала заголовок" in note for note in rewriter.notes)
+    assert any("переписать не удалось" in note for note in rewriter.notes)
 
 
 # --- заказ визуализации ------------------------------------------------------
@@ -523,15 +530,16 @@ class SequenceLlm:
 
     model = "fake"
 
-    def __init__(self, *headlines: str) -> None:
-        self.headlines = list(headlines)
+    def __init__(self, *by_attempt: str) -> None:
+        self.by_attempt = list(by_attempt)
         self.prompts: list[str] = []
 
     def complete(self, messages: list[dict[str, Any]], **kwargs: Any) -> Completion:
         self.prompts.append("\n".join(str(m.get("content", "")) for m in messages))
-        text = self.headlines[min(len(self.prompts) - 1, len(self.headlines) - 1)]
-        return Completion(text=json.dumps({"headline": text}, ensure_ascii=False),
-                          model=self.model)
+        text = self.by_attempt[min(len(self.prompts) - 1, len(self.by_attempt) - 1)]
+        return Completion(
+            text=json.dumps(headlines(("s01", text)), ensure_ascii=False), model=self.model
+        )
 
 
 def test_second_attempt_tells_the_model_how_much_it_missed(content: ContentPackage) -> None:
@@ -566,3 +574,47 @@ def test_two_failures_keep_the_shortest_variant(content: ContentPackage) -> None
     assert len(llm.prompts) == 2
     assert out.slides[0].headline == "Чуть покороче, но всё длинно", "взят не самый короткий"
     assert any("не встал" in note for note in rewriter.notes)
+
+
+def test_whole_deck_is_rewritten_in_one_call(content: ContentPackage) -> None:
+    """Прогон e6e1f2283ca8: пятнадцать одиночных вызовов стоили 130 с стадии `plan`.
+
+    Сервер локальной модели однослотовый — параллелить нечего, и каждый вызов идёт
+    в очередь за предыдущим.
+    """
+    from deckforge.domain.plan import SlidePlan
+
+    plan = DeckPlan(
+        deck_id="d1", variant="A", seed=1,
+        slides=[
+            SlidePlan(slide_id=f"s{i:02d}", intent=SlideIntent.PROBLEM,
+                      headline=f"Очень длинный заголовок слайда номер {i}", fact_refs=["f001"])
+            for i in range(1, 6)
+        ],
+    )
+    llm = FakeLlm(headlines(*((f"s{i:02d}", f"Короткий вывод {i}") for i in range(1, 6))))
+    out, _ = rewrite(plan, content, llm)
+
+    assert llm.calls == 1, "вызовов больше одного на всю колоду"
+    assert [s.headline for s in out.slides] == [f"Короткий вывод {i}" for i in range(1, 6)]
+
+
+def test_slide_the_model_forgot_keeps_its_headline(content: ContentPackage) -> None:
+    """Модель может вернуть не все слайды — ронять из-за этого прогон нельзя."""
+    from deckforge.domain.plan import SlidePlan
+
+    plan = DeckPlan(
+        deck_id="d1", variant="A", seed=1,
+        slides=[
+            SlidePlan(slide_id="s01", intent=SlideIntent.PROBLEM,
+                      headline="Очень длинный заголовок первого слайда", fact_refs=["f001"]),
+            SlidePlan(slide_id="s02", intent=SlideIntent.PROBLEM,
+                      headline="Очень длинный заголовок второго слайда", fact_refs=["f001"]),
+        ],
+    )
+    # В ответе только первый слайд и один чужой идентификатор.
+    llm = FakeLlm(headlines(("s01", "Короткий вывод"), ("s99", "Чужой слайд")))
+    out, _ = rewrite(plan, content, llm)
+
+    assert out.slides[0].headline == "Короткий вывод"
+    assert out.slides[1].headline == "Очень длинный заголовок второго слайда"

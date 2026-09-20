@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "headlines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "slide_id": { "type": "string", "minLength": 1 },
+          "headline": { "type": "string", "minLength": 1 }
+        },
+        "required": ["slide_id", "headline"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["headlines"],
+  "additionalProperties": false
+}
