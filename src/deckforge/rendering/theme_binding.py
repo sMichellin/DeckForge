@@ -30,6 +30,29 @@ THEME_COLORS: dict[ColorRef, MSO_THEME_COLOR] = {
     ColorRef.FOL_HLINK: MSO_THEME_COLOR.FOLLOWED_HYPERLINK,
 }
 
+#: Как слот темы называется в атрибуте `a:schemeClr/@val`. Имена там свои: тёмный
+#: и светлый слоты в слайде зовутся `tx1`/`bg1`, а не `dk1`/`lt1`.
+_SCHEME_TOKENS: dict[ColorRef, str] = {
+    ColorRef.DK1: "tx1",
+    ColorRef.LT1: "bg1",
+    ColorRef.DK2: "tx2",
+    ColorRef.LT2: "bg2",
+    ColorRef.ACCENT1: "accent1",
+    ColorRef.ACCENT2: "accent2",
+    ColorRef.ACCENT3: "accent3",
+    ColorRef.ACCENT4: "accent4",
+    ColorRef.ACCENT5: "accent5",
+    ColorRef.ACCENT6: "accent6",
+    ColorRef.HLINK: "hlink",
+    ColorRef.FOL_HLINK: "folHlink",
+}
+
+
+def scheme_token(ref: ColorRef) -> str:
+    """Значение `a:schemeClr/@val` для слота темы — там, где python-pptx не помогает."""
+    return _SCHEME_TOKENS[ref]
+
+
 #: Ссылки на шрифты темы в `a:latin/@typeface`: PowerPoint подставляет гарнитуру темы сам.
 _FONT_TOKENS: dict[FontRef, str] = {
     FontRef.MAJOR_LATIN: "+mj-lt",

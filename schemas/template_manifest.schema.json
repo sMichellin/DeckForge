@@ -34,6 +34,63 @@
       "title": "BBox",
       "type": "object"
     },
+    "BulletStyle": {
+      "additionalProperties": false,
+      "description": "Маркер списка первого уровня — часть дизайн-системы шаблона, а не наш вкус.\n\nСвободный текстбокс в OOXML не наследует ни знака, ни отступа: родителя-плейсхолдера\nу него нет. Без этих сведений список выглядит набором абзацев (прогон 2ac85990b2f2).\nШаблон, который маркера не задаёт, остаётся без маркера: дорисовывать «типовую точку»\nзначит придумывать чужой дизайн.",
+      "properties": {
+        "char": {
+          "description": "Знак маркера из buChar",
+          "maxLength": 4,
+          "minLength": 1,
+          "title": "Char",
+          "type": "string"
+        },
+        "font": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Гарнитура знака из buFont",
+          "title": "Font"
+        },
+        "color_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ColorRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Цвет — слотом темы (ADR-002)"
+        },
+        "margin_left_emu": {
+          "default": 0,
+          "description": "marL: отступ абзаца",
+          "minimum": 0,
+          "title": "Margin Left Emu",
+          "type": "integer"
+        },
+        "indent_emu": {
+          "default": 0,
+          "description": "indent: вынос маркера, ≤ 0",
+          "maximum": 0,
+          "title": "Indent Emu",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "char"
+      ],
+      "title": "BulletStyle",
+      "type": "object"
+    },
     "ChartDefaults": {
       "additionalProperties": false,
       "properties": {
@@ -913,6 +970,17 @@
     },
     "decor": {
       "$ref": "#/$defs/Decor"
+    },
+    "bullet": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BulletStyle"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "chart_defaults": {
       "$ref": "#/$defs/ChartDefaults"

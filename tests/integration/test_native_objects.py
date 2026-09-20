@@ -834,3 +834,77 @@ def test_switching_the_template_recolors_components_and_icons(
     strip = re.compile(r'<a:schemeClr val="(?:dk1|lt1)"/>')
     assert ([strip.sub("", x) for x in slide_xml(first).values()]
             == [strip.sub("", x) for x in slide_xml(second).values()])
+
+
+def master_with_coloured_bullet(src: Path, dst: Path) -> Path:
+    """Мастер, где маркер списка покрашен слотом темы.
+
+    Стандартный шаблон python-pptx маркер объявляет (`buChar "•"` гарнитурой Arial),
+    но цвет ему не задаёт. Цвет маркера есть у «Шаблона презентации 2024» из датасета —
+    подменой воспроизводится именно этот случай.
+    """
+    return rewrite_part(
+        src, dst, "ppt/slideMasters/slideMaster1.xml",
+        lambda xml: re.sub(
+            r"(<p:bodyStyle><a:lvl1pPr[^>]*>)",
+            r'\g<1><a:buClr><a:schemeClr val="accent6"/></a:buClr>',
+            xml, count=1,
+        ),
+    )
+
+
+def test_free_bullets_get_the_marker_of_the_template(template: Path, tmp_path: Path) -> None:
+    """Прогон 2ac85990b2f2: тезисы в свободном блоке читались как абзацы.
+
+    Текстбокс не наследует ни знака, ни отступа: плейсхолдера-родителя у него нет.
+    """
+    marked = master_with_coloured_bullet(template, tmp_path / "marked.pptx")
+    manifest = parse(marked, tmp_path)
+    assert manifest.bullet is not None, "маркер мастера не доехал до манифеста"
+
+    body_pt = next(s.size_pt for s in manifest.typography_scale if s.role is TextRole.BODY)
+    free = BulletsBlock(
+        block_id="fb",
+        items=[BulletItem(text="Первый довод"), BulletItem(text="Второй довод")],
+        **region(manifest, 1, 2),
+    )
+    deck = visual_deck(manifest)
+    slide = deck.slides[0]
+    deck = deck.model_copy(update={"slides": [slide.model_copy(update={
+        "blocks": [*slide.blocks, free],
+        "fit_report": {**slide.fit_report, "fb": FitResult(final_size_pt=body_pt)},
+    })]})
+
+    out = PptxWriter(marked, manifest).write(deck, tmp_path / "deck.pptx")
+    box = next(
+        shape for shape in Presentation(str(out)).slides[0].shapes
+        if shape.has_text_frame and "Первый довод" in shape.text_frame.text
+    )
+    xml = box._element.xml
+
+    assert xml.count('<a:buChar char="•"/>') == 2, "маркер стоит не у каждого тезиса"
+    assert '<a:buFont typeface="Arial"/>' in xml
+    assert '<a:schemeClr val="accent6"/>' in xml, "цвет маркера — литералом вместо слота темы"
+    assert 'indent="-' in xml, "без выноса маркер налезает на текст"
+
+
+def test_plain_text_gets_no_marker(template: Path, tmp_path: Path) -> None:
+    """Маркер — свойство списка. Абзац, ставший списком, был бы чужим решением."""
+    marked = master_with_coloured_bullet(template, tmp_path / "marked2.pptx")
+    manifest = parse(marked, tmp_path)
+    body_pt = next(s.size_pt for s in manifest.typography_scale if s.role is TextRole.BODY)
+    note = TextBlock(block_id="n", role=TextRole.BODY, text="Сплошной абзац",
+                     **region(manifest, 1, 2))
+    deck = visual_deck(manifest)
+    slide = deck.slides[0]
+    deck = deck.model_copy(update={"slides": [slide.model_copy(update={
+        "blocks": [*slide.blocks, note],
+        "fit_report": {**slide.fit_report, "n": FitResult(final_size_pt=body_pt)},
+    })]})
+
+    out = PptxWriter(marked, manifest).write(deck, tmp_path / "deck.pptx")
+    box = next(
+        shape for shape in Presentation(str(out)).slides[0].shapes
+        if shape.has_text_frame and "Сплошной абзац" in shape.text_frame.text
+    )
+    assert "buChar" not in box._element.xml

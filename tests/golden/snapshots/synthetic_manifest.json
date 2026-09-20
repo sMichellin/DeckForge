@@ -1,4 +1,5 @@
 {
+  "bullet": null,
   "chart_defaults": {
     "series_color_refs": [
       "accent1",
@@ -208,7 +209,7 @@
       "shapes": []
     }
   ],
-  "parser_version": "1.2.0",
+  "parser_version": "1.3.0",
   "slide_size": {
     "aspect": "16:9",
     "cx_emu": 12192000,

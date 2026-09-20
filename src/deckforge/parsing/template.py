@@ -29,6 +29,7 @@ from deckforge.parsing.capacity import compute_capacity
 from deckforge.parsing.grid import infer_grid
 from deckforge.parsing.layout_kind import LayoutClassifier
 from deckforge.parsing.ooxml.background import full_bleed_blip, parse_background
+from deckforge.parsing.ooxml.bullets import parse_bullet
 from deckforge.parsing.ooxml.decor import extract_decor
 from deckforge.parsing.ooxml.layouts import parse_shapes, resolve_placeholders
 from deckforge.parsing.ooxml.theme import parse_theme
@@ -40,7 +41,7 @@ from deckforge.parsing.typography import (
     observations_from_text_styles,
 )
 
-PARSER_VERSION = "1.2.0"
+PARSER_VERSION = "1.3.0"  # 1.3.0 — маркер списка из мастера
 
 #: Цвета серий диаграмм по умолчанию: акценты темы в порядке схемы.
 #: Благодаря этому диаграмма перекрашивается вместе со сменой шаблона (ADR-002).
@@ -186,6 +187,7 @@ class TemplateParser:
             grid=infer_grid(layouts, slide_size, pkg.read_optional("ppt/viewProps.xml")),
             layouts=layouts,
             decor=self._read_decor(pkg, masters[0], cx, cy),
+            bullet=parse_bullet(pkg.read(masters[0]), theme.colors),
             chart_defaults=ChartDefaults(series_color_refs=list(_SERIES_REFS)),
             parser_version=PARSER_VERSION,
         )

@@ -262,6 +262,22 @@ class Decor(DomainModel):
     static_shapes: list[StaticShape] = Field(default_factory=list)
 
 
+class BulletStyle(DomainModel):
+    """Маркер списка первого уровня — часть дизайн-системы шаблона, а не наш вкус.
+
+    Свободный текстбокс в OOXML не наследует ни знака, ни отступа: родителя-плейсхолдера
+    у него нет. Без этих сведений список выглядит набором абзацев (прогон 2ac85990b2f2).
+    Шаблон, который маркера не задаёт, остаётся без маркера: дорисовывать «типовую точку»
+    значит придумывать чужой дизайн.
+    """
+
+    char: str = Field(min_length=1, max_length=4, description="Знак маркера из buChar")
+    font: str | None = Field(default=None, description="Гарнитура знака из buFont")
+    color_ref: ColorRef | None = Field(default=None, description="Цвет — слотом темы (ADR-002)")
+    margin_left_emu: int = Field(default=0, ge=0, description="marL: отступ абзаца")
+    indent_emu: int = Field(default=0, le=0, description="indent: вынос маркера, ≤ 0")
+
+
 class ChartDefaults(DomainModel):
     series_color_refs: list[ColorRef] = Field(default_factory=list)
 
@@ -277,6 +293,7 @@ class TemplateManifest(DomainModel):
     grid: Grid
     layouts: list[LayoutSpec]
     decor: Decor = Field(default_factory=Decor)
+    bullet: BulletStyle | None = None
     chart_defaults: ChartDefaults = Field(default_factory=ChartDefaults)
     parser_version: str
 
