@@ -204,6 +204,44 @@ def test_findings_are_grouped_by_slide_in_order() -> None:
     assert [f["finding_id"] for f in grouped["s02"]] == ["f1", "f3"]
 
 
+# --- профиль прогона ---------------------------------------------------------
+
+
+def test_profiles_come_from_the_service() -> None:
+    """Имён профилей в интерфейсе нет: он их спрашивает."""
+    api = service(lambda request: httpx.Response(200, json={"profiles": ["demo", "dev"]}))
+
+    assert api.profiles() == ["demo", "dev"]
+
+
+def test_dead_service_leaves_the_sidebar_alive() -> None:
+    """Панель рисуется даже при мёртвом сервисе — в ней поле с его адресом.
+
+    Если бы отказ долетал до разметки, человек, ошибившийся адресом, не смог бы
+    его исправить: страница падала бы раньше, чем покажет поле ввода.
+    """
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("Connection refused")
+
+    assert service(refuse).profiles() == []
+
+
+def test_garbage_instead_of_profiles_is_not_a_crash() -> None:
+    api = service(lambda request: httpx.Response(200, json={"profiles": None}))
+
+    assert api.profiles() == []
+
+
+def test_default_choice_travels_as_no_profile() -> None:
+    """«По умолчанию» — это отсутствие выбора, а не профиль с таким именем."""
+    from frontend.app import NO_PROFILE, chosen_profile
+
+    assert chosen_profile({"profile": NO_PROFILE}) is None
+    assert chosen_profile({}) is None
+    assert chosen_profile({"profile": "demo"}) == "demo"
+
+
 # --- разметка: только то, что видно без глаз ---------------------------------
 
 

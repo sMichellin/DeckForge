@@ -27,7 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from deckforge.api.queue import RESUME_JOB, RUN_JOB, ArqQueue, Queue
 from deckforge.api.schemas import FindingView, FixSelection, RunCreated, RunRequest, RunStatus
 from deckforge.api.store import FINAL_STATES, RunStore
-from deckforge.config import get_settings
+from deckforge.config import available_profiles, get_settings
 
 #: Форматы экспорта и их типы. Список закрыт: отдавать по имени расширения что угодно
 #: из каталога прогона значило бы раздавать чекпойнт и загруженные материалы.
@@ -89,8 +89,22 @@ def _router(store: RunStore, queue: Queue) -> APIRouter:
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    @router.get("/profiles")
+    async def profiles() -> dict[str, list[str]]:
+        """Какие профили прогона есть. Интерфейсу — чтобы не знать их наперечёт."""
+        return {"profiles": available_profiles()}
+
     @router.post("/runs", status_code=201)
     async def create_run(request: RunRequest) -> RunCreated:
+        # Опечатку в имени профиля ловим здесь, а не через 150 секунд прогона:
+        # `load_run_config` несуществующий файл молча пропускает, и человек получил бы
+        # базовый конфиг вместо запрошенного, не узнав об этом.
+        known_profiles = available_profiles()
+        if request.profile is not None and request.profile not in known_profiles:
+            raise HTTPException(
+                status_code=400,
+                detail=f"профиль {request.profile} не найден: есть {', '.join(known_profiles)}",
+            )
         run_id = store.create(request=request.model_dump(mode="json"))
         return RunCreated(run_id=run_id)
 

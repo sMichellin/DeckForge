@@ -91,8 +91,14 @@ async def _work(run_id: str, store: RunStore, *, selected: list[str] | None) -> 
 
 
 def _prepare(request: dict[str, Any], paths: Any) -> tuple[Any, Any]:
-    """Зависимости прогона по запросу. Живые клиенты собирает `pipeline.build_deps`."""
-    run = load_run_config()
+    """Зависимости прогона по запросу. Живые клиенты собирает `pipeline.build_deps`.
+
+    Профилей здесь два, и это разные вещи. `run_profile` — набор настроек прогона
+    (`configs/profiles/*.yaml`): им включается смысловой аудит, им же задаются форматы
+    и модели. `profile` ниже — вариант вёрстки A/B/C, который уедет в граф.
+    """
+    run_profile = request.get("profile")
+    run = load_run_config(profile=str(run_profile) if run_profile else None)
     brief = Brief(
         purpose=str(request.get("purpose", "report")),
         audience=str(request.get("audience", "правление")),

@@ -28,6 +28,13 @@ class RunRequest(BaseModel):
     seed: int = 1337
     #: Останавливаться ли на выборе фиксов. Выключено — граф чинит по конфигу и не ждёт.
     interactive: bool = True
+    #: Профиль прогона: `configs/profiles/<profile>.yaml` поверх `default.yaml`.
+    #: `None` — только база, как было до change (24). Имя проверяет маршрут: здесь
+    #: нельзя, DTO не ходит на диск.
+    #:
+    #: Не путать с `variant`: тот выбирает вариант вёрстки (A/B/C), этот — набор
+    #: настроек прогона (аудит, форматы, модели). Слова «профиль» в коде два.
+    profile: str | None = None
 
 
 class FindingView(BaseModel):

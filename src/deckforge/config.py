@@ -75,6 +75,19 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return out
 
 
+def available_profiles() -> list[str]:
+    """Имена профилей, которые лежат в `configs/profiles/`.
+
+    Список берётся с диска, а не из кода: профиль — это файл (C11), и знать их
+    наперечень не должен ни API, ни интерфейс. Добавили `configs/profiles/<имя>.yaml` —
+    он сразу доступен, без правки кода.
+    """
+    directory = CONFIGS_DIR / "profiles"
+    if not directory.is_dir():
+        return []
+    return sorted(path.stem for path in directory.glob("*.yaml"))
+
+
 def load_run_config(profile: str | None = None, config_path: Path | None = None) -> RunConfig:
     """`default.yaml` + `profiles/<profile>.yaml`. Профиль переопределяет базу."""
     base = load_yaml(config_path or CONFIGS_DIR / "default.yaml")

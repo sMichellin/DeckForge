@@ -19,10 +19,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from deckforge.api.app import create_app
-from deckforge.api.jobs import _finish, _with_relative_boxes
+from deckforge.api.jobs import _finish, _prepare, _with_relative_boxes
 from deckforge.api.queue import RESUME_JOB, RUN_JOB, InlineQueue
 from deckforge.api.store import RunStore, progress_of
 from deckforge.api.worker import WorkerSettings
+from deckforge.config import load_run_config
 from deckforge.domain.template import TemplateManifest
 from deckforge.pipeline import RunResult
 
@@ -67,6 +68,66 @@ def start_run(client: TestClient, **fields: Any) -> str:
     assert template.status_code == 204
     assert client.put(f"/runs/{run_id}/content/brief.md", content=b"# brief").status_code == 204
     return str(run_id)
+
+
+# --- профиль прогона ---------------------------------------------------------
+
+
+def test_profiles_are_listed_from_disk(client: TestClient) -> None:
+    """Интерфейс не обязан знать имена профилей: их называет сервис."""
+    answer = client.get("/profiles")
+
+    assert answer.status_code == 200
+    assert set(answer.json()["profiles"]) >= {"demo", "dev", "final"}
+
+
+def test_requested_profile_is_remembered(client: TestClient, store: RunStore) -> None:
+    created = client.post("/runs", json={"variant": "A", "profile": "demo"})
+
+    assert created.status_code == 201
+    assert store.request(created.json()["run_id"])["profile"] == "demo"
+
+
+def test_run_without_profile_stays_on_the_base_config(
+    client: TestClient, store: RunStore
+) -> None:
+    """Молчание — это «как было»: `default.yaml` и ничего сверху."""
+    created = client.post("/runs", json={"variant": "A"})
+
+    assert created.status_code == 201
+    assert store.request(created.json()["run_id"])["profile"] is None
+
+
+def test_unknown_profile_is_refused_before_the_run(client: TestClient) -> None:
+    """Отказ сразу, а не через 150 секунд прогона по молча подставленной базе."""
+    answer = client.post("/runs", json={"variant": "A", "profile": "нет-такого"})
+
+    assert answer.status_code == 400
+    assert "нет-такого" in answer.json()["detail"]
+    assert "demo" in answer.json()["detail"]
+
+
+def test_profile_reaches_the_run_config(tmp_path: Path) -> None:
+    """Главное в change: профиль доезжает до `load_run_config`, а не теряется в API.
+
+    `demo` включает смысловой аудит — ради него профиль из интерфейса и понадобился.
+    """
+    seen: dict[str, Any] = {}
+
+    def spy(profile: str | None = None, **_: Any) -> Any:
+        seen["profile"] = profile
+        return load_run_config(profile)
+
+    store = RunStore(tmp_path / "runs")
+    run_id = store.create(request={"variant": "A", "profile": "demo"})
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("deckforge.api.jobs.load_run_config", spy)
+        patch.setattr("deckforge.api.jobs.build_deps", lambda *a, **k: SimpleNamespace())
+        _prepare(store.request(run_id), store.paths(run_id))
+
+    assert seen["profile"] == "demo"
+    assert load_run_config("demo").audit["run_semantic"] is True
 
 
 # --- путь пользователя -------------------------------------------------------

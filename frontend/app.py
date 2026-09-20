@@ -35,6 +35,10 @@ STATE_LABELS: dict[str, str] = {
 }
 EXPORT_LABELS: dict[str, str] = {"pptx": "PowerPoint", "pdf": "PDF", "html": "HTML"}
 
+#: Профиль не выбран — прогон идёт по `configs/default.yaml`. Это не имя файла,
+#: а отсутствие выбора, поэтому в запрос уезжает `None`, а не эта строка.
+NO_PROFILE = "по умолчанию"
+
 
 def client() -> DeckForgeClient:
     base = st.session_state.get("base_url") or os.environ.get(
@@ -76,6 +80,11 @@ def sidebar() -> dict[str, Any]:
         "target_slides": st.number_input("Слайдов", min_value=1, max_value=60, value=12),
         "language": st.selectbox("Язык", ["ru", "en"]),
         "seed": st.number_input("Seed", value=1337, help="Один и тот же seed даёт ту же колоду"),
+        "profile": st.selectbox(
+            "Профиль прогона",
+            [NO_PROFILE, *known_profiles()],
+            help="demo и final включают смысловой аудит; dev — быстрая итерация",
+        ),
         # Выключенный флажок означает «чини по конфигу и не спрашивай»: так прогон
         # не остановится посреди записи демо, если смотреть за ним некому.
         "interactive": st.checkbox("Спросить меня перед починкой находок", value=True),
@@ -85,6 +94,28 @@ def sidebar() -> dict[str, Any]:
         if st.button("Начать заново", use_container_width=True):
             forget_run()
     return settings
+
+
+def known_profiles() -> list[str]:
+    """Профили с сервиса, спрошенные один раз за сеанс.
+
+    Боковая панель рисуется раньше, чем человек добрался до кнопки, — и рисоваться
+    она обязана даже при мёртвом сервисе: именно в ней поле с его адресом. Поэтому
+    отказ здесь превращается в пустой список, а не в ошибку страницы.
+    """
+    base = st.session_state.get("base_url")
+    # Пустой ответ не запоминаем: сервис мог быть недоступен, а человек тут же
+    # поправил адрес — на следующей перерисовке спросим снова.
+    if st.session_state.get("_profiles_base") != base or not st.session_state.get("_profiles"):
+        st.session_state["_profiles"] = client().profiles()
+        st.session_state["_profiles_base"] = base
+    return list(st.session_state["_profiles"])
+
+
+def chosen_profile(settings: dict[str, Any]) -> str | None:
+    """Выбранный профиль или `None`, если человек оставил «по умолчанию»."""
+    picked = str(settings.get("profile") or NO_PROFILE)
+    return None if picked == NO_PROFILE else picked
 
 
 def upload_form(settings: dict[str, Any]) -> None:
@@ -126,6 +157,7 @@ def send(settings: dict[str, Any], template: Any, materials: list[Any]) -> str:
         language=str(settings["language"]),
         seed=int(settings["seed"]),
         interactive=bool(settings["interactive"]),
+        profile=chosen_profile(settings),
     )
     api.upload_template(run_id, template.name, template.getvalue())
     for item in materials:

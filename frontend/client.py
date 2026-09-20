@@ -44,6 +44,22 @@ class DeckForgeClient:
             self._http = httpx.Client(base_url=self.base_url, timeout=self.timeout_s)
         return self._http
 
+    # --- справочники ---------------------------------------------------------
+
+    def profiles(self) -> list[str]:
+        """Профили прогона. Пустой список — сервис недоступен или их нет.
+
+        Отказ здесь не ошибка пользователя: список нужен, чтобы наполнить выпадашку,
+        и без него интерфейс обязан остаться живым. Иначе упавший сервис не даст
+        даже исправить адрес, по которому до него стучатся.
+        """
+        try:
+            payload = self._json(self.http.get("/profiles"))
+        except Exception:
+            return []
+        names = payload.get("profiles") if isinstance(payload, dict) else None
+        return [str(name) for name in names or []]
+
     # --- прогон --------------------------------------------------------------
 
     def create_run(self, **fields: Any) -> str:
