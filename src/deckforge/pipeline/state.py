@@ -62,6 +62,8 @@ class DeckState(TypedDict, total=False):
     previews: dict[str, Path]
     #: `layout_id` → путь к png пустого макета: оформление шаблона без содержания (C9).
     layout_previews: dict[str, Path]
+    #: Превью слайдов-примеров шаблона, из кэша по `template_id` (DS7).
+    example_previews: list[Path]
     #: `slide_id` → метрики оформления слайда (C7). Есть у каждого слайда, а не только
     #: у нарушителей: иначе колоды между прогонами не сравнить.
     design_metrics: dict[str, dict[str, float]]

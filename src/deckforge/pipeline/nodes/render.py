@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 from functools import partial
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from deckforge.audit.preview import (
     SofficeUnavailableError,
     render_deck_previews,
     render_layout_previews,
+    render_previews,
 )
 from deckforge.export.pptx import export_pptx
 from deckforge.pipeline.deps import Deps
@@ -25,6 +27,32 @@ from deckforge.pipeline.nodes import timed
 from deckforge.pipeline.state import DeckState
 
 DECK_FILENAME = "deck.pptx"
+
+
+#: Каталог превью слайдов-примеров внутри кэша. Разрешение то же, что у превью колоды:
+#: профиль и колода обязаны мериться одной линейкой.
+EXAMPLES_DIR = "example-previews"
+
+
+def example_previews_of(template_path: Path, template_id: str, cache_root: Path) -> list[Path]:
+    """Превью слайдов-примеров шаблона: из кэша, а нет в кэше — один рендер шаблона.
+
+    Ключ — `template_id` (хэш файла), поэтому другой шаблон или его новая версия
+    рендерятся заново, а тот же шаблон — никогда больше. Рендер пишется во временный
+    каталог и переименовывается целиком: оборванный рендер не станет «готовым» кэшем.
+    """
+    target = cache_root / EXAMPLES_DIR / template_id.replace(":", "_")
+    if target.is_dir():
+        cached = sorted(target.glob("*.png"))
+        if cached:
+            return cached
+    staging = target.with_name(target.name + ".tmp")
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True, exist_ok=True)
+    render_previews(template_path, staging)
+    shutil.rmtree(target, ignore_errors=True)
+    staging.rename(target)
+    return sorted(target.glob("*.png"))
 
 
 async def render_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
@@ -37,6 +65,7 @@ async def render_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     degradations: list[str] = []
     previews: dict[str, Path] = {}
     layout_previews: dict[str, Path] = {}
+    example_previews: list[Path] = []
 
     # Превью нужны не только судье-VLM: по картинке слайда считаются метрики оформления
     # (`design.ink_balance`), а они детерминированные и идут всегда. Рендер десяти
@@ -101,10 +130,32 @@ async def render_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
                     "посчитают декор шаблона содержанием"
                 )
 
+        # Слайды-примеры шаблона (DS7): по ним аудит строит профиль «родного» слайда.
+        # Рендер примеров стоит десятки секунд (у VK Tech их 54), поэтому он делается
+        # один раз на шаблон и лежит в кэше рядом с манифестами. Неудача — оговорка:
+        # без профиля проверка уйдёт в пропущенные, а колода соберётся.
+        manifest = state.get("manifest")
+        if previews and manifest is not None and manifest.examples:
+            try:
+                example_previews = await asyncio.to_thread(
+                    partial(
+                        example_previews_of,
+                        state["template_path"],
+                        manifest.template_id,
+                        deps.cache_dir or deps.previews_dir(),
+                    )
+                )
+            except Exception as error:
+                notes.append(
+                    f"превью слайдов-примеров шаблона не сняты ({error}): "
+                    "профиль оформления шаблона не построен"
+                )
+
     return {
         "pptx_path": pptx_path,
         "previews": previews,
         "layout_previews": layout_previews,
+        "example_previews": example_previews,
         "stage_timings_s": timings,
         "notes": notes,
         "degradations": degradations,

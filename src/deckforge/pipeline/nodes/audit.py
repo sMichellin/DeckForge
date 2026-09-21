@@ -61,6 +61,11 @@ def _design_tolerances(audit: dict[str, Any]) -> dict[str, float]:
     }
 
 
+def _read_examples(paths: list[Path]) -> list[bytes]:
+    """Картинки слайдов-примеров; пропавший файл пропускается, а не роняет аудит."""
+    return [path.read_bytes() for path in paths if path.is_file()]
+
+
 def _read_previews(previews: dict[str, Path]) -> dict[str, bytes]:
     out: dict[str, bytes] = {}
     for slide_id, path in previews.items():
@@ -74,6 +79,7 @@ async def audit_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     deps = runtime.context
     previews = state.get("previews") or {}
     layout_previews = state.get("layout_previews") or {}
+    example_paths = list(state.get("example_previews") or [])
 
     degradations: list[str] = []
     vlm = deps.vlm if deps.run.audit.get("run_semantic", True) else None
@@ -93,6 +99,7 @@ async def audit_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
             state["content"],
             previews=pngs,
             layout_previews=chrome,
+            example_previews=await asyncio.to_thread(_read_examples, example_paths),
             deck_path=state.get("pptx_path"),
             vlm=vlm,
         )
