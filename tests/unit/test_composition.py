@@ -1084,3 +1084,40 @@ async def test_lead_in_fact_is_not_called_lost(
     await composer.compose(plan_slide(fact_refs=["f003"]), lead, manifest, variant_a, seed=1)
 
     assert not any("не попали" in note for note in composer.notes)
+
+
+async def test_title_slide_is_asked_for_a_subtitle_from_the_brief(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Три прогона подряд: титул — один заголовок в углу, ниже пусто (смещение 0,50).
+
+    Факты у титула пусты по замыслу, и без брифа композитору не из чего писать
+    подзаголовок: он честно отдавал один заголовок.
+    """
+    payload = {
+        "slide_id": "s01", "layout_id": "L07", "variant": "A",
+        "blocks": [{"block_id": "b1", "type": "text", "placeholder_idx": 0,
+                    "role": "title", "text": "Итоги года"}],
+    }
+    llm = FakeLlm(payload)
+    await SlideComposer(llm).compose(
+        plan_slide(SlideIntent.TITLE, slide_id="s01", fact_refs=[]),
+        content, manifest, variant_a, seed=1,
+    )
+
+    assert "подзаголовок" in llm.prompt
+    assert content.brief.audience in llm.prompt, "аудитория из брифа не дошла до промпта"
+
+
+async def test_content_slide_is_not_asked_for_a_subtitle(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    payload = {
+        "slide_id": "s02", "layout_id": "L07", "variant": "A",
+        "blocks": [{"block_id": "b1", "type": "text", "placeholder_idx": 0,
+                    "role": "title", "text": "Вывод"}],
+    }
+    llm = FakeLlm(payload)
+    await SlideComposer(llm).compose(plan_slide(), content, manifest, variant_a, seed=1)
+
+    assert "титульный слайд" not in llm.prompt

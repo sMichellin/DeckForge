@@ -187,6 +187,7 @@ class SlideComposer:
             smartart_patterns=sorted(pattern.value for pattern in SUPPORTED_PATTERNS),
             capacity_ratio=variant.capacity_ratio(),
             language=content.brief.language,
+            brief=content.brief,
             preserve_wording=preserve_wording,
             chart_type=chart_type.value if chart_type else None,
             no_think=no_think,
