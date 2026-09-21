@@ -129,11 +129,36 @@ def smartart(pattern: str, items: list[str], box: BBox = BOX) -> SmartArtBlock:
 
 
 def test_short_labels_fit_at_the_body_size(manifest: TemplateManifest, fonts: FontLibrary) -> None:
-    block = smartart("process", ["Сбор", "Анализ", "Решение"])
-    fit = fit_smartart(block, BOX, manifest, fonts=fonts)
+    """В тесном узле подпись остаётся кеглем тела: расти ей некуда."""
+    flat = BBox(x=BOX.x, y=BOX.y, cx=BOX.cx, cy=int(1.2 * EMU_PER_CM))
+    block = smartart("process", ["Сбор", "Анализ", "Решение"], flat)
+    fit = fit_smartart(block, flat, manifest, fonts=fonts)
     assert not fit.overflow
     assert fit.final_size_pt == 18
     assert fit.strategy == "as_is"
+
+
+def test_labels_grow_while_the_node_has_room(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Прогон 8f420f2c6621: плитки 4 × 2,5 см, подпись мелким кеглем посередине.
+
+    То же правило, что для показателей (#87): кегль вверх по шкале, пока узел не занят
+    наполовину и каждое слово встаёт в строку целиком. Потолок — ступень под заголовком.
+    """
+    from deckforge.domain.enums import TextRole
+    from deckforge.domain.rules import next_size_down
+
+    block = smartart("process", ["Сбор", "Анализ", "Решение"])
+    fit = fit_smartart(block, BOX, manifest, fonts=fonts)
+    title = manifest.typography(TextRole.TITLE)
+    assert title is not None
+    cap = next_size_down(manifest, title.size_pt) or title.size_pt
+
+    assert not fit.overflow
+    assert fit.final_size_pt > 18 and fit.strategy == "grow"
+    assert fit.final_size_pt <= cap
+    assert fit.final_size_pt in manifest.size_ladder_pt
 
 
 def test_one_long_label_shrinks_every_node_to_the_same_step(

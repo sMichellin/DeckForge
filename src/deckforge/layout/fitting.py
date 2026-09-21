@@ -300,24 +300,66 @@ def fit_smartart(
     labels = diagram_geometry(block.pattern, len(block.items), box).labels
     available = min(usable_height_emu(label) for label in labels)
 
-    size, lines, required = step.size_pt, 0, 0
-    for size in _sizes(manifest, step.size_pt, allow_shrink=True):
-        measured = [
-            measure_text(text, font_family=font, size_pt=size, box=label, bold=step.bold,
+    def measured(size_pt: float) -> tuple[bool, int, int]:
+        """(влезли ли все подписи целыми словами, строк, нужная высота) при кегле."""
+        runs = [
+            measure_text(text, font_family=font, size_pt=size_pt, box=label, bold=step.bold,
                          fonts=fonts)
             for text, label in zip(block.items, labels, strict=True)
         ]
-        lines = max(m.lines for m in measured)
-        required = max(m.height_emu for m in measured)
+        lines = max(m.lines for m in runs)
+        required = max(m.height_emu for m in runs)
         whole_words = all(
-            measure_text(word, font_family=font, size_pt=size, box=label, bold=step.bold,
+            measure_text(word, font_family=font, size_pt=size_pt, box=label, bold=step.bold,
                          fonts=fonts).lines <= 1
             for text, label in zip(block.items, labels, strict=True)
             for word in text.split()
         )
-        if required <= available and whole_words:
-            return _fits(size, step.size_pt, lines, required)
+        return required <= available and whole_words, lines, required
+
+    size, lines, required = step.size_pt, 0, 0
+    for size in _sizes(manifest, step.size_pt, allow_shrink=True):
+        fits, lines, required = measured(size)
+        if fits:
+            return _grown_labels(
+                _fits(size, step.size_pt, lines, required), measured, manifest, available
+            )
     return _overflow(size, lines, required, available, splittable=False)
+
+
+def _grown_labels(
+    result: FitResult,
+    measured: Any,
+    manifest: TemplateManifest,
+    available: int,
+) -> FitResult:
+    """Поднимает кегль подписей схемы, пока в узле остаётся воздух.
+
+    Прогон 8f420f2c6621: плитки 4 × 2,5 см, подпись в две строки мелким кеглем
+    посередине — узел почти пуст. То же правило, что для показателей (#87) и свободного
+    текста (#77): подписи растут по шкале шаблона, пока занимают меньше половины узла
+    и каждое слово встаёт в строку целиком. Потолок — ступень под заголовком: подпись
+    схемы вровень с заголовком слайда спорила бы с ним.
+    """
+    if not available or (result.required_cy_emu or 0) >= FREE_BLOCK_FILL_SHARE * available:
+        return result
+
+    title_pt = _step_for(TextRole.TITLE, manifest).size_pt
+    cap = next_size_down(manifest, title_pt) or title_pt
+    best = result
+    size = next_size_up(manifest, result.final_size_pt)
+    while size is not None and size <= cap:
+        fits, lines, required = measured(size)
+        if not fits:
+            break
+        best = FitResult(
+            final_size_pt=size, overflow=False, lines=lines,
+            required_cy_emu=required, strategy=GROW,
+        )
+        if required >= FREE_BLOCK_FILL_SHARE * available:
+            break
+        size = next_size_up(manifest, size)
+    return best
 
 
 def _box_for(block: TextBlock | BulletsBlock, layout: LayoutSpec) -> BBox:
