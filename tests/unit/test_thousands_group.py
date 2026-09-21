@@ -1,0 +1,63 @@
+"""Разряды тысяч — ровно три цифры. Change `thousands-group-is-three-digits` (C11).
+
+Находка прогона `86a64a5783f3` s10: в тексте слайда стояло «Q1 2026», а
+`content.numbers_grounded` сообщал о необоснованных числах «1 202» и «6». Дату модель
+выдумала, и находка по сути верна, но названные в ней числа в тексте не встречаются:
+разбор склеил «1» и первые три цифры года в разряды тысяч, а последнюю цифру взял
+отдельным числом. Отчёт, который называет несуществующие числа, учит себя не читать.
+
+Граница простая: группа после пробела — разряды только тогда, когда цифр в ней ровно
+три и следом не идёт четвёртая.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from deckforge.parsing.content import extract_numbers
+
+NBSP = " "
+NARROW = " "
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Q1 2026",
+        f"Q1{NBSP}2026",
+        "план на 1 2026 год",
+        "10 0000 знаков",
+    ],
+)
+def test_four_digits_after_the_space_are_not_thousands(text: str) -> None:
+    """Нарушитель: четвёртая цифра в группе — значит это не разряды."""
+    raws = [number.raw for number in extract_numbers(text)]
+    assert not any(" " in raw or NBSP in raw or NARROW in raw for raw in raws), (
+        f"группа склеена в разряды: {raws}"
+    )
+
+
+def test_quarter_and_year_do_not_produce_an_invented_number() -> None:
+    """Тот самый случай s10: «1 202» и «6» из «Q1 2026» больше не появляются."""
+    values = [number.value for number in extract_numbers("Q1 2026")]
+    assert 1202.0 not in values
+    assert values == [1.0], f"осталось только число квартала, получено {values}"
+
+
+@pytest.mark.parametrize(
+    ("text", "value", "raw"),
+    [
+        ("1 202 руб.", 1202.0, "1 202 руб."),
+        ("12 345", 12345.0, "12 345"),
+        ("1 202", 1202.0, "1 202"),
+        (f"выручка 1{NBSP}200{NBSP}млн{NBSP}₽", 1200.0, f"1{NBSP}200{NBSP}млн{NBSP}₽"),
+        ("оборот 1 234 567", 1234567.0, "1 234 567"),
+        ("остаток 1 202,5", 1202.5, "1 202,5"),
+    ],
+)
+def test_three_digit_groups_are_still_thousands(text: str, value: float, raw: str) -> None:
+    """Норма: правило не тронуло настоящие разряды — ни с единицей, ни с дробной частью."""
+    numbers = extract_numbers(text)
+    assert len(numbers) == 1, f"ожидалось одно число, получено {numbers}"
+    assert numbers[0].value == value
+    assert numbers[0].raw == raw
