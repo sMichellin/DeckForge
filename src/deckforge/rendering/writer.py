@@ -574,6 +574,12 @@ class PptxWriter:
         # Гарнитура не задаётся: её наследует плейсхолдер шаблона.
         color = block.color_ref if isinstance(block, TextBlock) else None
         self._write_paragraphs(shape.text_frame, _paragraphs(block), size_pt, color, None, None)
+        # Маркер наследуется не всегда: все три шаблона кейса гасят первый уровень тела
+        # (`buNone`) и маркируют список со второго, поэтому пункты в плейсхолдере выходили
+        # абзацами (прогон VK Education 6b1d9e82b612). Манифест знает, каким знаком и с каким
+        # выносом шаблон рисует список, — ставим его явно, как и в свободном блоке.
+        if isinstance(block, BulletsBlock) and self.manifest.bullet_levels:
+            _apply_bullets(shape.text_frame, self.manifest, size_pt)
 
     def _add_textbox(
         self,

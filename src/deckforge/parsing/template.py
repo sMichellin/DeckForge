@@ -41,7 +41,8 @@ from deckforge.parsing.typography import (
     observations_from_text_styles,
 )
 
-PARSER_VERSION = "1.5.0"  # 1.4.0 — уровни маркера; 1.5.0 — полоса заголовка из body
+PARSER_VERSION = "1.6.0"  # 1.4.0 — уровни маркера; 1.5.0 — полоса заголовка из body;
+# 1.6.0 — маркер списка читается из макетов, а не только из мастера
 
 #: Цвета серий диаграмм по умолчанию: акценты темы в порядке схемы.
 #: Благодаря этому диаграмма перекрашивается вместе со сменой шаблона (ADR-002).
@@ -95,6 +96,20 @@ def template_id_of(path: Path) -> str:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             digest.update(chunk)
     return f"sha256:{digest.hexdigest()}"
+
+
+def _layout_xmls(pkg: TemplatePackage, masters: list[str]) -> list[bytes]:
+    """Сырые макеты всех мастеров: маркер списка объявлен в них, а не в мастере.
+
+    Все мастера, а не первый: у VK Tech и VK Education их по два, и второй несёт
+    столько же макетов, сколько первый.
+    """
+    return [
+        pkg.read(part)
+        for master_part in masters
+        for part in pkg.layout_parts(master_part)
+        if pkg.has(part)
+    ]
 
 
 def aspect_of(cx: int, cy: int) -> str:
@@ -190,7 +205,9 @@ class TemplateParser:
             grid=infer_grid(layouts, slide_size, pkg.read_optional("ppt/viewProps.xml")),
             layouts=layouts,
             decor=self._read_decor(pkg, masters[0], cx, cy),
-            bullet_levels=parse_bullets(pkg.read(masters[0]), theme.colors),
+            bullet_levels=parse_bullets(
+                pkg.read(masters[0]), theme.colors, _layout_xmls(pkg, masters)
+            ),
             chart_defaults=ChartDefaults(series_color_refs=list(_SERIES_REFS)),
             parser_version=PARSER_VERSION,
         )
