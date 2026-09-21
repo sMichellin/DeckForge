@@ -32,8 +32,10 @@ _HEADLINE_SAMPLE = (
 def _chars_that_fit(layout: LayoutSpec, idx: int, manifest: TemplateManifest) -> int:
     """Самая длинная фраза, которая влезает в эту полосу заголовка.
 
-    Меряется `fit_block` — тем же кодом, что и вёрстка, со всеми его правилами: заголовок
-    кеглем не уменьшается, кроме случая, когда полоса не держит и одной строки.
+    Меряется `fit_block` — тем же кодом, что и вёрстка, со всеми его правилами, включая
+    уступку кегля до ступени тела (A9). Мера ограничена длиной образца: полоса, которая
+    держит его целиком, заголовок больше не ограничивает, и дальше решает правило десяти
+    слов — см. `headline_limit`.
     """
     kept: list[str] = []
     for word in _HEADLINE_SAMPLE.split():
@@ -78,11 +80,17 @@ def headline_limit(manifest: TemplateManifest) -> int:
     Оценка по средней ширине знака врёт вдвое (46 знаков вместо 27 на VK WorkSpace),
     и планировщик просил заведомо длинные заголовки: все двенадцать обрезались многоточием
     (прогоны d573740bddd3, 05884387b999, eab2860439e7).
+
+    Сверху предел ограничен правилом десяти слов (A9). После уступки кегля полосы шаблонов
+    кейса держат образец целиком, и мера упирается в его длину — то есть перестаёт быть
+    мерой шаблона. Заголовок длиной в сто знаков — уже не вывод, а абзац, и просить его
+    у модели незачем, какой бы просторной ни была полоса.
     """
     slot = _median_title_slot(manifest)
     if slot is None:
         return DEFAULT_HEADLINE_CHARS
-    return max(MIN_HEADLINE_CHARS, slot[0] or DEFAULT_HEADLINE_CHARS)
+    measured = max(MIN_HEADLINE_CHARS, slot[0] or DEFAULT_HEADLINE_CHARS)
+    return min(DEFAULT_HEADLINE_CHARS, measured)
 
 
 def headline_fits(manifest: TemplateManifest) -> Callable[[str], bool]:

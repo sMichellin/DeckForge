@@ -384,6 +384,63 @@ def test_headline_limit_is_measured_on_the_template(manifest: TemplateManifest) 
     assert fit_block(probe, layout, manifest).overflow is False, "обещано больше, чем влезает"
 
 
+def test_headline_limit_is_capped_by_the_ten_word_rule(manifest: TemplateManifest) -> None:
+    """A9. После уступки кегля полоса перестаёт быть тем, что ограничивает заголовок.
+
+    Мера упирается в длину образца, то есть перестаёт быть мерой шаблона, и предел
+    задаёт правило десяти слов: заголовок в сто знаков — уже не вывод, а абзац.
+    """
+    from deckforge.pipeline.nodes.plan import headline_limit
+    from deckforge.planning.planner import DEFAULT_HEADLINE_CHARS
+
+    roomy = manifest.model_copy(
+        update={
+            "layouts": [
+                layout.model_copy(
+                    update={
+                        "placeholders": [
+                            ph.model_copy(update={"cy": manifest.slide_size.cy_emu // 2})
+                            if ph.role is TextRole.TITLE
+                            else ph
+                            for ph in layout.placeholders
+                        ]
+                    }
+                )
+                for layout in manifest.layouts
+            ]
+        }
+    )
+
+    assert headline_limit(roomy) == DEFAULT_HEADLINE_CHARS
+
+
+def _with_narrow_title_band(manifest: TemplateManifest) -> TemplateManifest:
+    """Тот же шаблон с узкой полосой заголовка — как у VK Tech."""
+    from deckforge.domain.enums import TextRole
+    from deckforge.domain.template import PlaceholderSpec
+
+    cm = 360_000
+    narrow = PlaceholderSpec(
+        idx=0, ph_type="TITLE", role=TextRole.TITLE,
+        x=cm // 2, y=cm, cx=round(11.3 * cm), cy=round(2.1 * cm),
+    )
+    return manifest.model_copy(
+        update={
+            "layouts": [
+                layout.model_copy(
+                    update={
+                        "placeholders": [
+                            narrow if ph.role is TextRole.TITLE else ph
+                            for ph in layout.placeholders
+                        ]
+                    }
+                )
+                for layout in manifest.layouts
+            ]
+        }
+    )
+
+
 async def test_overlong_headline_goes_back_to_the_model(
     manifest: TemplateManifest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -398,6 +455,11 @@ async def test_overlong_headline_goes_back_to_the_model(
 
     long_headline = "Выручка выросла на треть за счёт корпоративных клиентов и новых рынков"
     short_headline = "Выручка выросла на треть"
+
+    # Полоса заголовка как у VK Tech: 11,3 × 2,1 см — одна строка кеглем роли влезает,
+    # длинный заголовок не влезает и после уступки кегля (A9). На просторной полосе
+    # синтетического манифеста его спасал бы кегль, и стык остался бы непроверенным.
+    tight = _with_narrow_title_band(manifest)
 
     class StubPlanner:
         def __init__(self, *_: Any, **__: Any) -> None:
@@ -436,7 +498,7 @@ async def test_overlong_headline_goes_back_to_the_model(
         "content": ContentPackage(
             brief=ContentBrief(purpose="product", audience="правление", target_slides=6)
         ),
-        "manifest": manifest,
+        "manifest": tight,
         "variant": None,  # type: ignore[typeddict-item]
         "seed": 1,
     }

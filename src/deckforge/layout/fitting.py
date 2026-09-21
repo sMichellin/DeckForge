@@ -69,8 +69,17 @@ GROW = "grow"
 FREE_BLOCK_FILL_SHARE = 0.5
 
 
-def _sizes(manifest: TemplateManifest, start_pt: float, allow_shrink: bool) -> Iterator[float]:
-    """Кегли для перебора: старт, привязанный к шкале шаблона, и ступени вниз."""
+def _sizes(
+    manifest: TemplateManifest,
+    start_pt: float,
+    allow_shrink: bool,
+    min_pt: float | None = None,
+) -> Iterator[float]:
+    """Кегли для перебора: старт, привязанный к шкале шаблона, и ступени вниз.
+
+    `min_pt` — предел, ниже которого спуск не идёт. Стартовый кегль он не поднимает:
+    кто задал блоку кегль явно, тот уже принял решение (см. `_titles_yield_size`).
+    """
     ladder = manifest.size_ladder_pt
     size: float | None = start_pt
     if ladder and start_pt not in ladder:
@@ -78,7 +87,11 @@ def _sizes(manifest: TemplateManifest, start_pt: float, allow_shrink: bool) -> I
         size = next_size_down(manifest, start_pt) or min(ladder)
     while size is not None:
         yield size
-        size = next_size_down(manifest, size) if allow_shrink else None
+        if not allow_shrink:
+            return
+        size = next_size_down(manifest, size)
+        if size is not None and min_pt is not None and size < min_pt:
+            return
 
 
 def _fits(size: float, start_pt: float, lines: int, required: int) -> FitResult:
@@ -112,6 +125,7 @@ def fit_text(
     start_size_pt: float,
     font_family: str,
     allow_shrink: bool = True,
+    min_size_pt: float | None = None,
     bold: bool = False,
     italic: bool = False,
     line_spacing: float = 1.0,
@@ -120,7 +134,7 @@ def fit_text(
     """Подбирает кегль по шкале шаблона; не влезло на нижней ступени — назначает стратегию."""
     available = usable_height_emu(box)
     size, lines, required = start_size_pt, 0, 0
-    for size in _sizes(manifest, start_size_pt, allow_shrink):
+    for size in _sizes(manifest, start_size_pt, allow_shrink, min_size_pt):
         m = measure_text(
             text, font_family=font_family, size_pt=size, box=box,
             line_spacing=line_spacing, bold=bold, italic=italic, fonts=fonts,
@@ -388,6 +402,27 @@ def _band_holds_the_role_size(box: BBox, step: TypographyStep) -> bool:
     return usable_height_emu(box) >= line
 
 
+def _title_size_floor(manifest: TemplateManifest, step: TypographyStep) -> float:
+    """Ниже какого кегля заголовок не опускается: ближайшая ступень **крупнее** тела.
+
+    Задача A9. Полоса заголовка VK Tech — 2,1 см: одна строка 24-м кеглем в неё влезает,
+    две (2,03 см плюс поля рамки) — уже нет. `_band_holds_the_role_size` при этом истинно,
+    кегль считался неприкосновенным, и заголовок резался по словам до 14–17 знаков:
+    «ИИ пишет, но не…» не говорит ничего — а ради вывода заголовок и писался.
+    На VK Education полоса держала медианно 7 знаков, а планировщику называлось 25.
+
+    Ступень шкалы дешевле половины вывода. Но не любая: заголовок кеглем тела — это уже
+    не заголовок, поэтому пол — ближайшая ступень **строго крупнее** тела. Шкала своя
+    у каждого шаблона, никаких величин здесь нет (ADR-002). Если крупнее тела ступеней
+    нет, пола нет и кегль остаётся прежним.
+    """
+    body = manifest.typography(TextRole.BODY)
+    if body is None:
+        return step.size_pt
+    above = [size for size in manifest.size_ladder_pt if size > body.size_pt]
+    return min(above) if above else step.size_pt
+
+
 def fit_block(
     block: TextBlock | BulletsBlock,
     layout: LayoutSpec,
@@ -399,7 +434,14 @@ def fit_block(
     step = _step_for(block.role, manifest)
     text = block.text if isinstance(block, TextBlock) else "\n".join(i.text for i in block.items)
     box = _box_for(block, layout)
-    shrinkable = block.role is not TextRole.TITLE or not _band_holds_the_role_size(box, step)
+    # Заголовок уступает кегль, но по-разному. Полоса ниже строки кеглем роли — спуск
+    # по всей шкале (так было до A9: сокращать в таком заголовке нечего). Полоса, которая
+    # держит строку, но не две, — спуск до кегля тела и не ниже.
+    floor = (
+        _title_size_floor(manifest, step)
+        if block.role is TextRole.TITLE and _band_holds_the_role_size(box, step)
+        else None
+    )
     font_family = _font_of(step, manifest)
     line_spacing = step.line_spacing or 1.0
     result = fit_text(
@@ -408,7 +450,8 @@ def fit_block(
         manifest=manifest,
         start_size_pt=block.size_pt or step.size_pt,
         font_family=font_family,
-        allow_shrink=shrinkable,
+        allow_shrink=True,
+        min_size_pt=floor,
         bold=step.bold,
         italic=step.italic,
         line_spacing=line_spacing,

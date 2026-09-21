@@ -183,16 +183,41 @@ def test_exit_criterion_500_chars_in_narrow_placeholder_overflow_before_writing(
     assert result.fit_report["t"].overflow is False
 
 
-def test_title_is_never_shrunk(manifest: TemplateManifest, fonts: FontLibrary) -> None:
-    title_step = manifest.typography(TextRole.TITLE)
-    assert title_step is not None
+def test_title_does_not_shrink_to_the_body_size(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """A9. Заголовок уступает кегль, но не иерархию: кеглем тела он перестал бы им быть.
+
+    Пол — ближайшая ступень шкалы **крупнее** тела. Если и на ней текст не влез,
+    режут слова, а не кегль.
+    """
+    body_pt = manifest.typography(TextRole.BODY).size_pt
+    floor = min(size for size in manifest.size_ladder_pt if size > body_pt)
     block = TextBlock(block_id="t", placeholder_idx=0, role=TextRole.TITLE, text="Заголовок " * 40)
     layout = manifest.layout("L07")
     assert layout is not None
     result = fit_block(block, layout, manifest, fonts=fonts)
+
     assert result.overflow is True
-    assert result.final_size_pt == title_step.size_pt
+    assert result.final_size_pt == floor > body_pt
     assert result.strategy == "shorten"
+
+
+def test_title_that_fits_the_role_size_keeps_it(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Норма к A9: уступка нужна только тому заголовку, который не влез."""
+    title_step = manifest.typography(TextRole.TITLE)
+    assert title_step is not None
+    block = TextBlock(
+        block_id="t", placeholder_idx=0, role=TextRole.TITLE, text="Выручка выросла на треть"
+    )
+    layout = manifest.layout("L07")
+    assert layout is not None
+    result = fit_block(block, layout, manifest, fonts=fonts)
+
+    assert result.overflow is False
+    assert result.final_size_pt == title_step.size_pt
 
 
 def test_bullets_are_measured_as_paragraphs(manifest: TemplateManifest, fonts: FontLibrary) -> None:
@@ -322,15 +347,23 @@ def test_title_shrinks_when_the_band_cannot_hold_one_line(
     assert result.overflow is False
 
 
-def test_title_in_a_roomy_band_is_still_not_shrunk(
+def test_title_yields_a_step_instead_of_losing_half_the_message(
     manifest: TemplateManifest, fonts: FontLibrary
 ) -> None:
-    """Правило иерархии в силе: если рамка держит кегль роли, заголовок не уменьшается."""
-    long_title = "Итоги года и планы на следующий период работы компании " * 2
+    """A9. Полоса держит строку кеглем роли, но не две — а вывод в одну не укладывается.
+
+    Прогон f0b9ff6f0a74 на VK Tech: полоса 2,1 см, одна строка 24-м кеглем влезает,
+    две (2,03 см плюс поля рамки) — нет. Кегль считался неприкосновенным, и заголовок
+    резался по словам до 14–17 знаков: «ИИ пишет, но не…» не говорит ничего.
+    """
+    title_pt = manifest.typography(TextRole.TITLE).size_pt
+    body_pt = manifest.typography(TextRole.BODY).size_pt
+    long_title = "Выручка выросла на треть за счёт корпоративных клиентов"
     block = TextBlock(block_id="t", placeholder_idx=0, role=TextRole.TITLE, text=long_title)
     result = fit_slide(slide(block), manifest, fonts=fonts).fit_report["t"]
 
-    assert result.final_size_pt == manifest.typography(TextRole.TITLE).size_pt
+    assert result.overflow is False, "заголовок опять не помещается — уступка не сработала"
+    assert body_pt <= result.final_size_pt < title_pt
 
 
 # --- свободный блок растёт под свою рамку ------------------------------------
