@@ -62,6 +62,10 @@ _SIGNIFICANT_WORD = 5
 #: и «дизайн-систему» с «дизайн-система» — одно слово, а не два разных.
 _STEM = 6
 
+#: Какая доля подписей схемы, найденная в одном текстовом блоке, делает его повтором.
+#: Больше половины: одно-два общих слова — это общая тема, а не тот же список.
+_DUPLICATE_SHARE = 0.6
+
 #: Какой блок IR отвечает заказу плана (`SlidePlan.suggested_visual`). Словарь заказов
 #: собирает слой планирования; здесь — только соответствие заказа типу блока.
 _ORDERED_BLOCK: dict[str, type[Block]] = {
@@ -285,6 +289,33 @@ class SlideComposer:
                 "ни одного их значащего слова в тексте",
             )
 
+    def _note_duplicated_visual(self, slide: SlidePlan, blocks: list[Block]) -> None:
+        """Текст, который повторяет подписи схемы на том же слайде.
+
+        Прогон 8f420f2c6621: плитки «Парсинг документов, Извлечение структуры…»
+        и рядом абзац «Пайплайн включает парсинг, извлечение структуры…». Схема должна
+        заменять перечисление, а не дублировать его. Текст код не удаляет — в абзаце
+        бывает и то, чего в схеме нет, — но повтор называет.
+        """
+        for visual in (block for block in blocks if isinstance(block, SmartArtBlock)):
+            labels = [_stems(item) for item in visual.items]
+            labels = [stems for stems in labels if stems]
+            if not labels:
+                continue
+            for block in blocks:
+                if not isinstance(block, TextBlock | BulletsBlock):
+                    continue
+                if isinstance(block, TextBlock) and block.role is TextRole.TITLE:
+                    continue
+                written = _stems(_text_of(block))
+                repeated = sum(1 for stems in labels if stems & written) / len(labels)
+                if repeated >= _DUPLICATE_SHARE:
+                    self._note(
+                        slide.slide_id,
+                        f"текст {block.block_id} повторяет подписи схемы {visual.block_id} "
+                        f"({repeated:.0%}): схема должна заменять список, а не дублировать",
+                    )
+
     def _note_missing_visual(self, slide: SlidePlan, blocks: list[Block]) -> None:
         """Заказ плана на визуализацию, который модель не выполнила.
 
@@ -469,6 +500,7 @@ class SlideComposer:
 
         self._note_missing_visual(slide, blocks)
         self._note_facts_left_out(slide, blocks, content)
+        self._note_duplicated_visual(slide, blocks)
 
         return ir.model_copy(
             update={

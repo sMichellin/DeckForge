@@ -1121,3 +1121,52 @@ async def test_content_slide_is_not_asked_for_a_subtitle(
     await SlideComposer(llm).compose(plan_slide(), content, manifest, variant_a, seed=1)
 
     assert "титульный слайд" not in llm.prompt
+
+
+def slide_with_tiles(text: str) -> dict[str, Any]:
+    return {
+        "slide_id": "s02", "layout_id": "L07", "variant": "A",
+        "blocks": [
+            {"block_id": "b1", "type": "text", "placeholder_idx": 0, "role": "title",
+             "text": "Пайплайн из пяти компонентов"},
+            {"block_id": "b2", "type": "smartart", "pattern": "matrix",
+             "items": ["Парсинг документов", "Извлечение структуры", "Компьютерное зрение",
+                       "LLM-оркестрация"]},
+            {"block_id": "b3", "type": "text", "placeholder_idx": 1, "role": "body",
+             "text": text},
+        ],
+    }
+
+
+async def test_text_repeating_the_tiles_is_named(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Прогон 8f420f2c6621: плитки и рядом абзац с тем же списком — слайд читается дважды."""
+    payload = slide_with_tiles(
+        "Пайплайн включает парсинг документов, извлечение структуры, компьютерное зрение "
+        "и оркестрацию"
+    )
+    composer = SlideComposer(FakeLlm(payload))
+    await composer.compose(plan_slide(), content, manifest, variant_a, seed=1)
+
+    assert any("повторяет подписи схемы" in note for note in composer.notes)
+
+
+async def test_conclusion_next_to_the_tiles_is_not_a_repeat(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Вывод рядом со схемой — то, ради чего текст там и стоит."""
+    payload = slide_with_tiles("Кейс проверяет умение собрать пайплайн целиком, а не промпты")
+    composer = SlideComposer(FakeLlm(payload))
+    await composer.compose(plan_slide(), content, manifest, variant_a, seed=1)
+
+    assert not any("повторяет подписи схемы" in note for note in composer.notes)
+
+
+async def test_prompt_says_the_visual_replaces_the_list(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    llm = FakeLlm(slide_with_tiles("Вывод"))
+    await SlideComposer(llm).compose(plan_slide(), content, manifest, variant_a, seed=1)
+
+    assert "Схема заменяет перечисление" in llm.prompt
