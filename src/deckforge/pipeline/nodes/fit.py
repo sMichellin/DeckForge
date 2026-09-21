@@ -10,7 +10,15 @@ from deckforge.audit.fixes.apply import shorten_to_words
 from deckforge.domain.content import ContentPackage
 from deckforge.domain.enums import TextRole
 from deckforge.domain.rules import next_size_down
-from deckforge.domain.slide import Block, BulletsBlock, DeckIR, SlideIR, TextBlock
+from deckforge.domain.slide import (
+    Block,
+    BulletItem,
+    BulletsBlock,
+    DeckIR,
+    SlideIR,
+    SmartArtBlock,
+    TextBlock,
+)
 from deckforge.domain.template import TemplateManifest
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fitting import GROW, SHORTEN, SPLIT, fit_slide
@@ -147,6 +155,7 @@ def _fit_shortening(
             content=content,
         )
 
+    fitted, flattened = _smartart_to_bullets(fitted, manifest, fonts, content)
     fitted, dropped = _bullets_drop_tail(fitted, manifest, fonts, content)
     fitted, given_up = _text_last_resort(fitted, manifest, fonts, content)
     fitted, shrunk = _titles_yield_size(fitted, manifest, fonts, content)
@@ -169,8 +178,54 @@ def _fit_shortening(
         # Снятый блок называет своя заметка (`_text_last_resort`): «сокращён» о нём — неправда.
         if block_id in fitted.fit_report
     ]
-    notes += dropped + given_up + shrunk + grown
+    notes += flattened + dropped + given_up + shrunk + grown
     return fitted, notes
+
+
+def _smartart_to_bullets(
+    slide: SlideIR,
+    manifest: TemplateManifest,
+    fonts: FontLibrary | None,
+    content: ContentPackage,
+) -> tuple[SlideIR, list[str]]:
+    """Схема, подписи которой не влезли в её рамку, становится списком тех же пунктов.
+
+    Прогон VK Education add3de1e5918: схеме `process` досталась полоса 30 × 1,5 см, подписи
+    четырёх шагов туда не встали ни в каком кегле, и писатель уронил запись колоды.
+    Сокращать подписи узлов некому (это формулировки модели), а список в той же рамке
+    дальше защищён как любой список: лишние пункты уходят с заметкой (`_bullets_drop_tail`).
+    Схема хуже списка не бывает только там, где ей есть место.
+    """
+    notes: list[str] = []
+    over = {
+        block.block_id
+        for block in slide.blocks
+        if isinstance(block, SmartArtBlock)
+        and (fit := slide.fit_report.get(block.block_id)) is not None
+        and fit.overflow
+    }
+    if not over:
+        return slide, notes
+    blocks: list[Block] = []
+    for block in slide.blocks:
+        if block.block_id in over and isinstance(block, SmartArtBlock):
+            notes.append(
+                f"{slide.slide_id}/{block.block_id}: схема {block.pattern.value} "
+                "не помещается в свою рамку — записана списком тех же пунктов"
+            )
+            block = BulletsBlock(
+                block_id=block.block_id,
+                items=[BulletItem(text=item) for item in block.items],
+                x=block.x, y=block.y, cx=block.cx, cy=block.cy,
+            )
+        blocks.append(block)
+    slide = fit_slide(
+        slide.model_copy(update={"blocks": blocks, "fit_report": {}}),
+        manifest,
+        fonts=fonts,
+        content=content,
+    )
+    return slide, notes
 
 
 def _bullets_drop_tail(
