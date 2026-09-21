@@ -86,7 +86,15 @@ def test_bullets_are_shortened_item_by_item(narrow: TemplateManifest, fonts: Fon
 
 
 def test_text_that_fits_is_left_alone(narrow: TemplateManifest, fonts: FontLibrary) -> None:
-    body = TextBlock(block_id="b", placeholder_idx=NARROW_IDX, role=TextRole.BODY, text="Рост")
+    """Текст занимает рамку — узлу fit делать нечего.
+
+    Две строки, а не одно слово: тело, которому рамки дали вдвое больше нужного,
+    теперь поднимает кегль (change `placeholder-fills-its-frame`, B11), и «Рост»
+    проверяло бы уже рост, а не бездействие.
+    """
+    body = TextBlock(
+        block_id="b", placeholder_idx=NARROW_IDX, role=TextRole.BODY, text="Рост выручки"
+    )
     fitted, notes = _fit_shortening(_slide(TITLE, body), narrow, fonts, CONTENT)
     assert fitted.blocks[1] == body
     assert notes == []

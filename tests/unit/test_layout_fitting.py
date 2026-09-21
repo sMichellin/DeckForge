@@ -431,19 +431,18 @@ def test_block_that_fills_its_frame_is_left_alone(
     assert fitted.strategy != "grow"
 
 
-def test_placeholder_and_title_never_grow(
+def test_title_and_a_fixed_size_never_grow(
     manifest: TemplateManifest, fonts: FontLibrary
 ) -> None:
-    """Плейсхолдер — решение автора шаблона; заголовок задаёт иерархию слайда."""
+    """Заголовок задаёт иерархию слайда, назначенный кегль назначили не просто так.
+
+    Тело в плейсхолдере расти начало — change `placeholder-fills-its-frame` (B11),
+    правило и его границы проверяет `test_placeholder_fills_its_frame.py`.
+    """
     layout = manifest.layout("L07")
     assert layout is not None
     body_step = manifest.typography(TextRole.BODY)
     assert body_step is not None
-
-    in_placeholder = TextBlock(
-        block_id="b", placeholder_idx=1, role=TextRole.BODY, text="Короткая мысль"
-    )
-    assert fit_block(in_placeholder, layout, manifest, fonts=fonts).strategy != "grow"
 
     title = free_block("Короткий вывод", manifest, role=TextRole.TITLE)
     assert fit_block(title, layout, manifest, fonts=fonts).strategy != "grow"
