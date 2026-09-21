@@ -343,8 +343,9 @@ def test_smartart_with_an_empty_item_is_rejected(
 def test_unsupported_pattern_left_undegraded_is_rejected(
     writer: PptxWriter, manifest: TemplateManifest
 ) -> None:
-    slide = ok_slide(blocks=[title(), smartart(manifest, "matrix")], fit_report={"t": fit(40)})
-    assert "matrix" in problems(writer, slide)
+    # matrix с этой правки рисуется плитками; неподдержанной осталась пирамида.
+    slide = ok_slide(blocks=[title(), smartart(manifest, "pyramid")], fit_report={"t": fit(40)})
+    assert "pyramid" in problems(writer, slide)
 
 
 def test_icon_with_coordinates_passes(writer: PptxWriter, manifest: TemplateManifest) -> None:

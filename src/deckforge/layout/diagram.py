@@ -17,7 +17,12 @@ from deckforge.domain.enums import SmartArtPattern
 from deckforge.layout.errors import LayoutFitError
 
 SUPPORTED_PATTERNS = frozenset(
-    {SmartArtPattern.PROCESS, SmartArtPattern.TIMELINE, SmartArtPattern.CYCLE}
+    {
+        SmartArtPattern.PROCESS,
+        SmartArtPattern.TIMELINE,
+        SmartArtPattern.CYCLE,
+        SmartArtPattern.MATRIX,
+    }
 )
 
 #: process: промежуток между шагами в долях ширины шага; отступ стрелки — в долях промежутка.
@@ -26,6 +31,10 @@ _PROCESS_GAP, _PROCESS_LINK_MARGIN = 0.25, 0.2
 #: собственной ширины читается колонкой, а не шагом (прогон 693d464d54fb, слайд s04 —
 #: четыре столба 4,4 × 12 см с одной строкой подписи посередине).
 _PROCESS_NODE_ASPECT = 1.0
+#: matrix: промежуток между плитками в долях плитки; наибольшая высота плитки в её
+#: ширинах. Плитка ниже процесса: у перечисления нет направления, и квадратная плитка
+#: с одной строкой подписи читается пустой.
+_MATRIX_GAP, _MATRIX_NODE_ASPECT = 0.12, 0.6
 #: timeline: диаметр маркера в долях колонки (или высоты рамки, если она ниже).
 _TIMELINE_MARKER = 0.2
 #: cycle: наибольшая ширина узла в высотах; зазор между узлами в высотах узла; отступ
@@ -72,6 +81,8 @@ def diagram_geometry(pattern: SmartArtPattern, count: int, box: BBox) -> Diagram
         return _timeline(count, box)
     if pattern is SmartArtPattern.CYCLE:
         return _cycle(count, box)
+    if pattern is SmartArtPattern.MATRIX:
+        return _matrix(count, box)
     raise LayoutFitError(f"паттерн {pattern.value} не поддерживается составными компонентами")
 
 
@@ -96,6 +107,49 @@ def _process(count: int, box: BBox) -> Diagram:
     )
     return Diagram(nodes=nodes, labels=labels, links=links, arrows=True, round_nodes=False,
                    text_inside=True)
+
+
+def _matrix_columns(count: int) -> int:
+    """Столбцов в сетке: до трёх — в ряд, четыре — квадратом, пять и шесть — по три."""
+    if count <= 3:
+        return count
+    if count == 4:
+        return 2
+    return 3
+
+
+def _matrix(count: int, box: BBox) -> Diagram:
+    """Однородные пункты плитками: без стрелок, потому что порядка у них нет.
+
+    Перечисление — «инференс, шаблоны, контент, CLI» — это не шаги: стрелки процесса
+    соврали бы о последовательности, которой нет. Сетка стоит по середине рамки,
+    неполный последний ряд — по центру, чтобы сетка не заваливалась влево.
+    """
+    columns = _matrix_columns(count)
+    rows = -(-count // columns)
+    width = box.cx / (columns + (columns - 1) * _MATRIX_GAP)
+    gap_x = width * _MATRIX_GAP
+    cell = (box.cy - (rows - 1) * gap_x) / rows
+    height = max(1, int(min(cell, width * _MATRIX_NODE_ASPECT)))
+    grid_height = rows * height + (rows - 1) * gap_x
+    top = box.y + (box.cy - grid_height) / 2
+
+    nodes: list[BBox] = []
+    for index in range(count):
+        row, column = divmod(index, columns)
+        in_row = min(columns, count - row * columns)
+        row_width = in_row * width + (in_row - 1) * gap_x
+        left = box.x + (box.cx - row_width) / 2
+        nodes.append(BBox(
+            x=int(left + column * (width + gap_x)),
+            y=int(top + row * (height + gap_x)),
+            cx=max(1, int(width)),
+            cy=height,
+        ))
+    labels = tuple(_inset(node, round(min(node.cx, node.cy) * _ROUND_RECT_TEXT_INSET))
+                   for node in nodes)
+    return Diagram(nodes=tuple(nodes), labels=labels, links=(), arrows=False,
+                   round_nodes=False, text_inside=True)
 
 
 def _timeline(count: int, box: BBox) -> Diagram:

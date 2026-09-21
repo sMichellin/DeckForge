@@ -271,3 +271,34 @@ def test_process_in_a_flat_frame_keeps_the_frame_height() -> None:
     diagram = diagram_geometry(SmartArtPattern.PROCESS, 4, flat)
 
     assert all(node.cy == flat.cy for node in diagram.nodes)
+
+
+def test_matrix_of_four_is_a_two_by_two_grid_without_arrows() -> None:
+    """Перечисление — не шаги: стрелки процесса соврали бы о порядке, которого нет."""
+    diagram = diagram_geometry(SmartArtPattern.MATRIX, 4, BOX)
+
+    assert diagram.links == () and diagram.arrows is False
+    assert len({node.y for node in diagram.nodes}) == 2, "не два ряда"
+    assert len({node.x for node in diagram.nodes}) == 2, "не две колонки"
+    assert all(node.cy <= node.cx for node in diagram.nodes)
+
+
+def test_short_last_row_of_the_matrix_is_centred() -> None:
+    """Пять плиток: три сверху и две снизу — нижний ряд по центру, а не у левого края."""
+    diagram = diagram_geometry(SmartArtPattern.MATRIX, 5, BOX)
+    top = [node for node in diagram.nodes if node.y == diagram.nodes[0].y]
+    bottom = [node for node in diagram.nodes if node.y != diagram.nodes[0].y]
+
+    assert (len(top), len(bottom)) == (3, 2)
+    left_gap = bottom[0].x - BOX.x
+    right_gap = BOX.right - bottom[-1].right
+    assert abs(left_gap - right_gap) <= EMU_PER_CM // 10
+
+
+def test_matrix_grid_stands_in_the_middle_of_the_frame() -> None:
+    tall = BBox(x=2 * EMU_PER_CM, y=3 * EMU_PER_CM, cx=21 * EMU_PER_CM, cy=12 * EMU_PER_CM)
+    diagram = diagram_geometry(SmartArtPattern.MATRIX, 4, tall)
+    above = diagram.nodes[0].y - tall.y
+    below = tall.bottom - max(node.bottom for node in diagram.nodes)
+
+    assert abs(above - below) <= EMU_PER_CM // 10

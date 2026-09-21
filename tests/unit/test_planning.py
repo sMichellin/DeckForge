@@ -682,3 +682,14 @@ def test_empty_and_foreign_variants_are_dropped(content: ContentPackage) -> None
     out, _ = rewrite(plan_with("Исходный очень длинный заголовок слайда"), content, llm)
 
     assert out.slides[0].headline == "Выручка выросла"
+
+
+def test_prompt_orders_tiles_for_an_unordered_list(
+    content: ContentPackage, manifest: TemplateManifest, variant_c: VariantProfile
+) -> None:
+    """Перечисление, нарисованное процессом, врёт о порядке — для него есть плитки."""
+    llm = FakeLlm(payload_for(PRODUCT_FRAME))
+    asyncio.run(DeckPlanner(llm).plan(content, manifest, variant_c, seed=1))
+
+    assert "smartart:matrix" in llm.prompt_text
+    assert "последнее средство" in llm.prompt_text, "тезисы остались выбором по умолчанию"
