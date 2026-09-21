@@ -9,8 +9,9 @@ name: CI
 #   те же, что на предыдущем коммите;
 # * новый push в ветку PR отменяет ещё идущий прогон той же ветки: результат старого
 #   коммита уже никому не нужен;
-# * зависимости кэшируются — их установка занимала заметную часть каждого прогона.
-#   Ключ кэша — pyproject.toml: poetry.lock в репозитории нет.
+# * зависимости живут в образе на ml110 и пересобираются, только когда меняются.
+#
+# Job идёт на self-hosted runner ml110 (docs/CI-ml110.md): там минуты не считаются.
 on:
   pull_request:
     paths-ignore:
@@ -25,28 +26,35 @@ concurrency:
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    # Runner один — ml110 под пользователем gitlab-runner (docs/CI-ml110.md).
+    runs-on: self-hosted
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with: { python-version: "3.12" }
-      - run: pipx install poetry==2.3.*
-      # poetry.lock в репозитории нет, поэтому встроенный кэш setup-python неприменим:
-      # ключ — pyproject.toml. Поменяли зависимости — кэш протух сам.
-      - uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cache/pypoetry
-            ~/.cache/pip
-          key: poetry-${{ runner.os }}-py312-${{ hashFiles('pyproject.toml') }}
-      - run: poetry install --with dev --no-interaction
-      - name: ruff
-        run: poetry run ruff check src tests scripts
-      - name: mypy
-        run: poetry run mypy
-      - name: "Гейт C1/C2 — лицензии и размеры моделей"
-        run: poetry run python scripts/check_licenses.py
-      - name: "Гейт C6 — никаких констант шаблона в src/"
-        run: poetry run python scripts/lint_no_template_constants.py
-      - name: tests
-        run: poetry run pytest -q --cov=deckforge --cov-report=term-missing
+      # Тег образа — хэш того, от чего зависят зависимости: поменяли pyproject.toml
+      # или Dockerfile — образ собирается заново, иначе берётся готовый.
+      - name: image
+        run: |
+          tag=$(cat pyproject.toml docker/Dockerfile | sha256sum | cut -c1-12)
+          echo "IMAGE=localhost/deckforge-ci:$tag" >> "$GITHUB_ENV"
+          podman image exists "localhost/deckforge-ci:$tag" \
+            || podman build -f docker/Dockerfile -t "localhost/deckforge-ci:$tag" .
+      # Контейнер без сети и только с чекаутом: .env стенда и LLM тестам недоступны.
+      - name: ruff, mypy, gates, tests
+        run: |
+          podman run --rm --network none -v "$PWD:/app:z" -w /app \
+            -e PYTHONPATH=/app/src "$IMAGE" sh -ec '
+              ruff check src tests scripts
+              mypy
+              python scripts/check_licenses.py
+              python scripts/lint_no_template_constants.py
+              pytest -q -p no:cacheprovider --cov=deckforge --cov-report=term-missing
+            '
+      # Прежние теги своего образа — и только их: на сервере образы других проектов,
+      # `podman image prune -a` запрещён.
+      - name: cleanup
+        if: always()
+        run: |
+          podman images --format '{{.Repository}}:{{.Tag}}' \
+            | grep '^localhost/deckforge-ci:' | grep -vx "$IMAGE" \
+            | xargs -r podman rmi -f || true
