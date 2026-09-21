@@ -67,6 +67,14 @@ _STEM = 6
 #: Больше половины: одно-два общих слова — это общая тема, а не тот же список.
 _DUPLICATE_SHARE = 0.6
 
+#: Стрелка между шагами, как её пишут руками и как её оставляет markitdown: знак «→»
+#: и его родня, «->», «=>», «—>». Пробелы вокруг — часть разделителя.
+_ARROW = re.compile(r"\s*(?:[→⟶➔➜➝⇒]|[-–—=]{1,2}>)\s*")
+
+#: Сколько стрелок делает строку процессом. Две, то есть три шага: одна стрелка между
+#: двумя значениями («10 → 20 %») — это изменение показателя, а не порядок работ.
+_PROCESS_ARROWS = 2
+
 #: Какой блок IR отвечает заказу плана (`SlidePlan.suggested_visual`). Словарь заказов
 #: собирает слой планирования; здесь — только соответствие заказа типу блока.
 _ORDERED_BLOCK: dict[str, type[Block]] = {
@@ -144,6 +152,21 @@ def _text_of(block: Block) -> str:
     if isinstance(block, TableBlockIR):
         return " ".join([*block.header, *(cell for row in block.rows for cell in row)])
     return ""
+
+
+def _arrow_steps(text: str) -> list[str]:
+    """Шаги процесса, записанного строкой через стрелки. Пусто — это не процесс.
+
+    Процесс — это не меньше `_PROCESS_ARROWS` стрелок и слова по обе стороны каждой:
+    «А → Б → В». Висячая стрелка в конце строки шага не даёт, цепочка одних чисел
+    («10 → 20 → 30 %») — тоже: это ход показателя, а не шаги работы.
+    """
+    parts = [part.strip(" .,;:") for part in _ARROW.split(text)]
+    if len(parts) <= _PROCESS_ARROWS:
+        return []
+    if not all(re.search(r"[^\W\d_]", part) for part in parts):
+        return []
+    return parts
 
 
 def _headline_text(words: list[str], whole: int) -> str:
@@ -355,6 +378,38 @@ class SlideComposer:
             return
         self._note(slide.slide_id, f"план заказал «{ordered}», модель такого блока не дала")
 
+    def _note_process_as_text(self, slide: SlidePlan, blocks: list[Block]) -> None:
+        """Процесс, записанный строкой через стрелки, который так и остался текстом (A12).
+
+        VK Tech s04, прогон d0b37773345e: «Анализ шаблона → извлечение структуры →
+        генерация…» легло строкой 12 pt в полосу под заголовком. Стрелки — это порядок
+        шагов, и место ему в схеме `process`, а не в строке, которую не прочтут как порядок.
+
+        Схему за модель код не собирает — по той же причине, что и в `_note_missing_visual`:
+        подписи узлов — это формулировки, а формулировки пишет модель. Но строку со стрелками
+        называет. Если схема на слайде уже есть, повтор её подписей текстом ловит
+        `_note_duplicated_visual`, и вторая заметка о том же не нужна. Заголовок не
+        проверяется: процесс в заголовке — это вывод о порядке, а не сам порядок.
+        """
+        if any(isinstance(block, SmartArtBlock) for block in blocks):
+            return
+        for block in blocks:
+            if isinstance(block, TextBlock) and block.role is not TextRole.TITLE:
+                lines = [block.text]
+            elif isinstance(block, BulletsBlock):
+                lines = [item.text for item in block.items]
+            else:
+                continue
+            for line in lines:
+                if steps := _arrow_steps(line):
+                    shown = " → ".join(steps[:3]) + (" → …" if len(steps) > 3 else "")
+                    self._note(
+                        slide.slide_id,
+                        f"текст {block.block_id} — процесс строкой («{shown}», шагов "
+                        f"{len(steps)}): стрелки просят схему process, а не строку",
+                    )
+                    break
+
     def _note(self, slide_id: str, text: str) -> None:
         """Отчёт о том, что композиция изменила или выбросила.
 
@@ -548,6 +603,7 @@ class SlideComposer:
         self._note_missing_visual(slide, blocks)
         self._note_facts_left_out(slide, blocks, content)
         self._note_duplicated_visual(slide, blocks)
+        self._note_process_as_text(slide, blocks)
 
         return ir.model_copy(
             update={

@@ -1,0 +1,50 @@
+## Макет {{ layout.layout_id }} — {{ layout.name }} (вид: {{ layout.kind }})
+Плейсхолдеры:
+{% for ph in layout.placeholders %}
+- idx={{ ph.idx }}, тип {{ ph.ph_type }}{% if ph.role %}, роль {{ ph.role }}{% endif %}{% if ph.idx in slot_lines %}{% if slot_lines[ph.idx] <= 1 %} — **одна строка**: только короткая фраза, список сюда не ставь{% else %} — вмещает до {{ slot_lines[ph.idx] }} строк{% endif %}{% endif %}
+{% endfor %}
+{% if body_free %}
+Плейсхолдера под основной текст в этом макете нет. Основной текст, схему и показатели
+давай свободными блоками — без `placeholder_idx` и без координат. На свободной части
+слайда помещается около {{ capacity.max_chars_body }} знаков или {{ capacity.max_bullets }} строк.
+{% endif %}
+{% if layout.capacity.supports_chart %}Макет допускает диаграмму.{% endif %}
+{% if layout.capacity.supports_table %}Макет допускает таблицу.{% endif %}
+{% if layout.capacity.supports_image %}Макет допускает изображение.{% endif %}
+
+## Что должно быть на слайде
+slide_id: {{ slide.slide_id }}
+Заголовок (уже утверждён планировщиком, менять нельзя): {{ slide.headline }}
+Назначение: {{ slide.intent }}
+{% if slide.suggested_visual %}
+Заказанная планом визуализация: **{{ slide.suggested_visual }}**. Дай на слайде именно
+такой блок — это решение плана, а не пожелание. Единственная причина его не дать —
+в фактах слайда нет того, из чего он делается (например, показателей без чисел).
+{% endif %}
+
+{% if slide.intent == "title" %}
+**Это титульный слайд.** Кроме заголовка на нём обязан быть подзаголовок одной строкой:
+о чём колода и для кого. Опирайся на бриф — назначение «{{ brief.purpose }}»,
+аудитория «{{ brief.audience }}»{% if brief.key_message %}, ключевое сообщение
+«{{ brief.key_message }}»{% endif %}. Чисел в подзаголовке нет: в брифе их нет.
+Места под подзаголовок в макете может не быть — тогда дай его свободным блоком.
+{% elif slide.intent == "closing" %}
+**Это финальный слайд.** Кроме заголовка на нём обязана быть одна строка о том,
+что должно произойти после презентации: следующий шаг, решение, контакт.
+Возьми его из фактов ниже{% if brief.key_message %} или из ключевого сообщения
+«{{ brief.key_message }}»{% endif %}. Места в макете может не быть — тогда дай
+её свободным блоком.
+{% endif %}
+Факты для этого слайда:
+{% for f in facts %}
+- [{{ f.fact_id }}] {{ f.text }}
+{% endfor %}
+{% if dataset %}
+Набор данных [{{ dataset.dataset_id }}] «{{ dataset.title }}»: категории {{ dataset.categories | join(", ") }}, серий {{ dataset.series | length }}.
+{% endif %}
+
+Собери SlideIR для варианта «{{ variant }}». Seed: {{ seed }}.
+Заголовок — обязателен. Основное содержание — тоже: слайд без него не засчитывается.
+{% if no_think %}
+/no_think
+{% endif %}
