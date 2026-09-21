@@ -27,6 +27,7 @@ from deckforge.domain.template import (
     TypographyStep,
 )
 from deckforge.parsing.capacity import compute_capacity
+from deckforge.parsing.components import collect_components
 from deckforge.parsing.grid import infer_grid
 from deckforge.parsing.layout_kind import LayoutClassifier
 from deckforge.parsing.ooxml.background import full_bleed_blip, parse_background
@@ -44,8 +45,9 @@ from deckforge.parsing.typography import (
 )
 from deckforge.parsing.usage import collect_usage
 
-PARSER_VERSION = "1.7.0"  # 1.4.0 — уровни маркера; 1.5.0 — полоса заголовка из body;
-# 1.6.0 — маркер из макетов (другой change); 1.7.0 — слайды-примеры, гарнитуры и палитра
+PARSER_VERSION = "1.8.0"  # 1.4.0 — уровни маркера; 1.5.0 — полоса заголовка из body;
+# 1.6.0 — маркер из макетов (другой change); 1.7.0 — слайды-примеры, гарнитуры и палитра;
+# 1.8.0 — каталог компонентов из примеров
 
 #: Цвета серий диаграмм по умолчанию: акценты темы в порядке схемы.
 #: Благодаря этому диаграмма перекрашивается вместе со сменой шаблона (ADR-002).
@@ -222,6 +224,7 @@ class TemplateParser:
             decor=self._read_decor(pkg, masters[0], cx, cy),
             examples=examples,
             usage=collect_usage(examples, _layout_fonts(layouts), theme),
+            components=collect_components(examples, slide_size),
             extra_themes=[self._read_theme(pkg, part) for part in masters[1:]],
             bullet_levels=parse_bullets(
                 pkg.read(masters[0]), theme.colors, _layout_xmls(pkg, masters)

@@ -387,6 +387,58 @@ class TemplateUsage(DomainModel):
         return any(usage.family.strip().casefold() == needle for usage in self.fonts)
 
 
+class ComponentKind(StrEnum):
+    """Вид повторяющегося элемента шаблона.
+
+    Список короткий нарочно: это те виды, которые наш рендерер умеет рисовать сам
+    (`kpi`, `smartart`, плитки). Вид, который мы не рисуем, в каталоге бесполезен —
+    описать его есть чем, а воспользоваться нечем.
+    """
+
+    TILE = "tile"
+    PICTURE_CAPTION = "picture_caption"
+    KPI = "kpi"
+
+
+class ComponentSpec(DomainModel):
+    """Повторяющийся элемент, который автор шаблона нарисовал сам. Задача DS3.
+
+    Каталог собирается из слайдов-примеров: элемент, повторённый на одном слайде три
+    раза и больше с равным шагом, — это не случайность, а компонент дизайн-системы.
+    У VK WorkSpace так устроена «картинка + подпись», у VK Education — карточка.
+
+    Хранятся **параметры**, а не куски XML. Скопированный фрагмент принёс бы с собой
+    литеральные цвета (19 штук у VK Tech), а правило 5 требует ссылку на слот темы.
+    По этим параметрам рисует наш рендерер (DS4), и тогда плитки и показатели
+    получаются в пропорциях шаблона, а не в наших.
+    """
+
+    kind: ComponentKind
+    repeats: int = Field(ge=3, description="Сколько экземпляров стояло рядом")
+    axis: str = Field(description="row — экземпляры в ряд, column — столбцом")
+    width_share: float = Field(gt=0, le=1, description="Ширина экземпляра в долях слайда")
+    height_share: float = Field(gt=0, le=1, description="Высота экземпляра в долях слайда")
+    gap_share: float = Field(
+        ge=0, le=1, description="Шаг между экземплярами в долях стороны вдоль оси"
+    )
+    parts: list[ShapeKind] = Field(
+        default_factory=list, description="Из чего состоит экземпляр, по одному разу на вид"
+    )
+    text_sizes_pt: list[float] = Field(
+        default_factory=list, description="Кегли текстов экземпляра по убыванию"
+    )
+    fill_ref: ColorRef | None = Field(default=None, description="Заливка экземпляра слотом темы")
+    fill_hex: str | None = Field(default=None, pattern=HEX_COLOR)
+    seen_on: list[int] = Field(
+        default_factory=list, description="Номера слайдов-примеров, где элемент встречен"
+    )
+
+    @property
+    def aspect(self) -> float:
+        """Пропорции экземпляра: по ним рендерер и строит плитку."""
+        return self.width_share / self.height_share if self.height_share else 0.0
+
+
 class TemplateManifest(DomainModel):
     """Дизайн-система шаблона как самодостаточный кэшируемый JSON."""
 
@@ -410,6 +462,10 @@ class TemplateManifest(DomainModel):
     usage: TemplateUsage = Field(
         default_factory=TemplateUsage,
         description="Гарнитуры и цвета по фактическому набору, а не по объявлению темы",
+    )
+    components: list[ComponentSpec] = Field(
+        default_factory=list,
+        description="Каталог повторяющихся элементов шаблона. Пусто — примеров нет",
     )
     extra_themes: list[Theme] = Field(
         default_factory=list,
@@ -451,6 +507,11 @@ class TemplateManifest(DomainModel):
 
     def layouts_of_kind(self, kind: LayoutKind) -> list[LayoutSpec]:
         return [layout for layout in self.layouts if layout.kind == kind]
+
+    def component(self, kind: ComponentKind) -> ComponentSpec | None:
+        """Самый частый компонент этого вида. Нет такого — рисуем как рисовали."""
+        matching = [item for item in self.components if item.kind is kind]
+        return max(matching, key=lambda item: len(item.seen_on), default=None)
 
     def typography(self, role: TextRole) -> TypographyStep | None:
         return next((step for step in self.typography_scale if step.role == role), None)

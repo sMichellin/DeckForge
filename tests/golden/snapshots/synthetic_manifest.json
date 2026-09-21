@@ -10,6 +10,7 @@
       "accent6"
     ]
   },
+  "components": [],
   "decor": {
     "footer": {
       "present": true,
@@ -211,7 +212,7 @@
       "shapes": []
     }
   ],
-  "parser_version": "1.7.0",
+  "parser_version": "1.8.0",
   "slide_size": {
     "aspect": "16:9",
     "cx_emu": 12192000,

@@ -124,6 +124,116 @@
       "title": "ColorRef",
       "type": "string"
     },
+    "ComponentKind": {
+      "description": "Вид повторяющегося элемента шаблона.\n\nСписок короткий нарочно: это те виды, которые наш рендерер умеет рисовать сам\n(`kpi`, `smartart`, плитки). Вид, который мы не рисуем, в каталоге бесполезен —\nописать его есть чем, а воспользоваться нечем.",
+      "enum": [
+        "tile",
+        "picture_caption",
+        "kpi"
+      ],
+      "title": "ComponentKind",
+      "type": "string"
+    },
+    "ComponentSpec": {
+      "additionalProperties": false,
+      "description": "Повторяющийся элемент, который автор шаблона нарисовал сам. Задача DS3.\n\nКаталог собирается из слайдов-примеров: элемент, повторённый на одном слайде три\nраза и больше с равным шагом, — это не случайность, а компонент дизайн-системы.\nУ VK WorkSpace так устроена «картинка + подпись», у VK Education — карточка.\n\nХранятся **параметры**, а не куски XML. Скопированный фрагмент принёс бы с собой\nлитеральные цвета (19 штук у VK Tech), а правило 5 требует ссылку на слот темы.\nПо этим параметрам рисует наш рендерер (DS4), и тогда плитки и показатели\nполучаются в пропорциях шаблона, а не в наших.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ComponentKind"
+        },
+        "repeats": {
+          "description": "Сколько экземпляров стояло рядом",
+          "minimum": 3,
+          "title": "Repeats",
+          "type": "integer"
+        },
+        "axis": {
+          "description": "row — экземпляры в ряд, column — столбцом",
+          "title": "Axis",
+          "type": "string"
+        },
+        "width_share": {
+          "description": "Ширина экземпляра в долях слайда",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Width Share",
+          "type": "number"
+        },
+        "height_share": {
+          "description": "Высота экземпляра в долях слайда",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Height Share",
+          "type": "number"
+        },
+        "gap_share": {
+          "description": "Шаг между экземплярами в долях стороны вдоль оси",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Gap Share",
+          "type": "number"
+        },
+        "parts": {
+          "description": "Из чего состоит экземпляр, по одному разу на вид",
+          "items": {
+            "$ref": "#/$defs/ShapeKind"
+          },
+          "title": "Parts",
+          "type": "array"
+        },
+        "text_sizes_pt": {
+          "description": "Кегли текстов экземпляра по убыванию",
+          "items": {
+            "type": "number"
+          },
+          "title": "Text Sizes Pt",
+          "type": "array"
+        },
+        "fill_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ColorRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Заливка экземпляра слотом темы"
+        },
+        "fill_hex": {
+          "anyOf": [
+            {
+              "pattern": "^#[0-9A-Fa-f]{6}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fill Hex"
+        },
+        "seen_on": {
+          "description": "Номера слайдов-примеров, где элемент встречен",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Seen On",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "repeats",
+        "axis",
+        "width_share",
+        "height_share",
+        "gap_share"
+      ],
+      "title": "ComponentSpec",
+      "type": "object"
+    },
     "Decor": {
       "additionalProperties": false,
       "properties": {
@@ -1286,6 +1396,14 @@
     "usage": {
       "$ref": "#/$defs/TemplateUsage",
       "description": "Гарнитуры и цвета по фактическому набору, а не по объявлению темы"
+    },
+    "components": {
+      "description": "Каталог повторяющихся элементов шаблона. Пусто — примеров нет",
+      "items": {
+        "$ref": "#/$defs/ComponentSpec"
+      },
+      "title": "Components",
+      "type": "array"
     },
     "extra_themes": {
       "description": "Темы прочих мастеров: колоду задаёт первая, остальные нужны аудиту",
