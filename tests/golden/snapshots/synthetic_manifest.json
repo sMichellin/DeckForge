@@ -18,6 +18,8 @@
     "logo": null,
     "static_shapes": []
   },
+  "examples": [],
+  "extra_themes": [],
   "grid": {
     "columns": 12,
     "guides_source": "inferred",
@@ -209,7 +211,7 @@
       "shapes": []
     }
   ],
-  "parser_version": "1.6.0",
+  "parser_version": "1.7.0",
   "slide_size": {
     "aspect": "16:9",
     "cx_emu": 12192000,
@@ -275,5 +277,24 @@
       "role": "caption",
       "size_pt": 11.7
     }
-  ]
+  ],
+  "usage": {
+    "fonts": [
+      {
+        "chars": 0,
+        "family": "TestSans Display",
+        "in_body": false,
+        "in_titles": false,
+        "share": 0.0
+      },
+      {
+        "chars": 0,
+        "family": "TestSans Text",
+        "in_body": false,
+        "in_titles": false,
+        "share": 0.0
+      }
+    ],
+    "palette": []
+  }
 }

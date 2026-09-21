@@ -21,6 +21,7 @@ from deckforge.domain.template import (
     LayoutCapacity,
     LayoutSpec,
     SlideSize,
+    TemplateExample,
     TemplateManifest,
     Theme,
     TypographyStep,
@@ -31,6 +32,7 @@ from deckforge.parsing.layout_kind import LayoutClassifier
 from deckforge.parsing.ooxml.background import full_bleed_blip, parse_background
 from deckforge.parsing.ooxml.bullets import parse_bullets
 from deckforge.parsing.ooxml.decor import extract_decor
+from deckforge.parsing.ooxml.examples import parse_example
 from deckforge.parsing.ooxml.layouts import parse_shapes, resolve_placeholders
 from deckforge.parsing.ooxml.theme import parse_theme
 from deckforge.parsing.package import TemplatePackage
@@ -40,9 +42,10 @@ from deckforge.parsing.typography import (
     derive_scale,
     observations_from_text_styles,
 )
+from deckforge.parsing.usage import collect_usage
 
-PARSER_VERSION = "1.6.0"  # 1.4.0 — уровни маркера; 1.5.0 — полоса заголовка из body;
-# 1.6.0 — маркер списка читается из макетов, а не только из мастера
+PARSER_VERSION = "1.7.0"  # 1.4.0 — уровни маркера; 1.5.0 — полоса заголовка из body;
+# 1.6.0 — маркер из макетов (другой change); 1.7.0 — слайды-примеры, гарнитуры и палитра
 
 #: Цвета серий диаграмм по умолчанию: акценты темы в порядке схемы.
 #: Благодаря этому диаграмма перекрашивается вместе со сменой шаблона (ADR-002).
@@ -96,6 +99,16 @@ def template_id_of(path: Path) -> str:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             digest.update(chunk)
     return f"sha256:{digest.hexdigest()}"
+
+
+def _layout_fonts(layouts: list[LayoutSpec]) -> list[str]:
+    """Гарнитуры, названные плейсхолдерами макетов: это тоже набор шаблона."""
+    return [
+        ph.font_family
+        for layout in layouts
+        for ph in layout.placeholders
+        if ph.font_family
+    ]
 
 
 def _layout_xmls(pkg: TemplatePackage, masters: list[str]) -> list[bytes]:
@@ -196,6 +209,8 @@ class TemplateParser:
         layouts = self._fill_capacity(layouts, typography, cx * cy)
         layouts = self._classify(layouts, slide_size)
 
+        examples = self._read_examples(pkg, layouts, theme)
+
         return TemplateManifest(
             template_id=template_id,
             source_name=pkg.path.name,
@@ -205,6 +220,9 @@ class TemplateParser:
             grid=infer_grid(layouts, slide_size, pkg.read_optional("ppt/viewProps.xml")),
             layouts=layouts,
             decor=self._read_decor(pkg, masters[0], cx, cy),
+            examples=examples,
+            usage=collect_usage(examples, _layout_fonts(layouts), theme),
+            extra_themes=[self._read_theme(pkg, part) for part in masters[1:]],
             bullet_levels=parse_bullets(
                 pkg.read(masters[0]), theme.colors, _layout_xmls(pkg, masters)
             ),
@@ -342,6 +360,24 @@ class TemplateParser:
                 )
             )
         return classified
+
+    @staticmethod
+    def _read_examples(
+        pkg: TemplatePackage, layouts: list[LayoutSpec], theme: Theme
+    ) -> list[TemplateExample]:
+        """Слайды-примеры шаблона. Шаблон без слайдов даёт пустой список, а не ошибку.
+
+        Пример, стоящий на макете, который парсер не взял (у макета не нашлось пригодных
+        плейсхолдеров), остаётся в списке без `layout_id`: его фигуры всё равно говорят
+        о дизайн-системе шаблона.
+        """
+        by_part = {layout.part_name: layout for layout in layouts}
+        examples: list[TemplateExample] = []
+        for index, part in enumerate(pkg.slide_parts(), start=1):
+            layout_part = pkg.layout_of_slide(part)
+            layout = by_part.get(layout_part or "")
+            examples.append(parse_example(index, pkg.read(part), layout, theme))
+        return examples
 
     def _read_decor(
         self, pkg: TemplatePackage, master_part: str, cx: int, cy: int

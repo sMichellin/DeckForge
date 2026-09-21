@@ -59,6 +59,10 @@ def template_fonts(manifest: TemplateManifest) -> set[str]:
         for placeholder in layout.placeholders
         if placeholder.font_family
     }
+    # Слайды-примеры — третий и самый честный источник: там видно, чем шаблон набран
+    # на самом деле. У VK Tech Play стоит на 666 фигурах примеров, а тема зовёт Arial
+    # (change `design-system-from-examples`, DS2).
+    fonts |= {usage.family for usage in manifest.usage.fonts if usage.family}
     return fonts
 
 

@@ -24,6 +24,7 @@ REL_MASTER = f"{OFFICE_REL}/slideMaster"
 REL_LAYOUT = f"{OFFICE_REL}/slideLayout"
 REL_THEME = f"{OFFICE_REL}/theme"
 REL_IMAGE = f"{OFFICE_REL}/image"
+REL_SLIDE = f"{OFFICE_REL}/slide"
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +122,32 @@ class TemplatePackage:
 
     def layout_parts(self, master_part: str) -> list[str]:
         return self.related(master_part, REL_LAYOUT)
+
+    def slide_parts(self) -> list[str]:
+        """Слайды-примеры шаблона в порядке показа.
+
+        Шаблон без слайдов — обычное дело (стандартный шаблон python-pptx, холодная
+        проверка правила 10), и пустой список здесь не ошибка.
+        """
+        rels = self.rels_of(self.presentation_part)
+        root = etree.fromstring(self.read(self.presentation_part))
+        ordered: list[str] = []
+        for node in root.iter(f"{{{P}}}sldId"):
+            rel = rels.get(node.get(f"{{{R}}}id") or "")
+            if rel and rel.rel_type == REL_SLIDE and self.has(rel.target):
+                ordered.append(rel.target)
+        if ordered:
+            return ordered
+        pattern = re.compile(r"ppt/slides/slide\d+\.xml")
+        return sorted(
+            (n for n in self._names if pattern.fullmatch(n)),
+            key=lambda n: int(re.findall(r"\d+", n)[-1]),
+        )
+
+    def layout_of_slide(self, slide_part: str) -> str | None:
+        """Часть макета, на котором стоит слайд."""
+        layouts = self.related(slide_part, REL_LAYOUT)
+        return layouts[0] if layouts else None
 
     def theme_part(self, master_part: str) -> str | None:
         themes = self.related(master_part, REL_THEME)

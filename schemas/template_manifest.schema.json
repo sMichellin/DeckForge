@@ -200,6 +200,164 @@
       "title": "DecorElement",
       "type": "object"
     },
+    "ExampleShape": {
+      "additionalProperties": false,
+      "description": "Одна фигура слайда-примера, приведённая к координатам слайда.\n\nПримеры — это то, что автор шаблона нарисовал сам: у трёх шаблонов кейса от 87 %\nдо 96 % их содержимого лежит **вне** плейсхолдеров, обычными фигурами поверх почти\nпустого макета. Поэтому у примера важна не «вместимость», а геометрия, тип и набор:\nпо ним видно, каким автор считает слайд этого макета.\n\nФигуры внутри групп раскрыты, а их геометрия и кегль пересчитаны с учётом масштаба\nгруппы: у VK Tech иначе кегли 6,75 и 8,12 pt выглядят ступенями шкалы, хотя это\nмасштаб группы, а не решение о типографике.",
+      "properties": {
+        "shape_id": {
+          "title": "Shape Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ShapeKind"
+        },
+        "x": {
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "title": "Y",
+          "type": "integer"
+        },
+        "cx": {
+          "exclusiveMinimum": 0,
+          "title": "Cx",
+          "type": "integer"
+        },
+        "cy": {
+          "exclusiveMinimum": 0,
+          "title": "Cy",
+          "type": "integer"
+        },
+        "z": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Z",
+          "type": "integer"
+        },
+        "placeholder_idx": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "idx плейсхолдера макета, если фигура стоит в нём; иначе свободная фигура",
+          "title": "Placeholder Idx"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextRole"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Роль текста, если её удалось определить по кеглю и месту"
+        },
+        "text_len": {
+          "default": 0,
+          "description": "Длина текста фигуры в знаках",
+          "minimum": 0,
+          "title": "Text Len",
+          "type": "integer"
+        },
+        "size_pt": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Кегль, приведённый к масштабу слайда",
+          "title": "Size Pt"
+        },
+        "font_family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Гарнитура; ссылки +mj-lt/+mn-lt разрешены через тему",
+          "title": "Font Family"
+        },
+        "color_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ColorRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Цвет текста слотом темы"
+        },
+        "color_hex": {
+          "anyOf": [
+            {
+              "pattern": "^#[0-9A-Fa-f]{6}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Литеральный цвет текста, когда он не сводится к слоту темы",
+          "title": "Color Hex"
+        },
+        "fill_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ColorRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Заливка фигуры слотом темы"
+        },
+        "fill_hex": {
+          "anyOf": [
+            {
+              "pattern": "^#[0-9A-Fa-f]{6}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Литеральная заливка фигуры: из неё складывается палитра шаблона",
+          "title": "Fill Hex"
+        }
+      },
+      "required": [
+        "shape_id",
+        "kind",
+        "x",
+        "y",
+        "cx",
+        "cy"
+      ],
+      "title": "ExampleShape",
+      "type": "object"
+    },
     "FontRef": {
       "description": "Имена гарнитур схемы темы.",
       "enum": [
@@ -210,6 +368,48 @@
       ],
       "title": "FontRef",
       "type": "string"
+    },
+    "FontUsage": {
+      "additionalProperties": false,
+      "description": "Сколько знаков в шаблоне набрано этой гарнитурой.\n\nТема называет гарнитуру, которой шаблон не пользуется: у всех трёх шаблонов кейса\nв теме Arial, а примеры набраны Play. Аудит, сверяющий шрифт колоды с темой, на этом\nдаёт ложные находки (C3, C10).",
+      "properties": {
+        "family": {
+          "minLength": 1,
+          "title": "Family",
+          "type": "string"
+        },
+        "chars": {
+          "minimum": 0,
+          "title": "Chars",
+          "type": "integer"
+        },
+        "share": {
+          "description": "Доля знаков шаблона",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Share",
+          "type": "number"
+        },
+        "in_titles": {
+          "default": false,
+          "description": "Встречается в ролях заголовка",
+          "title": "In Titles",
+          "type": "boolean"
+        },
+        "in_body": {
+          "default": false,
+          "description": "Встречается в основном тексте",
+          "title": "In Body",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "family",
+        "chars",
+        "share"
+      ],
+      "title": "FontUsage",
+      "type": "object"
     },
     "FooterSpec": {
       "additionalProperties": false,
@@ -573,6 +773,41 @@
       "title": "Margins",
       "type": "object"
     },
+    "PaletteColor": {
+      "additionalProperties": false,
+      "description": "Литеральный цвет, которым шаблон пользуется помимо двенадцати слотов темы.\n\nЦвет остаётся описанием шаблона: в `SlideIR` он не попадает — правило 5 требует\nимя слота темы. Палитра нужна аудиту и профилю метрик, а рендереру — не раньше DS4.",
+      "properties": {
+        "color_hex": {
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Color Hex",
+          "type": "string"
+        },
+        "count": {
+          "description": "Сколько раз встретился",
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "nearest_ref": {
+          "$ref": "#/$defs/ColorRef",
+          "description": "Ближайший слот темы"
+        },
+        "delta_e": {
+          "description": "Расстояние до ближайшего слота",
+          "minimum": 0.0,
+          "title": "Delta E",
+          "type": "number"
+        }
+      },
+      "required": [
+        "color_hex",
+        "count",
+        "nearest_ref",
+        "delta_e"
+      ],
+      "title": "PaletteColor",
+      "type": "object"
+    },
     "PlaceholderSpec": {
       "additionalProperties": false,
       "properties": {
@@ -726,6 +961,64 @@
         "bbox"
       ],
       "title": "StaticShape",
+      "type": "object"
+    },
+    "TemplateExample": {
+      "additionalProperties": false,
+      "description": "Слайд-пример шаблона: что автор поставил на этот макет.\n\n`layout_id` пуст, когда слайд ссылается на макет, которого нет в манифесте\n(у макета не оказалось пригодных плейсхолдеров, и парсер его не взял). Такой пример\nостаётся в списке: его фигуры всё равно говорят о дизайн-системе.",
+      "properties": {
+        "slide_index": {
+          "description": "Номер части ppt/slides/slideN.xml",
+          "minimum": 1,
+          "title": "Slide Index",
+          "type": "integer"
+        },
+        "layout_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Layout Id"
+        },
+        "shapes": {
+          "items": {
+            "$ref": "#/$defs/ExampleShape"
+          },
+          "title": "Shapes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "slide_index"
+      ],
+      "title": "TemplateExample",
+      "type": "object"
+    },
+    "TemplateUsage": {
+      "additionalProperties": false,
+      "description": "Чем шаблон пользуется на самом деле, в отличие от того, что объявляет тема.",
+      "properties": {
+        "fonts": {
+          "items": {
+            "$ref": "#/$defs/FontUsage"
+          },
+          "title": "Fonts",
+          "type": "array"
+        },
+        "palette": {
+          "items": {
+            "$ref": "#/$defs/PaletteColor"
+          },
+          "title": "Palette",
+          "type": "array"
+        }
+      },
+      "title": "TemplateUsage",
       "type": "object"
     },
     "TextRole": {
@@ -981,6 +1274,26 @@
     },
     "chart_defaults": {
       "$ref": "#/$defs/ChartDefaults"
+    },
+    "examples": {
+      "description": "Слайды-примеры шаблона. Пусто — в шаблоне нет ни одного слайда",
+      "items": {
+        "$ref": "#/$defs/TemplateExample"
+      },
+      "title": "Examples",
+      "type": "array"
+    },
+    "usage": {
+      "$ref": "#/$defs/TemplateUsage",
+      "description": "Гарнитуры и цвета по фактическому набору, а не по объявлению темы"
+    },
+    "extra_themes": {
+      "description": "Темы прочих мастеров: колоду задаёт первая, остальные нужны аудиту",
+      "items": {
+        "$ref": "#/$defs/Theme"
+      },
+      "title": "Extra Themes",
+      "type": "array"
     },
     "parser_version": {
       "title": "Parser Version",

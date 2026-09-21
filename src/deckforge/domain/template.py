@@ -282,6 +282,111 @@ class ChartDefaults(DomainModel):
     series_color_refs: list[ColorRef] = Field(default_factory=list)
 
 
+class ExampleShape(DomainModel):
+    """Одна фигура слайда-примера, приведённая к координатам слайда.
+
+    Примеры — это то, что автор шаблона нарисовал сам: у трёх шаблонов кейса от 87 %
+    до 96 % их содержимого лежит **вне** плейсхолдеров, обычными фигурами поверх почти
+    пустого макета. Поэтому у примера важна не «вместимость», а геометрия, тип и набор:
+    по ним видно, каким автор считает слайд этого макета.
+
+    Фигуры внутри групп раскрыты, а их геометрия и кегль пересчитаны с учётом масштаба
+    группы: у VK Tech иначе кегли 6,75 и 8,12 pt выглядят ступенями шкалы, хотя это
+    масштаб группы, а не решение о типографике.
+    """
+
+    shape_id: str
+    kind: ShapeKind
+    x: int
+    y: int
+    cx: int = Field(gt=0)
+    cy: int = Field(gt=0)
+    z: int = Field(default=0, ge=0)
+    placeholder_idx: int | None = Field(
+        default=None,
+        description="idx плейсхолдера макета, если фигура стоит в нём; иначе свободная фигура",
+    )
+    role: TextRole | None = Field(
+        default=None, description="Роль текста, если её удалось определить по кеглю и месту"
+    )
+    text_len: int = Field(default=0, ge=0, description="Длина текста фигуры в знаках")
+    size_pt: float | None = Field(
+        default=None, gt=0, description="Кегль, приведённый к масштабу слайда"
+    )
+    font_family: str | None = Field(
+        default=None, description="Гарнитура; ссылки +mj-lt/+mn-lt разрешены через тему"
+    )
+    color_ref: ColorRef | None = Field(default=None, description="Цвет текста слотом темы")
+    color_hex: str | None = Field(
+        default=None,
+        pattern=HEX_COLOR,
+        description="Литеральный цвет текста, когда он не сводится к слоту темы",
+    )
+    fill_ref: ColorRef | None = Field(default=None, description="Заливка фигуры слотом темы")
+    fill_hex: str | None = Field(
+        default=None,
+        pattern=HEX_COLOR,
+        description="Литеральная заливка фигуры: из неё складывается палитра шаблона",
+    )
+
+    @property
+    def bbox(self) -> BBox:
+        return BBox(x=self.x, y=self.y, cx=self.cx, cy=self.cy)
+
+
+class TemplateExample(DomainModel):
+    """Слайд-пример шаблона: что автор поставил на этот макет.
+
+    `layout_id` пуст, когда слайд ссылается на макет, которого нет в манифесте
+    (у макета не оказалось пригодных плейсхолдеров, и парсер его не взял). Такой пример
+    остаётся в списке: его фигуры всё равно говорят о дизайн-системе.
+    """
+
+    slide_index: int = Field(ge=1, description="Номер части ppt/slides/slideN.xml")
+    layout_id: str | None = None
+    shapes: list[ExampleShape] = Field(default_factory=list)
+
+
+class FontUsage(DomainModel):
+    """Сколько знаков в шаблоне набрано этой гарнитурой.
+
+    Тема называет гарнитуру, которой шаблон не пользуется: у всех трёх шаблонов кейса
+    в теме Arial, а примеры набраны Play. Аудит, сверяющий шрифт колоды с темой, на этом
+    даёт ложные находки (C3, C10).
+    """
+
+    family: str = Field(min_length=1)
+    chars: int = Field(ge=0)
+    share: float = Field(ge=0.0, le=1.0, description="Доля знаков шаблона")
+    in_titles: bool = Field(default=False, description="Встречается в ролях заголовка")
+    in_body: bool = Field(default=False, description="Встречается в основном тексте")
+
+
+class PaletteColor(DomainModel):
+    """Литеральный цвет, которым шаблон пользуется помимо двенадцати слотов темы.
+
+    Цвет остаётся описанием шаблона: в `SlideIR` он не попадает — правило 5 требует
+    имя слота темы. Палитра нужна аудиту и профилю метрик, а рендереру — не раньше DS4.
+    """
+
+    color_hex: str = Field(pattern=HEX_COLOR)
+    count: int = Field(ge=1, description="Сколько раз встретился")
+    nearest_ref: ColorRef = Field(description="Ближайший слот темы")
+    delta_e: float = Field(ge=0.0, description="Расстояние до ближайшего слота")
+
+
+class TemplateUsage(DomainModel):
+    """Чем шаблон пользуется на самом деле, в отличие от того, что объявляет тема."""
+
+    fonts: list[FontUsage] = Field(default_factory=list)
+    palette: list[PaletteColor] = Field(default_factory=list)
+
+    def knows_font(self, family: str) -> bool:
+        """Набран ли шаблон этой гарнитурой. Сверка без учёта регистра и пробелов."""
+        needle = family.strip().casefold()
+        return any(usage.family.strip().casefold() == needle for usage in self.fonts)
+
+
 class TemplateManifest(DomainModel):
     """Дизайн-система шаблона как самодостаточный кэшируемый JSON."""
 
@@ -298,6 +403,18 @@ class TemplateManifest(DomainModel):
         description="Маркеры списка по уровням, начиная с первого. Пусто — шаблон их не задаёт",
     )
     chart_defaults: ChartDefaults = Field(default_factory=ChartDefaults)
+    examples: list[TemplateExample] = Field(
+        default_factory=list,
+        description="Слайды-примеры шаблона. Пусто — в шаблоне нет ни одного слайда",
+    )
+    usage: TemplateUsage = Field(
+        default_factory=TemplateUsage,
+        description="Гарнитуры и цвета по фактическому набору, а не по объявлению темы",
+    )
+    extra_themes: list[Theme] = Field(
+        default_factory=list,
+        description="Темы прочих мастеров: колоду задаёт первая, остальные нужны аудиту",
+    )
     parser_version: str
 
     @field_validator("layouts")
