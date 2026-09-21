@@ -148,6 +148,7 @@ def _fit_shortening(
         )
 
     fitted, dropped = _bullets_drop_tail(fitted, manifest, fonts, content)
+    fitted, given_up = _text_last_resort(fitted, manifest, fonts, content)
     fitted, shrunk = _titles_yield_size(fitted, manifest, fonts, content)
     grown = [
         f"{fitted.slide_id}/{block_id}: кегль поднят до {fit.final_size_pt:g} pt — "
@@ -163,10 +164,12 @@ def _fit_shortening(
             if block_id in wanted_split
             else ""
         )
-        + ("" if not fitted.fit_report[block_id].overflow else " — и всё равно не влез")
+        + (" — и всё равно не влез" if _still_over(fitted, block_id) else "")
         for block_id in sorted(touched)
+        # Снятый блок называет своя заметка (`_text_last_resort`): «сокращён» о нём — неправда.
+        if block_id in fitted.fit_report
     ]
-    notes += dropped + shrunk + grown
+    notes += dropped + given_up + shrunk + grown
     return fitted, notes
 
 
@@ -211,6 +214,72 @@ def _bullets_drop_tail(
             fonts=fonts,
             content=content,
         )
+
+
+def _still_over(slide: SlideIR, block_id: str) -> bool:
+    fit = slide.fit_report.get(block_id)
+    return fit is not None and fit.overflow
+
+
+def _text_last_resort(
+    slide: SlideIR,
+    manifest: TemplateManifest,
+    fonts: FontLibrary | None,
+    content: ContentPackage,
+) -> tuple[SlideIR, list[str]]:
+    """Текст, не влезший и в три слова, режется до двух, а не влезший и так — снимается.
+
+    Подзаголовок титула VK Education лежит в полосе 1,5 см: «Автоматизация подготовки
+    презентаций…» — это две строки кеглем 18, и прогон bc8414b73acd упал на записи
+    целиком. Колода без подзаголовка лучше колоды, которой нет; заметка называет,
+    что снято, а потерю факта увидит аудит. Заголовок сюда не попадает: ему уступает
+    кегль (`_titles_yield_size`).
+    """
+    notes: list[str] = []
+
+    def stuck(block: Block) -> bool:
+        fit = slide.fit_report.get(block.block_id)
+        return (
+            isinstance(block, TextBlock)
+            and block.role is not TextRole.TITLE
+            and fit is not None
+            and fit.overflow
+        )
+
+    over = {block.block_id for block in slide.blocks if stuck(block)}
+    if not over:
+        return slide, notes
+
+    blocks: list[Block] = []
+    for block in slide.blocks:
+        if block.block_id in over and isinstance(block, TextBlock):
+            short = shorten_to_words(block.text, _MIN_TITLE_WORDS)
+            block = block.model_copy(update={"text": short})
+        blocks.append(block)
+    slide = fit_slide(
+        slide.model_copy(update={"blocks": blocks, "fit_report": {}}),
+        manifest,
+        fonts=fonts,
+        content=content,
+    )
+
+    kept: list[Block] = []
+    for block in slide.blocks:
+        if stuck(block) and isinstance(block, TextBlock):
+            notes.append(
+                f"{slide.slide_id}/{block.block_id}: текст «{block.text}» снят — "
+                "не помещается в место макета даже в два слова"
+            )
+            continue
+        kept.append(block)
+    if len(kept) == len(slide.blocks):
+        return slide, notes
+    report = {
+        block_id: fit
+        for block_id, fit in slide.fit_report.items()
+        if any(block.block_id == block_id for block in kept)
+    }
+    return slide.model_copy(update={"blocks": kept, "fit_report": report}), notes
 
 
 def _titles_yield_size(

@@ -92,8 +92,14 @@ def test_text_that_fits_is_left_alone(narrow: TemplateManifest, fonts: FontLibra
     assert notes == []
 
 
-def test_hopeless_text_is_reported_not_hidden(narrow: TemplateManifest, fonts: FontLibrary) -> None:
-    """Сокращение не бесконечно: не влезло за все круги — это видно в заметке."""
+def test_hopeless_text_is_removed_and_reported(
+    narrow: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Не влезло и в два слова — блок снимается, и заметка это называет.
+
+    Прежде переполнение оставалось, а писатель отвергал блок и ронял прогон целиком
+    (bc8414b73acd: подзаголовок титула VK Education в полосе 1,5 см).
+    """
     words = " ".join(["Платформа"] * 3)
     body = TextBlock(block_id="b", placeholder_idx=NARROW_IDX, role=TextRole.BODY, text=words)
     tiny = narrow.model_copy(
@@ -114,8 +120,41 @@ def test_hopeless_text_is_reported_not_hidden(narrow: TemplateManifest, fonts: F
         }
     )
     fitted, notes = _fit_shortening(_slide(TITLE, body), tiny, fonts, CONTENT)
-    assert fitted.fit_report["b"].overflow is True
-    assert notes == [] or notes[0].endswith("и всё равно не влез")
+    assert [block.block_id for block in fitted.blocks] == ["t"]
+    assert "b" not in fitted.fit_report
+    assert any("s01/b: текст" in note and "снят" in note for note in notes)
+    assert not any("сокращён" in note for note in notes), "о снятом блоке — одна заметка"
+
+
+def test_subtitle_is_cut_to_two_words_when_three_do_not_fit(
+    narrow: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Полоса в строку: три слова — две строки, два слова — одна. Блок остаётся."""
+    strip = narrow.model_copy(
+        update={
+            "layouts": [
+                layout.model_copy(
+                    update={
+                        "placeholders": [
+                            ph.model_copy(update={"cx": 13 * EMU_PER_CM // 2, "cy": 450_000})
+                            if ph.idx == NARROW_IDX
+                            else ph
+                            for ph in layout.placeholders
+                        ]
+                    }
+                )
+                for layout in narrow.layouts
+            ]
+        }
+    )
+    text = "Автоматизация подготовки презентаций"
+    body = TextBlock(block_id="b", placeholder_idx=NARROW_IDX, role=TextRole.BODY, text=text)
+    fitted, _notes = _fit_shortening(_slide(TITLE, body), strip, fonts, CONTENT)
+
+    kept = next(block for block in fitted.blocks if block.block_id == "b")
+    assert isinstance(kept, TextBlock)
+    assert fitted.fit_report["b"].overflow is False
+    assert len(kept.text.split()) == 2
 
 
 def test_placeholder_wins_over_model_coordinates() -> None:
