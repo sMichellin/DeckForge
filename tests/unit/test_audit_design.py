@@ -46,7 +46,10 @@ def test_content_pinned_to_the_top_is_found(manifest: TemplateManifest) -> None:
 
     assert offset > 0.3, f"смещение {offset:.2f} — дефект не пойман"
     found = findings({"s01": top}, manifest)
-    assert len(found) == 1 and "прижато к краю" in found[0].message
+    # Дефект один и тот же — пустота под прижатым к краю содержанием; назвать его можно
+    # и полосой, и смещением, главное — назвать.
+    assert len(found) == 1
+    assert "прижато к краю" in found[0].message or "пустая полоса" in found[0].message
 
 
 def test_centred_content_passes(manifest: TemplateManifest) -> None:
@@ -89,3 +92,28 @@ def test_without_previews_the_check_is_skipped(manifest: TemplateManifest) -> No
     except CheckUnavailable:
         return
     raise AssertionError("проверка молча прошла без превью")
+
+
+def test_large_empty_band_under_the_text_is_found(manifest: TemplateManifest) -> None:
+    """Прогон 693d464d54fb: под текстом пустая полоса в 32–47 % высоты слайда.
+
+    Карта локальной дисперсии, как «excessive whitespace» у AeSlides: считается не
+    пустота вообще, а самая большая сплошная полоса — одна дыра под текстом.
+    """
+    from deckforge.audit.deterministic.design import empty_band
+
+    # Текст полосой по центру по горизонтали, но только в верхней трети.
+    top_heavy = png(*[(40, y, 600, y + 6) for y in range(30, 120, 14)])
+    assert empty_band(top_heavy) > 0.3
+
+    found = findings({"s01": top_heavy}, manifest)
+    assert found and "пустая полоса" in found[0].message
+
+
+def test_text_spread_over_the_slide_has_no_empty_band(manifest: TemplateManifest) -> None:
+    """Воздух между строками — не дыра: самая большая пустая полоса мала."""
+    from deckforge.audit.deterministic.design import empty_band
+
+    spread = png(*[(40, y, 600, y + 6) for y in range(40, 330, 28)])
+    assert empty_band(spread) <= 0.3
+    assert not any("пустая полоса" in f.message for f in findings({"s01": spread}, manifest))
