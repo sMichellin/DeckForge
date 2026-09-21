@@ -265,3 +265,4 @@ export DECKFORGE_VLM_BASE_URL=http://localhost:11434/v1 DECKFORGE_VLM_API_KEY=ol
 ## Лицензия
 
 MIT. Все используемые модели — с открытыми весами под Apache-2.0 / MIT, см. [MODELS.md](MODELS.md).
+
