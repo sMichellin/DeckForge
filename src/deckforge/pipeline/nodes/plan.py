@@ -13,7 +13,7 @@ from deckforge.layout.fitting import fit_block
 from deckforge.pipeline.deps import Deps
 from deckforge.pipeline.nodes import timed
 from deckforge.pipeline.state import DeckState
-from deckforge.planning.headlines import HeadlineRewriter
+from deckforge.planning.headlines import Band, HeadlineRewriter
 from deckforge.planning.planner import (
     DEFAULT_HEADLINE_CHARS,
     MIN_HEADLINE_CHARS,
@@ -29,8 +29,14 @@ _HEADLINE_SAMPLE = (
 )
 
 
-def _chars_that_fit(layout: LayoutSpec, idx: int, manifest: TemplateManifest) -> int:
-    """Самая длинная фраза, которая влезает в эту полосу заголовка.
+#: Меньше скольких слов образца полоса уже не держит вывод: подлежащее, сказуемое
+#: и то, о чём речь. Такую полосу заводят обложки ради одного крупного слова, и просить
+#: под неё заголовок-вывод бессмысленно — модель вернёт тему, а не вывод.
+_MIN_BAND_WORDS = 3
+
+
+def _words_that_fit(layout: LayoutSpec, idx: int, manifest: TemplateManifest) -> list[str]:
+    """Самое длинное начало образца, которое влезает в эту полосу заголовка.
 
     Меряется `fit_block` — тем же кодом, что и вёрстка, со всеми его правилами, включая
     уступку кегля до ступени тела (A9). Мера ограничена длиной образца: полоса, которая
@@ -48,7 +54,40 @@ def _chars_that_fit(layout: LayoutSpec, idx: int, manifest: TemplateManifest) ->
         if fit_block(probe, layout, manifest).overflow:
             break
         kept.append(word)
-    return len(" ".join(kept))
+    return kept
+
+
+def _chars_that_fit(layout: LayoutSpec, idx: int, manifest: TemplateManifest) -> int:
+    """Длина самой длинной фразы образца, которая влезает в эту полосу заголовка."""
+    return len(" ".join(_words_that_fit(layout, idx, manifest)))
+
+
+def layout_headline_band(layout: LayoutSpec, manifest: TemplateManifest) -> Band | None:
+    """Полоса заголовка этого макета — мерило и предел для захода под макет (A11).
+
+    Мерило — `fit_block` по полосе заголовка макета, ровно тот же вопрос, который потом
+    задаст композиция, прежде чем подрезать заголовок (`SlideComposer._trim_headline`).
+    Без поблажки «не длиннее предела — значит влез», как у `headline_fits`: там предел
+    поднят до нижнего порога ради тесных шаблонов, а здесь поблажка означала бы
+    заголовок, который потом всё равно подрежут. Предел — мера полосы в знаках,
+    ограниченная правилом десяти слов; он уезжает в промпт.
+
+    `None` — мерить нечем или незачем: у макета нет полосы заголовка, либо полоса
+    держит меньше `_MIN_BAND_WORDS` слов (обложка ради одного крупного слова).
+    """
+    idx = next((ph.idx for ph in layout.placeholders if ph.role is TextRole.TITLE), None)
+    if idx is None:
+        return None
+    words = _words_that_fit(layout, idx, manifest)
+    if len(words) < _MIN_BAND_WORDS:
+        return None
+    limit = min(DEFAULT_HEADLINE_CHARS, len(" ".join(words)))
+
+    def fits(text: str) -> bool:
+        probe = TextBlock(block_id="probe", placeholder_idx=idx, role=TextRole.TITLE, text=text)
+        return not fit_block(probe, layout, manifest).overflow
+
+    return Band(fits=fits, limit=limit)
 
 
 def _median_title_slot(manifest: TemplateManifest) -> tuple[int, LayoutSpec, int] | None:

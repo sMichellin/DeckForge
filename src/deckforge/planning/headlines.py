@@ -16,7 +16,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from functools import partial
 
 from deckforge.domain.content import ContentPackage
@@ -33,6 +34,18 @@ _ATTEMPTS = 2
 #: чтобы промахнуться, ей теперь надо промахнуться трижды подряд. Больше трёх —
 #: лишние токены: варианты начинают повторять друг друга.
 _VARIANTS = 3
+
+
+@dataclass(frozen=True)
+class Band:
+    """Полоса заголовка, под которую переписывается заголовок одного слайда.
+
+    `fits` меряет текст так же, как потом померяет вёрстка; `limit` — предел в знаках,
+    который называется модели. Мерилом служит только `fits`, предел — подсказка.
+    """
+
+    fits: Callable[[str], bool]
+    limit: int
 
 
 def _why(headline: str, limit: int, miss: tuple[str, int] | None) -> str:
@@ -100,37 +113,88 @@ class HeadlineRewriter:
         вызывающего — узел графа отдаёт ограничитель всем, кто ходит к модели.
         """
         _ = slots
-        pending = [slide for slide in plan.slides if not fits(slide.headline)]
+        band = Band(fits=fits, limit=limit)
+        bands = {slide.slide_id: band for slide in plan.slides}
+        return await self._rewrite(plan, content, bands, seed=seed, attempts=_ATTEMPTS)
+
+    async def rewrite_for_layouts(
+        self,
+        plan: DeckPlan,
+        content: ContentPackage,
+        *,
+        bands: Mapping[str, Band],
+        seed: int,
+    ) -> DeckPlan:
+        """Заход под полосу макета, который слайду уже выбран (A11).
+
+        Планировщику предел называется по медиане полос шаблона: какой макет достанется
+        слайду, до `pick_layout` неизвестно. У VK Tech медиана — 63 знака, а выбранные
+        макеты держат 24–32, и композиция подрезала 7 заголовков из 9. Здесь мерило
+        у каждого слайда своё — полоса его макета.
+
+        Механика та же, что у `rewrite_overlong`: одна пачка на колоду, варианты, выбор
+        измерением. Вызов **один**: это уже второй заход после плана, а заголовок,
+        не вставший и теперь, подрежет композиция, как и раньше. Слайд без полосы
+        в `bands` не трогается: мерить его нечем.
+        """
+        return await self._rewrite(plan, content, bands, seed=seed, attempts=1)
+
+    async def _rewrite(
+        self,
+        plan: DeckPlan,
+        content: ContentPackage,
+        bands: Mapping[str, Band],
+        *,
+        seed: int,
+        attempts: int,
+    ) -> DeckPlan:
+        """Общая механика заходов: пачка не уместившихся, варианты, выбор измерением.
+
+        У каждого слайда своя полоса: и мерило, и предел в промпте. Для первого захода
+        после плана она у всех одна, для захода под выбранный макет — у каждого своя.
+        """
+        pending = [
+            slide
+            for slide in plan.slides
+            if (band := bands.get(slide.slide_id)) is not None and not band.fits(slide.headline)
+        ]
         if not pending:
             return plan
 
         best: dict[str, str] = {}
         why: dict[str, str] = {
-            slide.slide_id: _why(slide.headline, limit, None) for slide in pending
+            slide.slide_id: _why(slide.headline, bands[slide.slide_id].limit, None)
+            for slide in pending
         }
-        for attempt in range(_ATTEMPTS):
-            fresh = await self._rewrite_batch(pending, content, limit, seed + attempt, why)
+        for attempt in range(attempts):
+            fresh = await self._rewrite_batch(pending, content, bands, seed + attempt, why)
             if not fresh:
                 break
             still: list[SlidePlan] = []
             for slide in pending:
+                band = bands[slide.slide_id]
                 variants = fresh.get(slide.slide_id) or []
-                chosen = _best_variant(variants, fits)
+                chosen = _best_variant(variants, band.fits)
                 if chosen is None:
                     continue
                 current = best.get(slide.slide_id)
-                if current is None or _better(chosen, current, fits):
+                if current is None or _better(chosen, current, band.fits):
                     best[slide.slide_id] = chosen
-                if not fits(chosen):
+                if not band.fits(chosen):
                     still.append(slide)
                     why[slide.slide_id] = _why(
-                        slide.headline, limit, (chosen, len(chosen) - limit)
+                        slide.headline, band.limit, (chosen, len(chosen) - band.limit)
                     )
             pending = still
             if not pending:
                 break
 
-        slides = [self._accept(slide, best, fits) for slide in plan.slides]
+        slides = [
+            self._accept(slide, best, band.fits)
+            if (band := bands.get(slide.slide_id)) is not None
+            else slide
+            for slide in plan.slides
+        ]
         return plan.model_copy(update={"slides": slides})
 
     def _accept(
@@ -170,7 +234,7 @@ class HeadlineRewriter:
         self,
         slides: list[SlidePlan],
         content: ContentPackage,
-        limit: int,
+        bands: Mapping[str, Band],
         seed: int,
         why: dict[str, str],
     ) -> dict[str, list[str]]:
@@ -185,7 +249,7 @@ class HeadlineRewriter:
             {
                 "slide_id": slide.slide_id,
                 "headline": slide.headline,
-                "limit": limit,
+                "limit": bands[slide.slide_id].limit,
                 "why": why[slide.slide_id],
                 "facts": [
                     fact for ref in slide.fact_refs if (fact := content.fact(ref)) is not None

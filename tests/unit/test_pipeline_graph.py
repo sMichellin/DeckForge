@@ -313,10 +313,11 @@ async def test_interactive_run_stops_and_resumes_with_the_human_choice(tmp_path:
 
 
 async def test_composition_notes_reach_the_run_report(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    manifest: TemplateManifest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Композитор пишет, что отбросил или поставил свободно, — это обязано дойти до отчёта."""
     from deckforge.pipeline.nodes import compose as compose_module
+    from deckforge.registry import load_variant_profiles
 
     class NoisyComposer:
         def __init__(self, *_: Any, **__: Any) -> None:
@@ -330,8 +331,9 @@ async def test_composition_notes_reach_the_run_report(
     state: DeckState = {
         "plan": plan_of("s01", "s02"),
         "content": None,  # type: ignore[typeddict-item]
-        "manifest": None,  # type: ignore[typeddict-item]
-        "variant": None,  # type: ignore[typeddict-item]
+        # Макет слайду узел выбирает сам — для захода заголовков под полосу (A11).
+        "manifest": manifest,
+        "variant": load_variant_profiles()["A"],
         "seed": 1,
     }
     out = await compose_module.compose_node(state, runtime(deps(tmp_path, llm=object())))
