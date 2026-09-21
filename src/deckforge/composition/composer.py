@@ -427,34 +427,45 @@ class SlideComposer:
 
         blocks: list[Block] = []
         freed: list[str] = []
+        #: Плейсхолдеры, которые уже заняты блоком. Один плейсхолдер — один блок: два
+        #: блока в одном месте — это рамка поверх рамки, наложение в 100 % площади
+        #: и находка `layout.overlap` (B9). Решатель такой пары не разводит и не обязан:
+        #: место обоим дал не он, а модель, назвав один и тот же плейсхолдер дважды.
+        taken: set[int] = set()
         for block in ir.blocks:
             if isinstance(block, TextBlock) and block.role is TextRole.TITLE:
                 block = self._trim_headline(block, layout, manifest, slide.slide_id)
             idx = getattr(block, "placeholder_idx", None)
 
-            if idx is not None and idx not in known_placeholders:
+            if idx is not None and (idx not in known_placeholders or idx in taken):
+                why = (
+                    f"плейсхолдера {idx} нет в макете {layout.layout_id}"
+                    if idx not in known_placeholders
+                    else f"плейсхолдер {idx} макета {layout.layout_id} уже занят"
+                )
                 if isinstance(block, _PLACEABLE_FREELY):
                     # Текст не выбрасывается: в шаблоне может не быть ни одного макета
                     # под содержание, и тогда свободный блок в области контента —
                     # единственный способ ничего не потерять.
                     block = block.model_copy(update={"placeholder_idx": None})
+                    idx = None
                     freed.append(block.block_id)
                     self._note(
                         slide.slide_id,
-                        f"блок {block.block_id}: плейсхолдера {idx} нет в макете "
-                        f"{layout.layout_id}, поставлен свободным блоком",
+                        f"блок {block.block_id}: {why}, поставлен свободным блоком",
                     )
                 else:
                     self._note(
                         slide.slide_id,
-                        f"блок {block.block_id} ({block.type}) отброшен: плейсхолдера "
-                        f"{idx} нет в макете {layout.layout_id}",
+                        f"блок {block.block_id} ({block.type}) отброшен: {why}",
                     )
                     continue
-            elif idx is not None and isinstance(block, TextBlock) and block.color_ref is not None:
-                # Цвет в плейсхолдере не задаётся: макет знает, на каком он фоне,
-                # а модель — нет. Так dk1 оказывался тёмным по тёмному.
-                block = block.model_copy(update={"color_ref": None})
+            elif idx is not None:
+                taken.add(idx)
+                if isinstance(block, TextBlock) and block.color_ref is not None:
+                    # Цвет в плейсхолдере не задаётся: макет знает, на каком он фоне,
+                    # а модель — нет. Так dk1 оказывался тёмным по тёмному.
+                    block = block.model_copy(update={"color_ref": None})
 
             if isinstance(block, ChartBlock):
                 if block.dataset_ref not in known_datasets:
@@ -504,11 +515,23 @@ class SlideComposer:
                             update={"x": None, "y": None, "cx": None, "cy": None}
                         )
                     freed.append(block.block_id)
-                elif block.bbox is None:
+                else:
+                    # Диаграмме, таблице и картинке нужен не прямоугольник, а макет,
+                    # который их допускает, — свободно их не поставить. Координаты
+                    # от модели тут не спасение, а источник наложений: решатель их
+                    # не видит, и рамка ложится поверх плейсхолдера (B9). Правило
+                    # change `composer-no-model-coordinates` — «координатам модели
+                    # не доверяем вовсе» — до этих трёх видов не дошло.
                     self._note(
                         slide.slide_id,
-                        f"блок {block.block_id} ({block.type}) отброшен: ни плейсхолдера, "
-                        "ни координат, а ставить его свободно нельзя",
+                        f"блок {block.block_id} ({block.type}) отброшен: "
+                        + (
+                            f"в макете {layout.layout_id} нет места под него, "
+                            "а координаты от модели не берём"
+                            if block.bbox is not None
+                            else "ни плейсхолдера, ни координат, "
+                            "а ставить его свободно нельзя"
+                        ),
                     )
                     continue
 

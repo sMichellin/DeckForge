@@ -1204,6 +1204,115 @@ async def test_prompt_says_the_visual_replaces_the_list(
     assert "Схема заменяет перечисление" in llm.prompt
 
 
+# ------------------------------------------------ наложение блоков в композиции (B9)
+
+
+def _overlap_findings(ir: object, manifest: TemplateManifest) -> list[object]:
+    """Находки `layout.overlap` по собранному слайду — тем же кодом, что и аудит."""
+    from deckforge.audit.deterministic.layout import overlap
+    from deckforge.domain.slide import DeckIR, SlideIR
+    from tests.unit._audit_builders import context_for
+
+    assert isinstance(ir, SlideIR)
+    deck = DeckIR(
+        deck_id="d1", variant="A", template_id=manifest.template_id, seed=1, slides=[ir]
+    )
+    return list(overlap(context_for("layout.overlap", deck, manifest)))
+
+
+async def test_two_blocks_do_not_share_one_placeholder(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """B9. Модель назвала один плейсхолдер дважды — это рамка поверх рамки.
+
+    Решатель такой пары не разводит и не обязан: место обоим дал не он. Прогон
+    f0b9ff6f0a74, `layout.overlap` на s06 — ошибка в отчёте о готовой колоде.
+    """
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "L07",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "t", "type": "text", "placeholder_idx": 0, "role": "title",
+             "text": "Отток снизился втрое"},
+            {"block_id": "b1", "type": "text", "placeholder_idx": 1, "role": "body",
+             "text": "Первый довод по материалам"},
+            {"block_id": "b2", "type": "text", "placeholder_idx": 1, "role": "body",
+             "text": "Второй довод по материалам"},
+        ],
+    }
+    composer = SlideComposer(FakeLlm(payload))
+    ir = await composer.compose(plan_slide(), content, manifest, variant_a, seed=1)
+
+    assert _overlap_findings(ir, manifest) == []
+    # Второй блок не потерян: место ему даёт решатель, а не тот же плейсхолдер.
+    second = ir.block("b2")
+    assert second is not None and second.bbox is not None
+    assert any("b2" in note and "занят" in note for note in composer.notes)
+
+
+async def test_coordinates_from_the_model_do_not_land_on_a_placeholder(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """B9. Координаты диаграммы придумала модель, и решатель их не видит.
+
+    Правило change `composer-no-model-coordinates` — «координатам модели не доверяем
+    вовсе» — до диаграммы, таблицы и картинки не дошло: блок с рамкой поверх
+    плейсхолдера доезжал до файла, и наложение находил уже аудит.
+    """
+    title = manifest.layout("L07").placeholder(0)
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "L07",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "t", "type": "text", "placeholder_idx": 0, "role": "title",
+             "text": "Выручка выросла"},
+            {
+                "block_id": "c",
+                "type": "chart",
+                "chart_type": "clustered_column",
+                "dataset_ref": "d001",
+                # Ровно поверх полосы заголовка.
+                "x": title.x,
+                "y": title.y,
+                "cx": title.cx,
+                "cy": title.cy,
+            },
+        ],
+    }
+    composer = SlideComposer(FakeLlm(payload))
+    ir = await composer.compose(plan_slide(), content, manifest, variant_a, seed=1)
+
+    assert _overlap_findings(ir, manifest) == []
+    assert ir.block("c") is None
+    assert any("c" in note and "координаты от модели" in note for note in composer.notes)
+
+
+async def test_a_normal_slide_keeps_both_blocks_in_their_own_places(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Норма к обоим правилам: разные плейсхолдеры — оба блока на месте, наложений нет."""
+    payload = {
+        "slide_id": "s02",
+        "layout_id": "L07",
+        "variant": "A",
+        "blocks": [
+            {"block_id": "t", "type": "text", "placeholder_idx": 0, "role": "title",
+             "text": "Отток снизился втрое"},
+            {"block_id": "b", "type": "bullets", "placeholder_idx": 1,
+             "items": [{"text": "Первый довод"}, {"text": "Второй довод"}]},
+        ],
+    }
+    composer = SlideComposer(FakeLlm(payload))
+    ir = await composer.compose(plan_slide(), content, manifest, variant_a, seed=1)
+
+    assert _overlap_findings(ir, manifest) == []
+    assert ir.block("t") is not None and ir.block("b") is not None
+    # Ни одной заметки о месте: про потерянный факт заметка своя и к вёрстке не относится.
+    assert not [note for note in composer.notes if "занят" in note or "отброшен" in note]
+
+
 # --------------------------------------------- выбор макета по схеме содержания (B8)
 
 
