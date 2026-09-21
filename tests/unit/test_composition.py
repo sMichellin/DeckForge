@@ -1071,6 +1071,32 @@ async def test_prompt_explains_a_layout_with_several_text_slots(
     assert "Мест под текст в этом макете" in llm.prompt
 
 
+async def test_prompt_warns_that_a_one_line_slot_is_not_for_a_list(
+    content: ContentPackage, manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Полоса в одну строку под заголовком VK Tech (3c492f118781) получала список
+    из двух пунктов и роняла запись колоды: модель не знала высоты места."""
+    layout = manifest.layout("L07")
+    assert layout is not None
+    body = next(ph for ph in layout.placeholders if ph.role is TextRole.BODY)
+    strip = body.model_copy(update={"idx": 60, "cy": 300_000})
+    wide = manifest.model_copy(update={"layouts": [
+        item.model_copy(update={"placeholders": [*item.placeholders, strip]})
+        if item.layout_id == "L07" else item
+        for item in manifest.layouts
+    ]})
+    payload = {
+        "slide_id": "s02", "layout_id": "L07", "variant": "A",
+        "blocks": [{"block_id": "b1", "type": "text", "placeholder_idx": 0,
+                    "role": "title", "text": "Вывод"}],
+    }
+    llm = FakeLlm(payload)
+    await SlideComposer(llm).compose(plan_slide(), content, wide, variant_a, seed=1)
+
+    assert "idx=60, тип BODY, роль body — **одна строка**" in llm.prompt
+    assert f"idx={body.idx}, тип BODY, роль body — вмещает до" in llm.prompt
+
+
 async def test_lead_in_fact_is_not_called_lost(
     manifest: TemplateManifest, variant_a: VariantProfile
 ) -> None:

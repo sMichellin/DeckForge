@@ -185,3 +185,51 @@ def test_title_that_fits_keeps_its_size(narrow: TemplateManifest, fonts: FontLib
 
     assert fitted.fit_report["t"].final_size_pt == narrow.typography(TextRole.TITLE).size_pt
     assert not any("кегль заголовка" in note for note in notes)
+
+
+def test_list_in_a_one_line_slot_loses_its_tail_not_the_deck(
+    narrow: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Список в полосе высотой в строку (e2d8701e9f09) не влезает и сокращённым:
+    вместо падения записи выбрасываются последние пункты, и заметка их называет."""
+    strip = narrow.model_copy(
+        update={
+            "layouts": [
+                layout.model_copy(
+                    update={
+                        "placeholders": [
+                            ph.model_copy(update={"cx": 12 * EMU_PER_CM, "cy": 450_000})
+                            if ph.idx == NARROW_IDX
+                            else ph
+                            for ph in layout.placeholders
+                        ]
+                    }
+                )
+                for layout in narrow.layouts
+            ]
+        }
+    )
+    bullets = BulletsBlock(
+        block_id="b",
+        placeholder_idx=NARROW_IDX,
+        items=[BulletItem(text=text) for text in ("Анализ шаблона", "Сборка", "Проверка")],
+    )
+    fitted, notes = _fit_shortening(_slide(TITLE, bullets), strip, fonts, CONTENT)
+
+    kept = next(b for b in fitted.blocks if b.block_id == "b")
+    assert isinstance(kept, BulletsBlock)
+    assert fitted.fit_report["b"].overflow is False
+    assert [item.text for item in kept.items] == ["Анализ шаблона"]
+    assert any("«Проверка» выброшен" in note for note in notes)
+
+
+def test_list_that_fits_keeps_every_item(narrow: TemplateManifest, fonts: FontLibrary) -> None:
+    bullets = BulletsBlock(
+        block_id="b",
+        placeholder_idx=NARROW_IDX,
+        items=[BulletItem(text="Рост"), BulletItem(text="Отток")],
+    )
+    fitted, notes = _fit_shortening(_slide(TITLE, bullets), narrow, fonts, CONTENT)
+    kept = next(b for b in fitted.blocks if b.block_id == "b")
+    assert isinstance(kept, BulletsBlock) and len(kept.items) == 2
+    assert not any("выброшен" in note for note in notes)

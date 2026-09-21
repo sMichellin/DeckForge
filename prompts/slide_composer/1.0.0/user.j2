@@ -1,7 +1,7 @@
 ## Макет {{ layout.layout_id }} — {{ layout.name }} (вид: {{ layout.kind }})
 Плейсхолдеры:
 {% for ph in layout.placeholders %}
-- idx={{ ph.idx }}, тип {{ ph.ph_type }}{% if ph.role %}, роль {{ ph.role }}{% endif %}
+- idx={{ ph.idx }}, тип {{ ph.ph_type }}{% if ph.role %}, роль {{ ph.role }}{% endif %}{% if ph.idx in slot_lines %}{% if slot_lines[ph.idx] <= 1 %} — **одна строка**: только короткая фраза, список сюда не ставь{% else %} — вмещает до {{ slot_lines[ph.idx] }} строк{% endif %}{% endif %}
 {% endfor %}
 {% if body_free %}
 Плейсхолдера под основной текст в этом макете нет. Основной текст, схему и показатели

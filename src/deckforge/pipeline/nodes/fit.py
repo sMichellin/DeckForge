@@ -147,6 +147,7 @@ def _fit_shortening(
             content=content,
         )
 
+    fitted, dropped = _bullets_drop_tail(fitted, manifest, fonts, content)
     fitted, shrunk = _titles_yield_size(fitted, manifest, fonts, content)
     grown = [
         f"{fitted.slide_id}/{block_id}: кегль поднят до {fit.final_size_pt:g} pt — "
@@ -165,8 +166,51 @@ def _fit_shortening(
         + ("" if not fitted.fit_report[block_id].overflow else " — и всё равно не влез")
         for block_id in sorted(touched)
     ]
-    notes += shrunk + grown
+    notes += dropped + shrunk + grown
     return fitted, notes
+
+
+def _bullets_drop_tail(
+    slide: SlideIR,
+    manifest: TemplateManifest,
+    fonts: FontLibrary | None,
+    content: ContentPackage,
+) -> tuple[SlideIR, list[str]]:
+    """Список, который не влез и сокращённым, теряет последние пункты — а не всю колоду.
+
+    Модель кладёт список в плейсхолдер высотой в одну строку: у «Шаблона 2024» это полоса
+    1,4 см над телом (прогон e2d8701e9f09), у VK Tech — строка 0,8 см под заголовком
+    (3c492f118781). Четыре пункта по три слова туда не встают ни в каком кегле, писатель
+    блок с переполнением не пишет, и прогон падал на `render` целиком. Пункт, который
+    выброшен, называет заметка, а потерю факта увидит аудит.
+    """
+    notes: list[str] = []
+    while True:
+        over = {
+            block.block_id
+            for block in slide.blocks
+            if isinstance(block, BulletsBlock)
+            and len(block.items) > 1
+            and (fit := slide.fit_report.get(block.block_id)) is not None
+            and fit.overflow
+        }
+        if not over:
+            return slide, notes
+        blocks: list[Block] = []
+        for block in slide.blocks:
+            if block.block_id in over and isinstance(block, BulletsBlock):
+                notes.append(
+                    f"{slide.slide_id}/{block.block_id}: пункт «{block.items[-1].text}» "
+                    "выброшен — список не помещается в место макета"
+                )
+                block = block.model_copy(update={"items": block.items[:-1]})
+            blocks.append(block)
+        slide = fit_slide(
+            slide.model_copy(update={"blocks": blocks, "fit_report": {}}),
+            manifest,
+            fonts=fonts,
+            content=content,
+        )
 
 
 def _titles_yield_size(

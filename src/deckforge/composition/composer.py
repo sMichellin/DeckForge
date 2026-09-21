@@ -42,6 +42,7 @@ from deckforge.layout.constraints import solve_positions
 from deckforge.layout.diagram import SUPPORTED_PATTERNS
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fitting import fit_block
+from deckforge.parsing.capacity import lines_that_fit
 from deckforge.registry import get_prompt_registry
 
 #: Короче этого заголовок не режется: два слова — уже не вывод, а обрубок. Такой случай
@@ -89,6 +90,27 @@ class CompositionError(RuntimeError):
 #: а не оформление. Диаграммы и таблицы в набор не входят — им нужен не просто
 #: прямоугольник, а макет, который их допускает (`capacity.supports_*`).
 _PLACEABLE_FREELY = (TextBlock, BulletsBlock, SmartArtBlock, KpiBlock)
+
+
+def _slot_lines(layout: LayoutSpec, manifest: TemplateManifest) -> dict[int, int]:
+    """Сколько строк вмещает каждое место под текст — в самом мелком кегле шкалы.
+
+    Модель видела у плейсхолдера только номер и роль, и полоса высотой в одну строку
+    для неё ничем не отличалась от тела: список из четырёх пунктов уезжал в строку
+    0,8 см под заголовком VK Tech (прогон 3c492f118781) и ронял запись колоды.
+    Мелкий кегль — потому что вписывание дойдёт до него, прежде чем сдаться:
+    если и в нём строка одна, списку тут не место.
+    """
+    ladder = manifest.size_ladder_pt
+    smallest = min(ladder) if ladder else None
+    out: dict[int, int] = {}
+    for ph in layout.placeholders:
+        if ph.role is not TextRole.BODY:
+            continue
+        size = smallest or ph.size_pt
+        if size:
+            out[ph.idx] = lines_that_fit(ph, size)
+    return out
 
 
 def _stems(text: str) -> set[str]:
@@ -173,6 +195,7 @@ class SlideComposer:
         # плейсхолдерами по строке вместо одного блока на шесть строк. Модель об этом
         # обязана знать, иначе весь список уедет в первое место высотой 0,4 см.
         body_slots = sum(1 for ph in layout.placeholders if ph.role is TextRole.BODY)
+        slot_lines = _slot_lines(layout, manifest)
 
         bundle = get_prompt_registry().load("slide_composer", profile=self.profile)
         system, user = bundle.render(
@@ -188,6 +211,7 @@ class SlideComposer:
             target_bullets=max(2, min(capacity.max_bullets, len(facts) or 3)),
             body_free=body_free,
             body_slots=body_slots,
+            slot_lines=slot_lines,
             smartart_patterns=sorted(pattern.value for pattern in SUPPORTED_PATTERNS),
             capacity_ratio=variant.capacity_ratio(),
             language=content.brief.language,
