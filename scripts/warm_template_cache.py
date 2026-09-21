@@ -31,19 +31,18 @@ from deckforge.parsing.template import PARSER_VERSION, TemplateParser
 
 
 def vlm_client() -> object | None:
-    """Клиент VLM, если он поднят. Без него разметка идёт эвристикой — это рабочий режим.
+    """Клиент VLM — тот же, что получает прогон (`pipeline/run.py`, `layout_vlm`).
 
-    Молчать о его отсутствии нельзя: манифест, снятый без модели, ляжет в кэш и будет
-    использоваться прогонами как готовый. Поэтому скрипт печатает, чем размечено.
+    Прежде здесь создавался `VlmClient()`, а это протокол: экземпляра у него нет, и скрипт
+    на стенде за секунду переписал кэш всех четырёх шаблонов разметкой одной эвристикой,
+    сообщив «VLM недоступен». `None` — модели в реестре нет вовсе.
     """
+    from deckforge.inference.factory import vlm_judge
+
     try:
-        from deckforge.inference.vlm import VlmClient
-    except ImportError:
-        return None
-    try:
-        return VlmClient()
-    except Exception as error:
-        print(f"VLM недоступен ({error}): макеты будут размечены эвристикой")
+        return vlm_judge("vlm_judge")
+    except (KeyError, ValueError) as error:
+        print(f"VLM не объявлен в реестре моделей ({error})")
         return None
 
 
@@ -55,9 +54,16 @@ def warm(paths: list[Path], cache_dir: Path, use_vlm: bool = True) -> int:
             print(f"{path}: файла нет — пропущен")
             failed += 1
             continue
+        vlm = vlm_client() if use_vlm else None
+        if use_vlm and vlm is None:
+            # Кэш без модели хуже, чем никакого: прогон взял бы его как готовый и не позвал
+            # модель даже при свободном сервере. Эвристика в кэш — только по `--no-vlm`.
+            print(f"{path.name}: модели нет — кэш не тронут (эвристикой: --no-vlm)")
+            failed += 1
+            continue
         # Свой классификатор на каждый шаблон: предел времени у него нет, а счётчики
         # отказов должны относиться к одному шаблону, а не копиться на все.
-        classifier = LayoutClassifier(vlm=vlm_client() if use_vlm else None, budget_s=None)
+        classifier = LayoutClassifier(vlm=vlm, budget_s=None)
         started = time.monotonic()
         try:
             # Разбирать заново, а не читать кэш: в нём может лежать манифест, снятый

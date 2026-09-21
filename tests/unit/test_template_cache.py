@@ -60,3 +60,32 @@ def test_warm_cache_replaces_what_is_already_cached(tmp_path: Path) -> None:
     assert warm_template_cache.warm([template], cache, use_vlm=False) == 0
 
     assert '"LXX"' not in cached.read_text(encoding="utf-8")
+
+
+def test_warm_cache_without_a_model_leaves_the_cache_alone(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    """Модели нет — кэш не переписывается эвристикой (так и случилось на стенде 21.09)."""
+    import warm_template_cache
+
+    template = _template(tmp_path)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    TemplateParser(cache_dir=cache, classifier=LayoutClassifier()).parse(template)
+    (cached,) = cache.glob("*.json")
+    before = cached.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(warm_template_cache, "vlm_client", lambda: None)  # type: ignore[attr-defined]
+    assert warm_template_cache.warm([template], cache, use_vlm=True) == 1
+
+    assert cached.read_text(encoding="utf-8") == before
+
+
+def test_warm_cache_asks_the_same_factory_as_the_run(monkeypatch: object) -> None:
+    """Клиент — из фабрики реестра, а не из протокола (`VlmClient()` не создаётся)."""
+    import warm_template_cache
+    from deckforge.inference import factory
+
+    sentinel = object()
+    monkeypatch.setattr(factory, "vlm_judge", lambda role="vlm_judge": sentinel)  # type: ignore[attr-defined]
+    assert warm_template_cache.vlm_client() is sentinel
