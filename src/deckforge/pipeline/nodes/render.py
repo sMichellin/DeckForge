@@ -37,10 +37,14 @@ async def render_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     # (`design.ink_balance`), а они детерминированные и идут всегда. Рендер десяти
     # страниц стоит секунды, и без него проверка уходит в пропущенные — то есть колода
     # снова оценивается по рамкам, а не по тому, как выглядит.
-    wants_previews = bool(deps.run.audit.get("run_deterministic", True)) or (
-        bool(deps.run.audit.get("run_semantic", True)) and deps.vlm is not None
-    )
-    if wants_previews and deps.budget.behind_schedule("render"):
+    for_design = bool(deps.run.audit.get("run_deterministic", True))
+    for_judge = bool(deps.run.audit.get("run_semantic", True)) and deps.vlm is not None
+    wants_previews = for_design or for_judge
+    # Рычаг бюджета снимает превью, только если они нужны одному судье-VLM: судья —
+    # десятки минут, а рендер — секунды. Прогон d973a7ee8110 отстал от расписания,
+    # простояв в очереди к модели 51 минуту, и рычаг «сэкономил» три секунды рендера —
+    # ценой детерминированной проверки оформления, которая ушла в пропущенные.
+    if wants_previews and not for_design and deps.budget.behind_schedule("render"):
         wants_previews = False
         degradations.append("render: превью не снимаются — остатка бюджета не хватает (§15)")
 

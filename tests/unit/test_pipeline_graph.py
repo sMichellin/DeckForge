@@ -445,3 +445,61 @@ async def test_overlong_headline_goes_back_to_the_model(
     assert rewriter.seen == [False, True], "узел померял заголовки не по рамке шаблона"
     assert out["plan"].slides[0].headline == short_headline
     assert "план: слайд s01: заголовок переписан под рамку: 69 → 24" in out["notes"]
+
+
+# --- узел render: превью и рычаг бюджета ---------------------------------------
+
+
+class Late(BudgetTracker):
+    """Бюджет, по которому прогон безнадёжно отстал: так было в d973a7ee8110."""
+
+    def behind_schedule(self, stage: str) -> bool:
+        return True
+
+
+async def _render_with(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, audit: dict[str, Any], vlm: object | None
+) -> tuple[DeckState, list[str]]:
+    from deckforge.pipeline.nodes import render as render_module
+
+    asked: list[str] = []
+    monkeypatch.setattr(render_module, "export_pptx", lambda *a, **k: tmp_path / "deck.pptx")
+
+    def previews(pptx: Path, deck: DeckIR, out: Path) -> dict[str, Path]:
+        asked.append("previews")
+        return {"s01": out / "deck-01.png"}
+
+    monkeypatch.setattr(render_module, "render_deck_previews", previews)
+    state: DeckState = {
+        "deck": deck_of(TemplateManifest.model_construct(template_id="t"), "s01"),
+        "manifest": None,  # type: ignore[typeddict-item]
+        "template_path": tmp_path / "template.pptx",
+        "content": None,  # type: ignore[typeddict-item]
+    }
+    context = deps(tmp_path, run={"audit": audit}, vlm=vlm, budget=Late())
+    return await render_module.render_node(state, runtime(context)), asked
+
+
+async def test_previews_for_the_design_check_survive_a_late_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Прогон d973a7ee8110 простоял 51 минуту в очереди к модели, и рычаг бюджета
+    «сэкономил» три секунды рендера ценой детерминированной проверки оформления."""
+    out, asked = await _render_with(
+        tmp_path, monkeypatch, {"run_deterministic": True, "run_semantic": False}, None
+    )
+
+    assert asked == ["previews"], "превью для детерминированной проверки сняты рычагом"
+    assert out["previews"]
+
+
+async def test_previews_only_for_the_judge_still_yield_to_the_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Судья — десятки минут. Если превью нужны только ему, рычаг прав их снять."""
+    out, asked = await _render_with(
+        tmp_path, monkeypatch, {"run_deterministic": False, "run_semantic": True}, object()
+    )
+
+    assert asked == []
+    assert any("превью не снимаются" in item for item in out["degradations"])
