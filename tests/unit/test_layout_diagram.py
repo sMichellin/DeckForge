@@ -299,8 +299,12 @@ def test_process_in_a_flat_frame_keeps_the_frame_height() -> None:
 
 
 def test_matrix_of_four_is_a_two_by_two_grid_without_arrows() -> None:
-    """Перечисление — не шаги: стрелки процесса соврали бы о порядке, которого нет."""
-    diagram = diagram_geometry(SmartArtPattern.MATRIX, 4, BOX)
+    """Перечисление — не шаги: стрелки процесса соврали бы о порядке, которого нет.
+
+    Рамка близка к квадрату — в ней четыре плитки встают 2 × 2.
+    """
+    squarish = BBox(x=2 * EMU_PER_CM, y=3 * EMU_PER_CM, cx=16 * EMU_PER_CM, cy=12 * EMU_PER_CM)
+    diagram = diagram_geometry(SmartArtPattern.MATRIX, 4, squarish)
 
     assert diagram.links == () and diagram.arrows is False
     assert len({node.y for node in diagram.nodes}) == 2, "не два ряда"
@@ -310,13 +314,14 @@ def test_matrix_of_four_is_a_two_by_two_grid_without_arrows() -> None:
 
 def test_short_last_row_of_the_matrix_is_centred() -> None:
     """Пять плиток: три сверху и две снизу — нижний ряд по центру, а не у левого края."""
-    diagram = diagram_geometry(SmartArtPattern.MATRIX, 5, BOX)
+    frame = BBox(x=2 * EMU_PER_CM, y=3 * EMU_PER_CM, cx=20 * EMU_PER_CM, cy=12 * EMU_PER_CM)
+    diagram = diagram_geometry(SmartArtPattern.MATRIX, 5, frame)
     top = [node for node in diagram.nodes if node.y == diagram.nodes[0].y]
     bottom = [node for node in diagram.nodes if node.y != diagram.nodes[0].y]
 
     assert (len(top), len(bottom)) == (3, 2)
-    left_gap = bottom[0].x - BOX.x
-    right_gap = BOX.right - bottom[-1].right
+    left_gap = bottom[0].x - frame.x
+    right_gap = frame.right - bottom[-1].right
     assert abs(left_gap - right_gap) <= EMU_PER_CM // 10
 
 
@@ -327,3 +332,24 @@ def test_matrix_grid_stands_in_the_middle_of_the_frame() -> None:
     below = tall.bottom - max(node.bottom for node in diagram.nodes)
 
     assert abs(above - below) <= EMU_PER_CM // 10
+
+
+def test_matrix_in_a_narrow_frame_uses_fewer_columns() -> None:
+    """Прогон 62d577d40a74: пять плиток по три в ряд в рамке 9 см — подписи ужаты до 9 pt.
+
+    Столбцов столько, чтобы у плитки была больше короткая сторона.
+    """
+    narrow = BBox(x=2 * EMU_PER_CM, y=3 * EMU_PER_CM, cx=9 * EMU_PER_CM, cy=12 * EMU_PER_CM)
+    diagram = diagram_geometry(SmartArtPattern.MATRIX, 5, narrow)
+
+    columns = len({node.x for node in diagram.nodes if node.y == diagram.nodes[0].y})
+    assert columns == 2
+    assert min(node.cx for node in diagram.nodes) >= 3.5 * EMU_PER_CM
+
+
+def test_matrix_in_a_wide_flat_frame_goes_in_one_row() -> None:
+    """В широкой и низкой рамке ряд из пяти даёт плитки крупнее, чем сетка 3 + 2."""
+    wide = BBox(x=2 * EMU_PER_CM, y=3 * EMU_PER_CM, cx=24 * EMU_PER_CM, cy=6 * EMU_PER_CM)
+    diagram = diagram_geometry(SmartArtPattern.MATRIX, 5, wide)
+
+    assert len({node.y for node in diagram.nodes}) == 1

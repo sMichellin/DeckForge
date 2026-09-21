@@ -32,9 +32,9 @@ _PROCESS_GAP, _PROCESS_LINK_MARGIN = 0.25, 0.2
 #: четыре столба 4,4 × 12 см с одной строкой подписи посередине).
 _PROCESS_NODE_ASPECT = 1.0
 #: matrix: промежуток между плитками в долях плитки; наибольшая высота плитки в её
-#: ширинах. Плитка ниже процесса: у перечисления нет направления, и квадратная плитка
-#: с одной строкой подписи читается пустой.
-_MATRIX_GAP, _MATRIX_NODE_ASPECT = 0.12, 0.6
+#: ширинах — квадрат, как у процесса. Плоская плитка (0,6 ширины) не вмещала подпись
+#: в две строки даже кеглем тела: прогон 62d577d40a74, подписи ужаты до 9 pt.
+_MATRIX_GAP, _MATRIX_NODE_ASPECT = 0.12, 1.0
 #: timeline: диаметр маркера в долях колонки (или высоты рамки, если она ниже).
 _TIMELINE_MARKER = 0.2
 #: cycle: наибольшая ширина узла в высотах; зазор между узлами в высотах узла; отступ
@@ -109,23 +109,33 @@ def _process(count: int, box: BBox) -> Diagram:
                    text_inside=True)
 
 
-def _matrix_columns(count: int) -> int:
-    """Столбцов в сетке: до трёх — в ряд, четыре — квадратом, пять и шесть — по три."""
-    if count <= 3:
-        return count
-    if count == 4:
-        return 2
-    return 3
+def _matrix_columns(count: int, box: BBox) -> int:
+    """Столбцов в сетке — столько, чтобы у плитки была больше короткая сторона.
+
+    Число столбцов по одному счёту пунктов не годится: рамку схеме отдаёт решатель,
+    и она бывает и широкой, и узкой. Прогон 62d577d40a74: пять плиток по три в ряд
+    в рамке шириной 9 см — плитки по 2,7 см, «Компьютерное» не встаёт в строку,
+    и подписи ужаты до 9 pt. Две колонки в той же рамке дают плитки по 4 см.
+    """
+    def short_side(columns: int) -> float:
+        rows = -(-count // columns)
+        width = box.cx / (columns + (columns - 1) * _MATRIX_GAP)
+        height = (box.cy - (rows - 1) * width * _MATRIX_GAP) / rows
+        return min(width, height, width * _MATRIX_NODE_ASPECT)
+
+    return max(range(1, count + 1), key=lambda columns: (short_side(columns), -columns))
 
 
 def _matrix(count: int, box: BBox) -> Diagram:
     """Однородные пункты плитками: без стрелок, потому что порядка у них нет.
 
+    Сколько плиток в ряд, решает форма рамки (`_matrix_columns`), а не только их число.
+
     Перечисление — «инференс, шаблоны, контент, CLI» — это не шаги: стрелки процесса
     соврали бы о последовательности, которой нет. Сетка стоит по середине рамки,
     неполный последний ряд — по центру, чтобы сетка не заваливалась влево.
     """
-    columns = _matrix_columns(count)
+    columns = _matrix_columns(count, box)
     rows = -(-count // columns)
     width = box.cx / (columns + (columns - 1) * _MATRIX_GAP)
     gap_x = width * _MATRIX_GAP
