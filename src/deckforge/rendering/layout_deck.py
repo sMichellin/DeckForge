@@ -41,17 +41,28 @@ def build_layout_deck(
     # страниц pdf совпадала с порядком макетов.
     _drop_existing_slides(prs)
 
-    available = [layout for master in prs.slide_masters for layout in master.slide_layouts]
+    # Макет ищется по имени части, а не по `spec.index`. Индекс манифеста считает
+    # только макеты с плейсхолдерами (парсер пропускает пустые), а список python-pptx —
+    # все подряд. На шаблоне с пустыми макетами индексы расходятся, и превью уезжали
+    # к чужим макетам: у VK Tech вместо тёмного фона L16 рисовались светлые столбцы
+    # (прогон 9ce69f5cbd39) — и классификатор, и метрики C9 смотрели не на тот макет.
+    # Писатель колоды ищет макет так же (`rendering/writer.py`).
+    by_part = {
+        str(layout.part.partname).lstrip("/"): layout
+        for master in prs.slide_masters
+        for layout in master.slide_layouts
+    }
     order: dict[int, str] = {}
 
     wanted = set(only) if only is not None else None
     for spec in manifest.layouts:
-        if spec.index >= len(available):
+        layout = by_part.get(spec.part_name.lstrip("/"))
+        if layout is None:
             continue
         if wanted is not None and spec.layout_id not in wanted:
             continue
         order[len(order)] = spec.layout_id
-        prs.slides.add_slide(available[spec.index])
+        prs.slides.add_slide(layout)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     prs.save(str(out))
