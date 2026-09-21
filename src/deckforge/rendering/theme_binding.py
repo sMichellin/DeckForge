@@ -86,6 +86,22 @@ def theme_font_token(ref: FontRef) -> str:
     return _FONT_TOKENS[ref]
 
 
+#: Обратное соответствие: по токену в файле — ссылка на шрифт темы.
+_REF_BY_TOKEN = {token: ref for ref, token in _FONT_TOKENS.items()}
+
+
+def font_family_for_token(token: str, manifest: TemplateManifest) -> str | None:
+    """«+mn-lt» → гарнитура темы, всё остальное → `None`.
+
+    В готовом файле `typeface` может быть не названием шрифта, а ссылкой на тему:
+    так пишет и PowerPoint, и наш текстбокс. Тот, кто читает файл и не знает об этом,
+    принимает ссылку за чужую гарнитуру — отсюда ошибка «+mn-lt в шаблоне не встречается»
+    на каждом прогоне «Шаблона 2024».
+    """
+    ref = _REF_BY_TOKEN.get(token.strip().lower())
+    return resolve_font(ref, manifest) if ref is not None else None
+
+
 def resolve_font(ref: FontRef, manifest: TemplateManifest) -> str:
     """Имя гарнитуры из манифеста — для метрик и html, не для записи в pptx."""
     fonts = manifest.theme.fonts

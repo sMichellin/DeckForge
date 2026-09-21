@@ -296,3 +296,64 @@ def test_typography_step_helper_is_used_when_block_has_no_own_size(
     )
     # 40 pt — крупный текст, порог мягче, но почти белое на белом не проходит и его.
     assert len(findings) == 1
+
+
+def test_theme_font_reference_is_not_a_foreign_family(
+    manifest: TemplateManifest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C10: «+mn-lt» — ссылка на шрифт темы, а не гарнитура.
+
+    Ошибка выпадала на каждом прогоне «Шаблона 2024». Отчёт, который врёт на эталоне,
+    учит себя не читать — это хуже отсутствующей проверки.
+    """
+    from deckforge.audit.deterministic import template as module
+
+    monkeypatch.setattr(module, "_fonts_in_file", lambda path: {"1": ["+mn-lt"]})
+    context = context_for(
+        "template.font_not_in_theme", deck(slide(title())), manifest, deck_path=Path("deck.pptx")
+    )
+    findings = list(font_not_in_theme(context))
+
+    assert not [f for f in findings if str(f.evidence.get("family", "")).startswith("+")]
+
+
+def test_a_genuinely_foreign_family_is_still_caught(
+    manifest: TemplateManifest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Правило 7: у проверки два теста — на норме и на нарушителе."""
+    from deckforge.audit.deterministic import template as module
+
+    monkeypatch.setattr(module, "_fonts_in_file", lambda path: {"1": ["Comic Sans MS"]})
+    context = context_for(
+        "template.font_not_in_theme", deck(slide(title())), manifest, deck_path=Path("deck.pptx")
+    )
+    findings = list(font_not_in_theme(context))
+
+    assert [f for f in findings if f.evidence.get("family") == "Comic Sans MS"]
+
+
+def test_reference_and_its_family_are_one_font(
+    manifest: TemplateManifest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Иначе ссылка и сам шрифт считались двумя гарнитурами и переполняли предел."""
+    from deckforge.audit.deterministic import template as module
+
+    minor = manifest.theme.fonts.minor_latin
+    monkeypatch.setattr(module, "_fonts_in_file", lambda path: {"1": ["+mn-lt", minor]})
+    context = context_for(
+        "template.font_not_in_theme", deck(slide(title())), manifest, deck_path=Path("deck.pptx")
+    )
+    families = [
+        str(f.evidence.get("families", "")) for f in font_not_in_theme(context) if f.evidence
+    ]
+
+    assert not any("+mn-lt" in item for item in families)
+
+
+def test_theme_font_token_resolves_to_the_theme_family(manifest: TemplateManifest) -> None:
+    """Корень C10: токен — ссылка на шрифт темы, а не название гарнитуры."""
+    from deckforge.rendering.theme_binding import font_family_for_token
+
+    assert font_family_for_token("+mn-lt", manifest) == manifest.theme.fonts.minor_latin
+    assert font_family_for_token("+mj-lt", manifest) == manifest.theme.fonts.major_latin
+    assert font_family_for_token("Play", manifest) is None

@@ -38,6 +38,7 @@ from deckforge.domain.enums import AutoFix, ColorRef, Severity, TextRole
 from deckforge.domain.rules import contrast_ratio
 from deckforge.domain.slide import ChartBlock, KpiBlock
 from deckforge.domain.template import LayoutSpec, TemplateManifest
+from deckforge.rendering.theme_binding import font_family_for_token
 
 
 def template_fonts(manifest: TemplateManifest) -> set[str]:
@@ -119,7 +120,11 @@ def font_not_in_theme(ctx: CheckContext) -> Iterable[Finding]:
         for page, families in sorted(_fonts_in_file(ctx.deck_path).items()):
             index = int(page) - 1
             slide_id = slide_ids[index] if 0 <= index < len(slide_ids) else None
-            for family in sorted(set(families)):
+            for written in sorted(set(families)):
+                # В файле `typeface` бывает ссылкой на тему («+mn-lt»), а не названием
+                # гарнитуры. Без разрешения ссылки проверка выдаёт ошибку на каждом
+                # прогоне и заодно считает ссылку и сам шрифт двумя разными гарнитурами.
+                family = font_family_for_token(written, manifest) or written
                 used.add(family)
                 if family in known:
                     continue
