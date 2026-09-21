@@ -37,6 +37,7 @@ from collections.abc import Iterable
 from PIL import Image, ImageChops, ImageFilter
 
 from deckforge.audit.findings import make_finding
+from deckforge.audit.profile import DEFAULT_TOLERANCE, profile_of
 from deckforge.audit.registry import CheckContext, CheckUnavailable, check
 from deckforge.domain.audit import Finding
 from deckforge.domain.enums import Severity
@@ -296,3 +297,86 @@ def ink_balance(ctx: CheckContext) -> Iterable[Finding]:
                 ),
                 evidence=evidence,
             )
+
+
+def metrics_of(png: bytes, chrome: bytes | None = None) -> dict[str, float]:
+    """Метрики оформления одного изображения — в том же наборе, что кладётся в отчёт (C7).
+
+    Без превью пустого макета допуски по осям равны: вычесть декор шаблона не из чего,
+    и строгий горизонтальный допуск ругался бы на логотип в углу.
+    """
+    ink, dx, dy = ink_metrics(png, chrome)
+    zone_w, zone_h = empty_zone(png, chrome)
+    return {
+        "ink": ink,
+        "imbalance": imbalance(dx, dy, 0.1 if chrome else 0.15, 0.15),
+        "zone_w": zone_w,
+        "zone_h": zone_h,
+    }
+
+
+#: Как назвать метрику в тексте находки: отчёт читает человек, а не машина.
+_METRIC_NAMES = {
+    "ink": "Плотность содержания",
+    "imbalance": "Смещение центра тяжести",
+    "zone_w": "Ширина пустой зоны",
+    "zone_h": "Высота пустой зоны",
+}
+
+
+@check(id="design.unlike_the_template", deterministic=True, severity=Severity.WARNING,
+       title="Слайд не похож на родные слайды шаблона")
+def unlike_the_template(ctx: CheckContext) -> Iterable[Finding]:
+    """Слайд не похож на родные слайды шаблона.
+
+    Задача DS7, она же C8. Абсолютные пороги `design.ink_balance` одинаковы для любого
+    шаблона, а «правильная» плотность у минималистичного и у плотного дизайна разная
+    (arXiv:2508.19289). Здесь эталон — сам шаблон: медиана и межквартильный размах его
+    слайдов-примеров. Выход за разброс и есть находка.
+
+    Проверка **дополняет** `design.ink_balance`, а не заменяет её: абсолютный порог ловит
+    беду, которая беда на любом шаблоне (пустой слайд, перегруз), а профиль — расхождение
+    с этим конкретным дизайном.
+    """
+    previews = ctx.previews
+    if not previews:
+        raise CheckUnavailable("превью слайдов нет: сравнивать не с чем")
+    examples = getattr(ctx, "example_previews", None) or []
+    profile = profile_of(metrics_of(png) for png in examples)
+    if not profile.usable:
+        raise CheckUnavailable(
+            f"слайдов-примеров в шаблоне {len(examples)}: профиля из них не выходит"
+        )
+
+    tolerance = ctx.param("profile_tolerance", DEFAULT_TOLERANCE)
+    chrome_by_layout = getattr(ctx, "layout_previews", None) or {}
+
+    for slide in ctx.deck.slides:
+        png = previews.get(slide.slide_id)
+        if png is None:
+            continue
+        metrics = metrics_of(png, chrome_by_layout.get(slide.layout_id))
+        deviations = profile.deviations(metrics, tolerance)
+        worst = max(deviations.items(), key=lambda item: item[1], default=None)
+        if worst is None or worst[1] <= 1.0:
+            continue
+        name, value = worst
+        band = profile.bands[name]
+        yield make_finding(
+            check_id="design.unlike_the_template",
+            slide_id=slide.slide_id,
+            reason=f"profile:{name}",
+            message=(
+                f"{_METRIC_NAMES.get(name, name)} — {metrics[name]:.2f}, "
+                f"а на слайдах шаблона {band.median:.2f} ± {band.spread:.2f} "
+                f"(по {profile.examples} примерам)"
+            ),
+            evidence={
+                "metric": name,
+                "value": f"{metrics[name]:.3f}",
+                "median": f"{band.median:.3f}",
+                "spread": f"{band.spread:.3f}",
+                "deviation": f"{value:.2f}",
+                "examples": str(profile.examples),
+            },
+        )

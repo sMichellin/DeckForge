@@ -33,6 +33,8 @@ class AuditContext:
     #: Пустые макеты картинками, `layout_id` → png (C9). Пусто — метрики оформления
     #: считаются по картинке целиком, вместе с декором шаблона.
     layout_previews: dict[str, bytes] = field(default_factory=dict)
+    #: Слайды-примеры шаблона картинками: профиль оформления строится по ним (DS7).
+    example_previews: list[bytes] = field(default_factory=list)
 
     deck_path: Path | None = None
 

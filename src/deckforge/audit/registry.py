@@ -23,6 +23,10 @@ class CheckContext(Protocol):
     `layout_previews` — пустые макеты картинками (C9): по ним из превью слайда вычитается
     оформление шаблона. Их может не быть и при наличии превью слайдов — тогда проверка
     считает по картинке целиком, как до C9, а не уходит в пропущенные.
+
+    `example_previews` — слайды-примеры самого шаблона картинками (DS7). По ним строится
+    профиль оформления: как выглядит родной слайд этого дизайна. Пустой макет для этого
+    не годится — на нём нет содержания.
     """
 
     @property
@@ -35,6 +39,8 @@ class CheckContext(Protocol):
     def previews(self) -> dict[str, bytes]: ...
     @property
     def layout_previews(self) -> dict[str, bytes]: ...
+    @property
+    def example_previews(self) -> list[bytes]: ...
     @property
     def deck_path(self) -> Any: ...
     @property

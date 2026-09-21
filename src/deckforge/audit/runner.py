@@ -67,6 +67,7 @@ class AuditRunner:
         deck_path: Path | None = None,
         vlm: object | None = None,
         layout_previews: dict[str, bytes] | None = None,
+        example_previews: list[bytes] | None = None,
     ) -> AuditReport:
         started = time.perf_counter()
         specs = {spec.check_id: spec for spec in load_check_specs().checks}
@@ -76,6 +77,7 @@ class AuditRunner:
             content=content,
             previews=previews or {},
             layout_previews=layout_previews or {},
+            example_previews=example_previews or [],
             deck_path=deck_path,
             vlm=vlm,
         )
