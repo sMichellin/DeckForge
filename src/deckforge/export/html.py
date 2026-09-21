@@ -37,7 +37,7 @@ from deckforge.domain.slide import (
     TableBlock,
     TextBlock,
 )
-from deckforge.domain.template import TemplateManifest, TypographyStep
+from deckforge.domain.template import ComponentKind, TemplateManifest, TypographyStep
 from deckforge.domain.units import EMU_PER_PT, TEXT_FRAME_INSET_X_EMU, TEXT_FRAME_INSET_Y_EMU
 from deckforge.layout.diagram import ROUND_RECT_RADIUS, diagram_geometry
 from deckforge.layout.fonts import FontLibrary
@@ -310,7 +310,12 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
     def smartart(self, block: SmartArtBlock, box: BBox, size_pt: float) -> str:
         """Та же раскладка, что в pptx: узлы и подписи — в процентах от рамки блока,
         коннекторы — SVG в EMU рамки (пропорции рамки и блока совпадают)."""
-        geometry = diagram_geometry(block.pattern, len(block.items), box)
+        geometry = diagram_geometry(
+            block.pattern,
+            len(block.items),
+            box,
+            self.manifest.component(ComponentKind.TILE),
+        )
         step = self.step(TextRole.BODY)
         on_background = _var(step.color_ref if step else None)
         weight = "bold" if step and step.bold else "normal"

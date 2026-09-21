@@ -20,7 +20,7 @@ from deckforge.domain.base import BBox
 from deckforge.domain.enums import ColorRef, TextRole
 from deckforge.domain.rules import contrast_ratio
 from deckforge.domain.slide import SmartArtBlock
-from deckforge.domain.template import TemplateManifest
+from deckforge.domain.template import ComponentKind, TemplateManifest
 from deckforge.domain.units import EMU_PER_PT
 from deckforge.layout.diagram import diagram_geometry
 from deckforge.rendering.theme_binding import apply_theme_color, theme_font_token
@@ -56,7 +56,9 @@ def add_smartart(
     box = block.bbox
     if box is None:
         raise ValueError(f"компонент {block.block_id} без координат")
-    geometry = diagram_geometry(block.pattern, len(block.items), box)
+    geometry = diagram_geometry(
+        block.pattern, len(block.items), box, manifest.component(ComponentKind.TILE)
+    )
     body = manifest.typography(TextRole.BODY)
     on_background = text_color or (body.color_ref if body else None) or ColorRef.DK1
     font_token = theme_font_token(body.font_ref) if body else None

@@ -43,7 +43,12 @@ from deckforge.domain.slide import (
     TableBlock,
     TextBlock,
 )
-from deckforge.domain.template import BulletStyle, LayoutSpec, TemplateManifest
+from deckforge.domain.template import (
+    BulletStyle,
+    ComponentKind,
+    LayoutSpec,
+    TemplateManifest,
+)
 from deckforge.domain.units import EMU_PER_PT
 from deckforge.layout.diagram import SUPPORTED_PATTERNS
 from deckforge.layout.errors import LayoutFitError
@@ -625,6 +630,9 @@ class PptxWriter:
         label_step = self.manifest.typography(TextRole.CAPTION) or self.manifest.typography(
             TextRole.BODY
         )
+        # Отношение кегля подписи к кеглю значения шаблон показывает сам — на своём
+        # показателе из примеров (DS4). Нет такого компонента — кегль роли, как было.
+        label_pt = _label_size_pt(self.manifest, size_pt, label_step, size_pt)
         width = box.cx // len(block.items)
         for i, item in enumerate(block.items):
             shape = slide.shapes.add_textbox(  # type: ignore[attr-defined]
@@ -648,7 +656,7 @@ class PptxWriter:
             label.text = item.label
             _style_runs(
                 label,
-                label_step.size_pt if label_step else size_pt,
+                label_pt,
                 text_color or (label_step.color_ref if label_step else None),
                 theme_font_token(label_step.font_ref) if label_step else None,
                 None,
@@ -723,6 +731,33 @@ def _write_bullet(
     if bullet.font:
         props.append(props.makeelement(qn("a:buFont"), {"typeface": bullet.font}))
     props.append(props.makeelement(qn("a:buChar"), {"char": bullet.char}))
+
+
+def _label_size_pt(
+    manifest: TemplateManifest,
+    value_pt: float,
+    label_step: object,
+    fallback_pt: float,
+) -> float:
+    """Кегль подписи показателя: по отношению, которое шаблон показал на своём примере.
+
+    Задача B3 просила крупное значение над мелкой подписью, но насколько мелкой —
+    вопрос дизайна, а не вкуса. Компонент `kpi` из примеров шаблона отвечает на него
+    числом: у VK WorkSpace 66 pt над 20 pt, у VK Education 36 над 16.
+
+    Итог обязательно ложится на ступень шкалы шаблона (правило 6): отношение —
+    это пропорция, а не разрешение писать любым кеглем.
+    """
+    component = manifest.component(ComponentKind.KPI)
+    sizes = component.text_sizes_pt if component else []
+    own = getattr(label_step, "size_pt", None) or fallback_pt
+    if len(sizes) < 2 or sizes[0] <= 0:
+        return float(own)
+    wanted = value_pt * (sizes[1] / sizes[0])
+    ladder = manifest.size_ladder_pt
+    if not ladder:
+        return float(own)
+    return min(ladder, key=lambda step: abs(step - wanted))
 
 
 def _style_runs(

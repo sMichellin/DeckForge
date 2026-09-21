@@ -14,6 +14,7 @@ from typing import NamedTuple
 
 from deckforge.domain.base import BBox
 from deckforge.domain.enums import SmartArtPattern
+from deckforge.domain.template import ComponentKind, ComponentSpec
 from deckforge.layout.errors import LayoutFitError
 
 SUPPORTED_PATTERNS = frozenset(
@@ -35,6 +36,15 @@ _PROCESS_NODE_ASPECT = 1.0
 #: ширинах — квадрат, как у процесса. Плоская плитка (0,6 ширины) не вмещала подпись
 #: в две строки даже кеглем тела: прогон 62d577d40a74, подписи ужаты до 9 pt.
 _MATRIX_GAP, _MATRIX_NODE_ASPECT = 0.12, 1.0
+#: Границы, в которых значение шаблона принимается вместо наших (DS4). Повтор, найденный
+#: по одному слайду, иногда даёт шаг меньше самого экземпляра — такой «зазор» сузил бы
+#: сетку до нуля.
+_MIN_TEMPLATE_GAP, _MAX_TEMPLATE_GAP = 0.02, 0.6
+#: Площе квадрата шаблон плитку сделать вправе, выше — нет: предел `_MATRIX_NODE_ASPECT`
+#: выведен из живого прогона (693d464d54fb), и карточка выше своей ширины читается
+#: колонкой, а не плиткой. У VK Education «плитка» 7 × 13 % слайда — это узкий столбец
+#: текста, найденный по повтору, и следовать ему значит вернуть тот самый дефект.
+_MIN_TEMPLATE_ASPECT, _MAX_TEMPLATE_ASPECT = 0.3, _MATRIX_NODE_ASPECT
 #: timeline: диаметр маркера в долях колонки (или высоты рамки, если она ниже).
 _TIMELINE_MARKER = 0.2
 #: cycle: наибольшая ширина узла в высотах; зазор между узлами в высотах узла; отступ
@@ -72,7 +82,18 @@ class Diagram:
     text_inside: bool
 
 
-def diagram_geometry(pattern: SmartArtPattern, count: int, box: BBox) -> Diagram:
+def diagram_geometry(
+    pattern: SmartArtPattern,
+    count: int,
+    box: BBox,
+    component: ComponentSpec | None = None,
+) -> Diagram:
+    """Геометрия составного компонента.
+
+    `component` — плитка, которую рисует сам шаблон (DS3). Когда она есть, пропорции
+    и зазор берутся у неё: плитки получаются в пропорциях автора шаблона, а не в наших
+    (DS4). Нет компонента — раскладка прежняя.
+    """
     if count < 1:
         raise LayoutFitError("в составном компоненте нет элементов")
     if pattern is SmartArtPattern.PROCESS:
@@ -82,7 +103,7 @@ def diagram_geometry(pattern: SmartArtPattern, count: int, box: BBox) -> Diagram
     if pattern is SmartArtPattern.CYCLE:
         return _cycle(count, box)
     if pattern is SmartArtPattern.MATRIX:
-        return _matrix(count, box)
+        return _matrix(count, box, *_matrix_shape(component))
     raise LayoutFitError(f"паттерн {pattern.value} не поддерживается составными компонентами")
 
 
@@ -126,7 +147,37 @@ def _matrix_columns(count: int, box: BBox) -> int:
     return max(range(1, count + 1), key=lambda columns: (short_side(columns), -columns))
 
 
-def _matrix(count: int, box: BBox) -> Diagram:
+def _matrix_shape(component: ComponentSpec | None) -> tuple[float, float]:
+    """(зазор в долях плитки, наибольшая высота в ширинах) — от шаблона или наши.
+
+    Шаблон говорит о плитке двумя числами: какой она формы и как далеко стоит от
+    соседней. Оба берутся из повтора, который автор нарисовал сам: зазор — это шаг
+    между экземплярами минус сам экземпляр, а форма — высота экземпляра в его ширинах.
+
+    Нелепые значения отбрасываются: у повтора, найденного по одному слайду, шаг бывает
+    меньше самой плитки (экземпляры перекрываются), и такой «зазор» сузил бы сетку
+    до нуля. Границы взяты с запасом вокруг наших прежних 0,12.
+    """
+    if component is None or component.kind is not ComponentKind.TILE:
+        return _MATRIX_GAP, _MATRIX_NODE_ASPECT
+    along = component.width_share if component.axis == "row" else component.height_share
+    gap = (component.gap_share - along) / along if along > 0 else 0.0
+    # `ComponentSpec.aspect` — ширина к высоте, а раскладке нужна высота в ширинах:
+    # величины обратные, и перепутать их значит сделать плитку вдвое выше вместо вдвое площе.
+    aspect = 1 / component.aspect if component.aspect > 0 else _MATRIX_NODE_ASPECT
+    return (
+        gap if _MIN_TEMPLATE_GAP <= gap <= _MAX_TEMPLATE_GAP else _MATRIX_GAP,
+        aspect if _MIN_TEMPLATE_ASPECT <= aspect <= _MAX_TEMPLATE_ASPECT
+        else _MATRIX_NODE_ASPECT,
+    )
+
+
+def _matrix(
+    count: int,
+    box: BBox,
+    gap_share: float = _MATRIX_GAP,
+    node_aspect: float = _MATRIX_NODE_ASPECT,
+) -> Diagram:
     """Однородные пункты плитками: без стрелок, потому что порядка у них нет.
 
     Сколько плиток в ряд, решает форма рамки (`_matrix_columns`), а не только их число.
@@ -137,10 +188,10 @@ def _matrix(count: int, box: BBox) -> Diagram:
     """
     columns = _matrix_columns(count, box)
     rows = -(-count // columns)
-    width = box.cx / (columns + (columns - 1) * _MATRIX_GAP)
-    gap_x = width * _MATRIX_GAP
+    width = box.cx / (columns + (columns - 1) * gap_share)
+    gap_x = width * gap_share
     cell = (box.cy - (rows - 1) * gap_x) / rows
-    height = max(1, int(min(cell, width * _MATRIX_NODE_ASPECT)))
+    height = max(1, int(min(cell, width * node_aspect)))
     grid_height = rows * height + (rows - 1) * gap_x
     top = box.y + (box.cy - grid_height) / 2
 

@@ -28,7 +28,12 @@ from deckforge.domain.slide import (
     TableBlock,
     TextBlock,
 )
-from deckforge.domain.template import LayoutSpec, TemplateManifest, TypographyStep
+from deckforge.domain.template import (
+    ComponentKind,
+    LayoutSpec,
+    TemplateManifest,
+    TypographyStep,
+)
 from deckforge.domain.units import TEXT_FRAME_INSET_Y_EMU
 from deckforge.layout.diagram import SUPPORTED_PATTERNS, diagram_geometry
 from deckforge.layout.errors import LayoutFitError
@@ -311,7 +316,9 @@ def fit_smartart(
     в строку целиком."""
     step = _step_for(TextRole.BODY, manifest)
     font = _font_of(step, manifest)
-    labels = diagram_geometry(block.pattern, len(block.items), box).labels
+    labels = diagram_geometry(
+        block.pattern, len(block.items), box, manifest.component(ComponentKind.TILE)
+    ).labels
     available = min(usable_height_emu(label) for label in labels)
 
     def measured(size_pt: float) -> tuple[bool, int, int]:
