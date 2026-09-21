@@ -23,10 +23,15 @@ from deckforge.audit.registry import CheckContext, CheckUnavailable, check
 from deckforge.domain.audit import Finding
 from deckforge.domain.content import Number
 from deckforge.domain.enums import Severity
+from deckforge.domain.slide import BulletsBlock, KpiBlock, SlideIR, SmartArtBlock
 from deckforge.parsing.content import extract_numbers
 
 #: Допуск сравнения: числа на слайде округляют, «37,5 %» превращается в «38 %».
 _TOLERANCE = 0.51
+
+#: Меньше этого счёт ничего не сообщает: «1 шаг» — это не перечисление, а единица
+#: попадается в тексте на каждом шагу и открыла бы дыру в проверке.
+_MIN_COUNT = 2
 
 
 def _close(left: float, right: float) -> bool:
@@ -48,6 +53,35 @@ def grounded_in(number: Number, sources: list[Number]) -> bool:
     return False
 
 
+def counts_on(slide: SlideIR) -> set[int]:
+    """Сколько на слайде пунктов, показателей и узлов схемы — по каждому такому блоку.
+
+    Задача A10. Прогон `aa5eca9aa135` s08: проверка нашла на слайде число «4», которого
+    в материалах нет, — а под заголовком стояли ровно четыре пункта. Это не выдуманная
+    цифра, а счёт того, что на слайде и так видно: запретить его значит запретить
+    заголовок «Четыре шага внедрения».
+
+    Считается по каждому блоку отдельно, а не сумма по слайду: заголовок ссылается
+    на один список, а не на всё содержание разом.
+    """
+    out: set[int] = set()
+    for block in slide.blocks:
+        if isinstance(block, BulletsBlock | KpiBlock | SmartArtBlock):
+            out.add(len(block.items))
+    return {count for count in out if count >= _MIN_COUNT}
+
+
+def is_a_count(number: Number, counts: set[int]) -> bool:
+    """Число — это счёт пунктов слайда, а не величина.
+
+    Единица измерения снимает вопрос: «4 %» и «4 млн ₽» над четырьмя пунктами —
+    по-прежнему находка. Счётом может быть только целое без единицы.
+    """
+    if number.unit is not None:
+        return False
+    return float(number.value).is_integer() and int(number.value) in counts
+
+
 @check(id="content.numbers_grounded", deterministic=True, severity=Severity.ERROR,
        title="Все цифры и факты со слайда есть в исходных материалах")
 def numbers_grounded(ctx: CheckContext) -> Iterable[Finding]:
@@ -65,12 +99,13 @@ def numbers_grounded(ctx: CheckContext) -> Iterable[Finding]:
     sources = content.all_numbers
     for slide in ctx.deck.slides:
         layout = layout_of(slide, ctx.manifest)
+        counts = counts_on(slide)
         for block in slide.blocks:
             text = block_text(block)
             if not text:
                 continue
             for number in extract_numbers(text, language):
-                if grounded_in(number, sources):
+                if grounded_in(number, sources) or is_a_count(number, counts):
                     continue
                 shown = number.raw or f"{number.value:g}"
                 yield make_finding(
