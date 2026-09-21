@@ -369,3 +369,76 @@ def test_description_separates_content_slots_from_fixed_decor() -> None:
     assert "Места под контент" in text
     assert "оформление макета" in text
     assert "picture" in text
+
+
+# --- предел времени на модель (D1) --------------------------------------------
+
+
+class SlowVlm(FakeVlm):
+    """Отвечает верно, но каждый вызов стоит времени — как очередь к общему серверу."""
+
+    def __init__(self, answers: list[Any], seconds: float, clock: list[float]) -> None:
+        super().__init__(answers)
+        self.seconds = seconds
+        self.clock = clock
+
+    def ask_image(self, **kwargs: Any) -> dict[str, Any]:
+        self.clock[0] += self.seconds
+        return super().ask_image(**kwargs)
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Часы, которые двигает только сам тест: ждать в тесте нечего."""
+    ticks = [0.0]
+    from deckforge.parsing import layout_kind as module
+
+    monkeypatch.setattr(module.time, "monotonic", lambda: ticks[0])
+    return ticks
+
+
+def test_the_budget_stops_the_model_and_falls_back_to_the_heuristic(
+    clock: list[float],
+) -> None:
+    """D1. Прогон aa5eca9aa135: разбор незнакомого шаблона — 2375 с при бюджете 25 с.
+
+    Очередь к однослотовому серверу ничем не ограничена, и это не медленный разбор,
+    а остановка конвейера. Кончился предел — остальные макеты размечает эвристика.
+    """
+    vlm = SlowVlm([verdict("section")], seconds=10.0, clock=clock)
+    classifier = LayoutClassifier(vlm=vlm, votes=3, budget_s=25.0)
+
+    first = classifier.classify(UNCERTAIN.placeholders, SLIDE, UNCERTAIN)
+    # Второй макет другой геометрии — кэш подписи его не перехватит.
+    other = layout_of(TITLE, ph(1, "BODY", 600_000, 5_000_000, 5_000_000, 700_000, TextRole.BODY))
+    second = classifier.classify(other.placeholders, SLIDE, other)
+
+    assert first.source == "vlm", "первый макет обязан достаться модели"
+    assert second.source == "heuristic", "предел исчерпан — дальше эвристика"
+    assert classifier.overdue is True
+    assert classifier.fell_back == 1
+
+
+def test_without_a_budget_the_model_is_never_cut_off(clock: list[float]) -> None:
+    """Норма: предразбор при деплое идёт без предела — спешить ему некуда."""
+    vlm = SlowVlm([verdict("section")], seconds=600.0, clock=clock)
+    classifier = LayoutClassifier(vlm=vlm, votes=3, budget_s=None)
+
+    other = layout_of(TITLE, ph(1, "BODY", 600_000, 5_000_000, 5_000_000, 700_000, TextRole.BODY))
+    classifier.classify(UNCERTAIN.placeholders, SLIDE, UNCERTAIN)
+    second = classifier.classify(other.placeholders, SLIDE, other)
+
+    assert second.source == "vlm"
+    assert classifier.overdue is False
+    assert classifier.fell_back == 0
+
+
+def test_a_budget_that_is_not_spent_changes_nothing(clock: list[float]) -> None:
+    """Норма: пока модель отвечает быстро, предел не виден вовсе."""
+    vlm = SlowVlm([verdict("section")], seconds=0.1, clock=clock)
+    classifier = LayoutClassifier(vlm=vlm, votes=3, budget_s=25.0)
+
+    result = classifier.classify(UNCERTAIN.placeholders, SLIDE, UNCERTAIN)
+
+    assert result.source == "vlm"
+    assert classifier.overdue is False and classifier.fell_back == 0

@@ -156,7 +156,10 @@ class TemplateParser:
         with TemplatePackage(path) as pkg:
             manifest = self._build(pkg, template_id)
 
-        if use_cache:
+        # Манифест, размеченный наспех (кончился предел времени на модель, D1), в кэш
+        # не кладётся: иначе все следующие прогоны взяли бы его как готовый и до смены
+        # PARSER_VERSION разбирали бы шаблон эвристикой, даже когда сервер свободен.
+        if use_cache and not self.classifier.overdue:
             self.save_cached(manifest)
         return manifest
 

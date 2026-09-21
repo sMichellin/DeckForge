@@ -7,6 +7,7 @@ from functools import partial
 
 from langgraph.runtime import Runtime
 
+from deckforge.config import get_settings
 from deckforge.parsing.layout_kind import LayoutClassifier
 from deckforge.parsing.template import TemplateParser
 from deckforge.pipeline.deps import Deps
@@ -17,11 +18,16 @@ from deckforge.pipeline.state import DeckState
 async def parse_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     """Шаблон → `TemplateManifest` (changes 3–6). Идёт параллельно с ingestion."""
     deps = runtime.context
+    # Предел времени на модель: очередь к общему однослотовому серверу ничем
+    # не ограничена, и незнакомый шаблон разбирался 2375 с при бюджете стадии 25 с
+    # (прогон aa5eca9aa135). Ноль в настройке снимает предел.
+    budget_s = get_settings().layout_vlm_budget_s
     classifier = LayoutClassifier(
         vlm=deps.layout_vlm,
         language=deps.brief.language,
         profile=deps.prompt_profile,
         base_seed=state["seed"],
+        budget_s=budget_s if budget_s > 0 else None,
     )
     parser = TemplateParser(cache_dir=deps.cache_dir, classifier=classifier)
     async with timed(deps, "parse_template") as timings:
@@ -30,6 +36,19 @@ async def parse_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
         manifest = await asyncio.to_thread(partial(parser.parse, state["template_path"]))
 
     notes: list[str] = []
+    degradations: list[str] = []
     if deps.layout_vlm is None:
         notes.append("классификация макетов: без VLM, только эвристика (change 5)")
-    return {"manifest": manifest, "stage_timings_s": timings, "notes": notes}
+    if classifier.overdue:
+        # Рычаг §15: качество разметки разменяно на время. Молчать об этом нельзя —
+        # иначе откат на эвристику неотличим от согласия модели с эвристикой.
+        degradations.append(
+            f"parse_template: предел {budget_s:g} с на разметку макетов моделью исчерпан, "
+            f"макетов размечено эвристикой: {classifier.fell_back} (§15)"
+        )
+    return {
+        "manifest": manifest,
+        "stage_timings_s": timings,
+        "notes": notes,
+        "degradations": degradations,
+    }

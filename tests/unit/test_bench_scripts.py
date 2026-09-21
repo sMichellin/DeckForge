@@ -198,6 +198,46 @@ def test_run_metrics_without_runs_explains_itself(capsys: pytest.CaptureFixture[
     assert "медиана и разброс" in capsys.readouterr().out
 
 
+# --- предразбор шаблонов в кэш (D1) -------------------------------------------
+
+
+def test_warm_cache_makes_the_second_parse_free(tmp_path: Path) -> None:
+    """D1. Шаблоны кейса известны заранее: разбираем их при деплое, а не на защите.
+
+    После предразбора прогон читает манифест из кэша вместо того, чтобы снова звать
+    модель через очередь к общему серверу.
+    """
+    import warm_template_cache
+    from deckforge.parsing.template import TemplateParser
+
+    template = Path("tests/fixtures/templates/VK Tech шаблон.pptx")
+    if not template.is_file():
+        pytest.skip("шаблон кейса в репозиторий не коммитится (.gitignore)")
+
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    assert warm_template_cache.warm([template], cache, use_vlm=False) == 0
+    assert list(cache.glob("*.json")), "манифест в кэш не лёг"
+
+    # Второй разбор обязан обойтись без классификатора вовсе: он читает кэш.
+    class Explodes:
+        def classify(self, *_: object, **__: object) -> object:
+            raise AssertionError("шаблон разобран заново, хотя лежит в кэше")
+
+    manifest = TemplateParser(cache_dir=cache, classifier=Explodes()).parse(template)  # type: ignore[arg-type]
+    assert manifest.layouts
+
+
+def test_warm_cache_reports_a_template_it_could_not_read(tmp_path: Path) -> None:
+    """Норма к тому же: один нечитаемый шаблон не роняет деплой, но и не молчит."""
+    import warm_template_cache
+
+    broken = tmp_path / "не-шаблон.pptx"
+    broken.write_text("не pptx", encoding="utf-8")
+
+    assert warm_template_cache.warm([broken, tmp_path / "нет.pptx"], tmp_path, use_vlm=False) == 2
+
+
 def test_run_metrics_counts_slides_with_a_wide_empty_zone(tmp_path: Path) -> None:
     """C7. Целевая метрика B8 считается по колоде, а не по находкам.
 

@@ -10,6 +10,7 @@ VLM подключается в той же change поверх этой эвр�
 
 from __future__ import annotations
 
+import time
 from collections import Counter
 from dataclasses import dataclass
 
@@ -33,6 +34,11 @@ from deckforge.registry import get_prompt_registry
 
 #: Порог, ниже которого эвристике не верят и зовут VLM.
 UNCERTAIN_BELOW = 0.6
+
+#: Сколько секунд классификации макетов отводится модели, когда предел не задан явно.
+#: `None` — без предела: так разбирает шаблоны предразбор при деплое
+#: (`scripts/warm_template_cache.py`), которому спешить некуда.
+DEFAULT_VLM_BUDGET_S: float | None = None
 
 #: Доля слайда, начиная с которой картинка делает макет полноэкранным.
 _IMAGE_FULL_SHARE = 0.6
@@ -260,6 +266,7 @@ class LayoutClassifier:
         language: str = "ru",
         profile: str | None = None,
         base_seed: int = 1337,
+        budget_s: float | None = DEFAULT_VLM_BUDGET_S,
     ) -> None:
         self.vlm = vlm
         self.preview = preview or SchematicPreview()
@@ -273,6 +280,15 @@ class LayoutClassifier:
         self.language = language
         self.profile = profile
         self.base_seed = base_seed
+        #: Сколько всего секунд классификация вправе потратить на модель. Разметку
+        #: делает VLM через общий однослотовый сервер, и очередь к нему не ограничена
+        #: ничем: прогон `aa5eca9aa135` разбирал незнакомый шаблон 2375 с при бюджете
+        #: стадии 25 с (§12). Это не медленный разбор, а остановка конвейера.
+        #: Кончился предел — остальные макеты размечает эвристика.
+        self.budget_s = budget_s
+        self._deadline = (
+            time.monotonic() + budget_s if budget_s is not None and budget_s > 0 else None
+        )
         self._cache: dict[str, Classification] = {}
         self.calls = 0
         #: Отказы модели по типам. Молча проглоченное исключение выглядит как «всё хорошо»,
@@ -281,16 +297,38 @@ class LayoutClassifier:
         #: Взводится, когда кончилась квота. Дальше макеты классифицируются эвристикой:
         #: стучаться в исчерпанный лимит на каждом следующем макете — трата времени.
         self.exhausted = False
+        #: Взводится, когда кончился предел времени. Отличается от `exhausted` тем,
+        #: что причина внешняя и повторяемая: очередь к общему серверу.
+        self.overdue = False
+        #: Сколько макетов из-за предела времени размечены эвристикой. Ноль и «предела
+        #: не было» — не одно и то же, и отчёт прогона обязан их различать.
+        self.fell_back = 0
 
     @property
     def enabled(self) -> bool:
         return self.vlm is not None
+
+    def _over_budget(self) -> bool:
+        """Предел времени на модель исчерпан.
+
+        Проверяется перед каждым обращением, а не по таймеру вокруг одного вызова:
+        дорога здесь не сама генерация, а очередь к однослотовому серверу, и один
+        «быстрый» вызов может простоять в ней минуты.
+        """
+        if self._deadline is None:
+            return False
+        if not self.overdue and time.monotonic() >= self._deadline:
+            self.overdue = True
+        return self.overdue
 
     def classify(
         self, placeholders: list[PlaceholderSpec], slide_size: SlideSize, layout: LayoutSpec
     ) -> Classification:
         kind, confidence = classify_heuristic(placeholders, slide_size, layout.shapes)
         if not self.enabled or self.exhausted or not needs_vlm(confidence):
+            return Classification(kind, confidence, "heuristic")
+        if self._over_budget():
+            self.fell_back += 1
             return Classification(kind, confidence, "heuristic")
 
         signature = geometry_signature(placeholders, slide_size)
@@ -325,6 +363,9 @@ class LayoutClassifier:
             return Classification(heuristic_kind, heuristic_confidence, "heuristic")
 
         def vote(offset: int) -> LayoutKind | None:
+            if self._over_budget():
+                self.failures["budget"] += 1
+                return None
             try:
                 self.calls += 1
                 answer = self.vlm.ask_image(  # type: ignore[union-attr]
@@ -346,7 +387,9 @@ class LayoutClassifier:
 
         verdicts: list[LayoutKind] = []
         first = vote(0)
-        if self.exhausted:
+        if self.exhausted or (self.overdue and first is None):
+            if self.overdue:
+                self.fell_back += 1
             return Classification(heuristic_kind, heuristic_confidence, "heuristic")
         if first is not None:
             verdicts.append(first)

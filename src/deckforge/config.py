@@ -10,6 +10,11 @@ import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+#: Бюджет стадии разбора шаблона из §12 ТЗ. Продублирован здесь числом намеренно:
+#: `config` лежит ниже `pipeline`, откуда берётся расписание бюджета, и импорт «вверх»
+#: запрещён (ARCHITECTURE.md §3). Расхождение сторожит тест.
+STAGE_PARSE_BUDGET_S = 25
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIGS_DIR = REPO_ROOT / "configs"
 PROMPTS_DIR = REPO_ROOT / "prompts"
@@ -36,6 +41,12 @@ class Settings(BaseSettings):
     languagetool_url: str = "http://localhost:8010"
 
     soffice_bin: str = "soffice"
+    #: Предел времени на разметку макетов моделью, секунды. Разметку делает VLM через
+    #: общий однослотовый сервер, очередь к нему ничем не ограничена: прогон
+    #: `aa5eca9aa135` разбирал незнакомый шаблон 2375 с при бюджете стадии 25 с (§12).
+    #: Кончился предел — остальные макеты размечает эвристика. Ноль снимает предел:
+    #: так работает предразбор при деплое, которому спешить некуда.
+    layout_vlm_budget_s: float = float(STAGE_PARSE_BUDGET_S)
     #: Какой реестр моделей брать. Провайдер меняется правкой этой переменной
     #: и base_url — код моделей по имени не знает (C11).
     models_config: str = "models.yaml"

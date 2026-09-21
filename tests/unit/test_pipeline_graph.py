@@ -565,3 +565,77 @@ async def test_previews_only_for_the_judge_still_yield_to_the_budget(
 
     assert asked == []
     assert any("превью не снимаются" in item for item in out["degradations"])
+
+
+# --- узел parse: предел времени на разметку макетов (D1) -----------------------
+
+
+def test_the_parse_budget_is_the_one_from_the_spec() -> None:
+    """Число продублировано в `config` (слой ниже `pipeline`) — расхождение сторожит тест."""
+    from deckforge.config import STAGE_PARSE_BUDGET_S
+
+    assert STAGE_BUDGET_S["parse_template"] == STAGE_PARSE_BUDGET_S
+
+
+async def test_parse_reports_that_the_model_ran_out_of_time(
+    tmp_path: Path, manifest: TemplateManifest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D1. Откат на эвристику — размен качества на время, и он обязан быть в отчёте.
+
+    Молча размеченный эвристикой шаблон неотличим от шаблона, где модель согласилась
+    с эвристикой, — а это разные вещи.
+    """
+    from types import SimpleNamespace
+
+    from deckforge.pipeline.nodes import parse as parse_module
+
+    class Overdue:
+        """Классификатор, у которого предел уже исчерпан."""
+
+        overdue = True
+        fell_back = 7
+
+        def __init__(self, *_: Any, **__: Any) -> None:
+            pass
+
+    monkeypatch.setattr(parse_module, "LayoutClassifier", Overdue)
+    monkeypatch.setattr(
+        parse_module,
+        "TemplateParser",
+        lambda **_: SimpleNamespace(parse=lambda *_a, **_k: manifest),
+    )
+
+    state: DeckState = {"template_path": tmp_path / "t.pptx", "seed": 1}
+    out = await parse_module.parse_node(state, runtime(deps(tmp_path, layout_vlm=object())))
+
+    assert out["manifest"] is manifest
+    (degradation,) = out["degradations"]
+    assert "разметку макетов" in degradation and "7" in degradation
+
+
+async def test_parse_says_nothing_when_the_model_kept_up(
+    tmp_path: Path, manifest: TemplateManifest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Норма: предел не исчерпан — в отчёте о нём ни слова."""
+    from types import SimpleNamespace
+
+    from deckforge.pipeline.nodes import parse as parse_module
+
+    class InTime:
+        overdue = False
+        fell_back = 0
+
+        def __init__(self, *_: Any, **__: Any) -> None:
+            pass
+
+    monkeypatch.setattr(parse_module, "LayoutClassifier", InTime)
+    monkeypatch.setattr(
+        parse_module,
+        "TemplateParser",
+        lambda **_: SimpleNamespace(parse=lambda *_a, **_k: manifest),
+    )
+
+    state: DeckState = {"template_path": tmp_path / "t.pptx", "seed": 1}
+    out = await parse_module.parse_node(state, runtime(deps(tmp_path, layout_vlm=object())))
+
+    assert out["degradations"] == []
