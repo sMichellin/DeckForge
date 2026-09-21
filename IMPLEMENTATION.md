@@ -781,6 +781,13 @@ ingest_content ─┘                       ↑                              │
 
 Остальное незакрытое — `openspec/changes/pipeline-orchestration/proposal.md`.
 
+### `design-system-from-examples` ☐ — предложено, кода нет
+
+Парсер не читает слайды шаблона, а в них 87–96 % содержимого примеров и весь каталог
+компонентов (замер на трёх шаблонах кейса). Разбор и задачи DS1–DS7 —
+[docs/agents/tasks-design-system.md](docs/agents/tasks-design-system.md), change тимлида
+на DS1–DS2 — `openspec/changes/design-system-from-examples/proposal.md`.
+
 ### Постоянные обязанности
 
 * `domain/**` и `schemas/**` — единственный, кто их правит (TEAMWORK.md §4);
