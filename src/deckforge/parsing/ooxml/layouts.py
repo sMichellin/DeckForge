@@ -11,6 +11,7 @@ from lxml import etree
 
 from deckforge.domain.enums import TextRole
 from deckforge.domain.template import LayoutShape, PlaceholderSpec, ShapeKind
+from deckforge.domain.units import EMU_PER_PT
 
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 P = "http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -224,7 +225,46 @@ def resolve_placeholders(
         if spec.idx not in seen:
             seen.add(spec.idx)
             unique.append(spec)
-    return unique
+    return _title_band(unique)
+
+
+#: Во сколько строк своего кегля укладывается полоса заголовка. Две — с запасом
+#: на межстрочный интервал: полоса в полторы строки — всё ещё одна строка.
+_TITLE_BAND_LINES = 2.0
+
+#: Высота строки в долях кегля — та же, что у мерила вместимости.
+_LINE_RATIO = 1.2
+
+
+def _title_band(specs: list[PlaceholderSpec]) -> list[PlaceholderSpec]:
+    """Полоса заголовка, размеченная плейсхолдером body, получает роль заголовка.
+
+    «Шаблон презентации 2024» не держит в макетах title вовсе: заголовок у него — body
+    высотой 1,4 см над телом, набранный 32 pt. Для конвейера это было место под текст:
+    композитор клал туда список восьмым кеглем, заголовка на слайде не было, а тело
+    оставалось пустым (прогон ad29e1b6f77e, пустая полоса 81 % высоты на 8 слайдах).
+
+    Признаки берутся из самого макета, а не из имени шаблона (C6): заголовка нет,
+    полоса — самая верхняя из body, высотой в строку своего кегля, и кегль у неё
+    крупнее, чем у любого другого body макета.
+    """
+    if any(spec.role is TextRole.TITLE for spec in specs):
+        return specs
+    bodies = [spec for spec in specs if spec.role is TextRole.BODY and spec.size_pt]
+    if len(bodies) < 2:
+        return specs
+    top = min(bodies, key=lambda spec: spec.y)
+    others = [spec for spec in bodies if spec is not top]
+    size = top.size_pt or 0.0
+    one_line = top.cy <= _TITLE_BAND_LINES * _LINE_RATIO * size * EMU_PER_PT
+    largest = all(size > (spec.size_pt or 0.0) for spec in others)
+    above = all(top.y + top.cy <= spec.y for spec in others)
+    if not (one_line and largest and above):
+        return specs
+    return [
+        spec.model_copy(update={"role": TextRole.TITLE}) if spec is top else spec
+        for spec in specs
+    ]
 
 
 def _first[T](*values: T | None) -> T | None:

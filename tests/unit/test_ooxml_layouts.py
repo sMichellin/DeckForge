@@ -304,3 +304,45 @@ def test_unknown_placeholder_type_takes_other_style() -> None:
     layout = part(sp('<p:ph type="sldNum" idx="4"/>'))
     (placeholder,) = resolve_placeholders(layout, master)
     assert placeholder.size_pt == 9.0
+
+
+CM = 360_000
+
+
+def _band_layout(band_cy: int, band_size: str = 'sz="3200"', title: str = "") -> bytes:
+    """Макет «Шаблона 2024»: полоса body 1,4 см кеглем 32 над телом 14 pt."""
+    return part(
+        title,
+        sp('<p:ph type="body" idx="16"/>', xfrm(CM, CM, 23 * CM, band_cy), band_size),
+        sp('<p:ph type="body" idx="21"/>', xfrm(CM, 5 * CM, 13 * CM, 11 * CM), 'sz="1400"'),
+    )
+
+
+def test_one_line_body_band_above_the_body_is_the_title() -> None:
+    """ad29e1b6f77e: заголовок размечен body, и список уезжал в него восьмым кеглем."""
+    specs = {spec.idx: spec for spec in resolve_placeholders(_band_layout(int(1.4 * CM)))}
+    assert specs[16].role is TextRole.TITLE
+    assert specs[16].ph_type == "BODY", "тип из XML не меняется — только роль"
+    assert specs[21].role is TextRole.BODY
+
+
+def test_tall_body_on_top_stays_body() -> None:
+    """Высокий блок крупным кеглем — это тело, а не полоса заголовка."""
+    specs = {spec.idx: spec for spec in resolve_placeholders(_band_layout(4 * CM))}
+    assert specs[16].role is TextRole.BODY
+
+
+def test_band_is_not_the_title_when_the_layout_has_one() -> None:
+    title = sp('<p:ph type="title"/>', xfrm(CM, 0, 23 * CM, CM), 'sz="2400"')
+    layout = _band_layout(int(1.4 * CM), title=title)
+    specs = {spec.idx: spec for spec in resolve_placeholders(layout)}
+    assert specs[16].role is TextRole.BODY
+    assert specs[0].role is TextRole.TITLE
+
+
+def test_band_in_a_smaller_size_than_the_body_stays_body() -> None:
+    specs = {
+        spec.idx: spec
+        for spec in resolve_placeholders(_band_layout(int(0.8 * CM), band_size='sz="1200"'))
+    }
+    assert specs[16].role is TextRole.BODY
