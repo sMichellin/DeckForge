@@ -3,7 +3,9 @@
 Capability: `design-system-extraction`. Основание:
 [docs/agents/tasks-design-system.md](../../../docs/agents/tasks-design-system.md), задачи DS1 и DS2.
 
-Статус: proposed
+Статус: accepted (тимлид, 22.09). Исполнитель — агент B с разрешением править
+`domain/**` и `schemas/**`: контракт отдельным первым коммитом PR,
+см. [docs/agents/plan-22-09.md](../../../docs/agents/plan-22-09.md) §2.
 
 **Трогает файлы тимлида** (`domain/**`, `schemas/**`, `parsing/**`, `scripts/**`) —
 change тимлида. Компоненты (DS3) — следующим change `design-system-components`:
