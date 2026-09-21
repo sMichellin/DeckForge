@@ -1069,3 +1069,18 @@ async def test_prompt_explains_a_layout_with_several_text_slots(
     await SlideComposer(llm).compose(plan_slide(), content, wide, variant_a, seed=1)
 
     assert "Мест под текст в этом макете" in llm.prompt
+
+
+async def test_lead_in_fact_is_not_called_lost(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """«Для этого необходимо:» — зачин, его смысл в пунктах. Три прогона подряд
+    называли его потерянным: вечная находка учит не читать отчёт."""
+    lead = ContentPackage(
+        brief=Brief(purpose="product", audience="правление", target_slides=6),
+        facts=[Fact(fact_id="f003", text="Существующие инструменты хуже. Для этого необходимо:")],
+    )
+    composer = SlideComposer(FakeLlm(slide_with("Разобрать шаблон и сверстать результат")))
+    await composer.compose(plan_slide(fact_refs=["f003"]), lead, manifest, variant_a, seed=1)
+
+    assert not any("не попали" in note for note in composer.notes)

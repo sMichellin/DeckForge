@@ -93,6 +93,17 @@ def _stems(text: str) -> set[str]:
     return {word[:_STEM] for word in words if len(word) >= _SIGNIFICANT_WORD}
 
 
+def _is_lead_in(text: str) -> bool:
+    """Зачин перечисления: «Для этого необходимо:». Своего содержания у него нет.
+
+    Его смысл — в пунктах, которые идут следом, и на слайде он честно растворяется
+    в них. Три прогона подряд (0c4470b85d0a, a8f47eaf4d3f, dfa40a2dc908) называли
+    потерянным именно такой факт — находка, которая есть всегда и ничего не значит,
+    учит не читать отчёт.
+    """
+    return text.rstrip().endswith(":")
+
+
 def _text_of(block: Block) -> str:
     """Весь текст блока одной строкой. Картинка и диаграмма содержания в словах не несут."""
     if isinstance(block, TextBlock):
@@ -261,7 +272,9 @@ class SlideComposer:
         left_out = [
             fact.fact_id
             for ref in slide.fact_refs
-            if (fact := content.fact(ref)) is not None and (words := _stems(fact.text))
+            if (fact := content.fact(ref)) is not None
+            and not _is_lead_in(fact.text)
+            and (words := _stems(fact.text))
             and not words & written
         ]
         if left_out:
