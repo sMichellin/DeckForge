@@ -19,6 +19,10 @@ class CheckContext(Protocol):
 
     `previews` и `deck_path` появляются лишь после сборки файла (changes 13 и 6):
     до этого проверки, которым нужен готовый `.pptx`, попадают в пропущенные.
+
+    `layout_previews` — пустые макеты картинками (C9): по ним из превью слайда вычитается
+    оформление шаблона. Их может не быть и при наличии превью слайдов — тогда проверка
+    считает по картинке целиком, как до C9, а не уходит в пропущенные.
     """
 
     @property
@@ -29,6 +33,8 @@ class CheckContext(Protocol):
     def content(self) -> Any: ...
     @property
     def previews(self) -> dict[str, bytes]: ...
+    @property
+    def layout_previews(self) -> dict[str, bytes]: ...
     @property
     def deck_path(self) -> Any: ...
     @property

@@ -207,6 +207,7 @@ def context_for(
     content: ContentPackage | None = None,
     deck_path: Path | None = None,
     previews: dict[str, bytes] | None = None,
+    layout_previews: dict[str, bytes] | None = None,
     vlm: object | None = None,
     **overrides: float | int | str | bool,
 ) -> AuditContext:
@@ -225,6 +226,7 @@ def context_for(
         deck=deck,
         content=content,
         previews=previews or {},
+        layout_previews=layout_previews or {},
         deck_path=deck_path,
         vlm=vlm,
         params=params,

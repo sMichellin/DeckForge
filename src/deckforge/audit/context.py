@@ -29,6 +29,11 @@ class AuditContext:
     deck: DeckIR
     content: ContentPackage | None = None
     previews: dict[str, bytes] = field(default_factory=dict)
+
+    #: Пустые макеты картинками, `layout_id` → png (C9). Пусто — метрики оформления
+    #: считаются по картинке целиком, вместе с декором шаблона.
+    layout_previews: dict[str, bytes] = field(default_factory=dict)
+
     deck_path: Path | None = None
 
     #: Клиент VLM для контекстуальных проверок (change 18). Протокол, а не конкретный

@@ -1196,3 +1196,152 @@ async def test_prompt_says_the_visual_replaces_the_list(
     await SlideComposer(llm).compose(plan_slide(), content, manifest, variant_a, seed=1)
 
     assert "Схема заменяет перечисление" in llm.prompt
+
+
+# --------------------------------------------- выбор макета по схеме содержания (B8)
+
+
+def _picture_half(manifest: TemplateManifest) -> PlaceholderSpec:
+    """Место под картинку на правой половине области контента."""
+    content = manifest.content_bbox
+    return PlaceholderSpec(
+        idx=2,
+        ph_type="PIC",
+        x=content.x + int(content.cx * 0.45),
+        y=int(3.5 * EMU_PER_CM),
+        cx=int(content.cx * 0.55),
+        cy=14 * EMU_PER_CM,
+    )
+
+
+def picture_template(manifest: TemplateManifest) -> TemplateManifest:
+    """Шаблон, где к «заголовку и содержимому» добавлен макет с картинкой на полслайда.
+
+    Так устроены VK Tech и «Шаблон 2024»: у макета с картинкой `max_chars_body` больше,
+    потому что парсер считает площадь места под картинку вместе с текстовыми
+    (`CONTENT_PH_TYPES`). Поэтому до B8 он и побеждал на слайдах без единой картинки.
+    """
+    text_layout = next(item for item in manifest.layouts if item.kind is LayoutKind.BULLETS)
+    content = manifest.content_bbox
+    narrow_body = PlaceholderSpec(
+        idx=1,
+        ph_type="BODY",
+        role=TextRole.BODY,
+        x=content.x,
+        y=5 * EMU_PER_CM,
+        cx=int(content.cx * 0.4),
+        cy=11 * EMU_PER_CM,
+    )
+    with_picture = text_layout.model_copy(
+        update={
+            "layout_id": "L09",
+            "name": "Текст и изображение",
+            "index": 2,
+            "placeholders": [text_layout.placeholders[0], narrow_body, _picture_half(manifest)],
+            "capacity": text_layout.capacity.model_copy(
+                update={"max_chars_body": 700, "supports_image": True}
+            ),
+        }
+    )
+    return manifest.model_copy(update={"layouts": [*manifest.layouts, with_picture]})
+
+
+def test_slide_without_a_picture_does_not_get_the_picture_layout(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """B8. Прогон f0b9ff6f0a74: правая половина пуста на семи слайдах из десяти.
+
+    Место под картинку, которое слайду нечем занять, — это дыра, а не вместимость.
+    """
+    template = picture_template(manifest)
+    assert (
+        template.layout("L09").capacity.max_chars_body
+        > template.layout("L07").capacity.max_chars_body
+    ), "макет с картинкой обязан выглядеть вместительнее — иначе тест ничего не проверяет"
+
+    layout = pick_layout(plan_slide(SlideIntent.PROBLEM), template, variant_a)
+
+    assert layout.layout_id == "L07"
+
+
+def test_slide_with_a_picture_takes_the_picture_layout(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Норма к тому же правилу: есть чем занять — макет с картинкой снова лучший."""
+    template = picture_template(manifest)
+    slide = plan_slide(SlideIntent.PROBLEM, asset_refs=["a001"])
+
+    assert pick_layout(slide, template, variant_a).layout_id == "L09"
+
+
+def chartish_template(manifest: TemplateManifest) -> TemplateManifest:
+    """Шаблон без единого макета под текст: только «под диаграмму» и «показатели».
+
+    `pick_layout` не находит ни одного вида из цепочки роли и уходит в `_last_resort` —
+    тот самый путь, которым «Шаблон 2024» выбирал макет под диаграмму на слайде
+    без набора данных (прогон 1d0bc29cf23f, левые 60 % пусты).
+    """
+    text_layout = next(item for item in manifest.layouts if item.kind is LayoutKind.BULLETS)
+    content = manifest.content_bbox
+    chart_slot = PlaceholderSpec(
+        idx=1,
+        ph_type="CHART",
+        x=content.x,
+        y=5 * EMU_PER_CM,
+        cx=content.cx,
+        cy=11 * EMU_PER_CM,
+    )
+    chart_layout = text_layout.model_copy(
+        update={
+            "layout_id": "C01",
+            "name": "Под диаграмму",
+            "index": 0,
+            "kind": LayoutKind.CHART,
+            "placeholders": [text_layout.placeholders[0], chart_slot],
+            "capacity": text_layout.capacity.model_copy(update={"max_chars_body": 900}),
+        }
+    )
+    kpi_layout = text_layout.model_copy(
+        update={
+            "layout_id": "K01",
+            "name": "Показатели",
+            "index": 1,
+            "kind": LayoutKind.KPI,
+            "capacity": text_layout.capacity.model_copy(update={"max_chars_body": 300}),
+        }
+    )
+    return manifest.model_copy(update={"layouts": [chart_layout, kpi_layout]})
+
+
+def test_last_resort_skips_a_slot_it_cannot_fill(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """B8. Без набора данных место под диаграмму остаётся пустым, а не «вместительным»."""
+    template = chartish_template(manifest)
+    slide = plan_slide(SlideIntent.PROBLEM)
+
+    assert pick_layout(slide, template, variant_a).layout_id == "K01"
+
+
+def test_last_resort_still_prefers_the_capacious_layout_when_it_can_be_filled(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Норма: с набором данных вместимость снова решает, и она у макета с диаграммой."""
+    template = chartish_template(manifest)
+    slide = plan_slide(SlideIntent.PROBLEM, dataset_ref="d001")
+
+    assert pick_layout(slide, template, variant_a).layout_id == "C01"
+
+
+def test_title_keeps_its_layout_when_the_slide_has_no_picture(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Схема содержания не касается титула: вид макета ему задаёт роль, а не контент.
+
+    Иначе штраф за незаполняемое место перевернул бы выбор обложки, где место под
+    картинку — это и есть замысел макета.
+    """
+    template = picture_template(manifest)
+    layout = pick_layout(plan_slide(SlideIntent.TITLE), template, variant_a)
+
+    assert layout.kind is LayoutKind.TITLE

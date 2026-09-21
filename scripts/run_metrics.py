@@ -76,6 +76,45 @@ def metrics(run_dir: Path) -> dict[str, float]:
             if block.get("type") in _VISUAL_BLOCKS
         )
         out["визуализаций"] = float(visuals)
+    out.update(_design(report.get("design_metrics") or {}))
+    return out
+
+
+#: Пустая зона такой доли ширины и высоты считается дырой рядом с содержанием, а не
+#: воздухом. Те же числа, что у порогов `design.ink_balance` (B8: «≥ 40 % ширины»).
+_WIDE_ZONE = 0.4
+
+
+def _design(by_slide: dict[str, dict[str, float]]) -> dict[str, float]:
+    """Оформление колоды одной строкой на метрику. Задача C7.
+
+    Медиана, а не среднее: один титул с большим полем не должен решать за колоду.
+    Доля слайдов с широкой пустой зоной — целевая метрика B8; она считается по колоде,
+    а не по находкам, потому что находка есть только у слайда за порогом.
+    """
+    values = [item for item in by_slide.values() if item]
+    if not values:
+        return {}
+    wide = [
+        item
+        for item in values
+        if item.get("zone_w", 0) >= _WIDE_ZONE and item.get("zone_h", 0) >= _WIDE_ZONE
+    ]
+    out = {
+        "чернил, % (медиана)": round(
+            statistics.median(item.get("ink", 0.0) for item in values) * 100, 2
+        ),
+        "дисбаланс (медиана)": round(
+            statistics.median(item.get("imbalance", 0.0) for item in values), 2
+        ),
+        "слайдов с пустой зоной, %": round(100 * len(wide) / len(values), 1),
+    }
+    if not all(item.get("chrome") for item in values):
+        # Без превью пустых макетов метрики считают декор шаблона содержанием (C9):
+        # сравнивать такой прогон с прогоном, где превью были, нельзя.
+        out["без превью макетов, слайдов"] = float(
+            sum(1 for item in values if not item.get("chrome"))
+        )
     return out
 
 

@@ -29,7 +29,10 @@ _AVG_CHAR_WIDTH_RATIO = 0.52
 #: Высота строки в долях кегля при одинарном интерлиньяже.
 _LINE_HEIGHT_RATIO = 1.2
 
-_CONTENT_PH_TYPES = frozenset({"BODY", "OBJ", "TBL", "CHART", "PIC", "SUBTITLE", "CTRTITLE"})
+#: Места, куда шаблон разрешает положить содержание. Публично: композиция считает
+#: по тем же местам, какие место мерил парсер, — иначе вместимость и пригодность
+#: макета расходятся (B8, `composition/content_fit.py`).
+CONTENT_PH_TYPES = frozenset({"BODY", "OBJ", "TBL", "CHART", "PIC", "SUBTITLE", "CTRTITLE"})
 
 
 def chars_that_fit(placeholder: PlaceholderSpec, size_pt: float) -> int:
@@ -67,7 +70,7 @@ def compute_capacity(
     title_pt = sizes.get(TextRole.TITLE, 40.0)
 
     title_ph = next((p for p in placeholders if p.role is TextRole.TITLE), None)
-    body_phs = [p for p in placeholders if p.ph_type in _CONTENT_PH_TYPES]
+    body_phs = [p for p in placeholders if p.ph_type in CONTENT_PH_TYPES]
 
     max_chars_body = sum(chars_that_fit(p, body_pt) for p in body_phs)
     # Буллет занимает строку целиком, поэтому считаем по строкам, а не по знакам.

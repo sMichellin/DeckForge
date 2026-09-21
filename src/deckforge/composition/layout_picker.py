@@ -12,6 +12,7 @@ from __future__ import annotations
 import zlib
 from typing import Final
 
+from deckforge.composition.content_fit import best_by_content, dead_bucket, fillable_chars
 from deckforge.composition.free_space import free_capacity
 from deckforge.domain.enums import LayoutKind, SlideIntent
 from deckforge.domain.plan import SlidePlan
@@ -111,7 +112,9 @@ _COVERISH: Final = frozenset(
 )
 
 
-def ranked_for_content(manifest: TemplateManifest, layouts: list[LayoutSpec]) -> list[LayoutSpec]:
+def ranked_for_content(
+    manifest: TemplateManifest, layouts: list[LayoutSpec], slide: SlidePlan | None = None
+) -> list[LayoutSpec]:
     """Макеты в порядке пригодности под содержание: сначала не-обложки, потом по месту.
 
     На шаблоне без макетов под текст (у VK WorkSpace их нет вовсе) пригодность меряется
@@ -119,28 +122,46 @@ def ranked_for_content(manifest: TemplateManifest, layouts: list[LayoutSpec]) ->
     Обложка с заголовком по центру его почти не оставляет, макет с заголовком-полосой
     сверху — оставляет. Прежде порядок задавал манифест, и все двенадцать слайдов
     ложились на обложки (прогон 80e7af41ab54).
+
+    `slide` добавляет к порядку схему содержания (B8): макет, где заметная часть области
+    контента отдана месту, которое этому слайду нечем занять, уходит в конец. Без слайда
+    порядок прежний — им пользуются титул, перебивка и финал, у которых вид макета
+    определяется ролью, а не содержанием.
     """
 
-    def rank(layout: LayoutSpec) -> tuple[int, int, str]:
+    def rank(layout: LayoutSpec) -> tuple[int, int, int, str]:
         cover = 1 if layout.kind in _COVERISH else 0
-        return (cover, -free_capacity(layout, manifest).max_chars_body, layout.layout_id)
+        dead = dead_bucket(layout, manifest, slide) if slide is not None else 0
+        return (
+            cover,
+            dead,
+            -free_capacity(layout, manifest).max_chars_body,
+            layout.layout_id,
+        )
 
     return sorted(layouts, key=rank)
 
 
-def _equally_fit(manifest: TemplateManifest, kind: LayoutKind) -> list[LayoutSpec]:
+def _equally_fit(
+    manifest: TemplateManifest, kind: LayoutKind, slide: SlidePlan | None = None
+) -> list[LayoutSpec]:
     """Макеты этого вида, между которыми выбор уже не по вместимости.
 
     Прежде здесь стоял `max(..., key=max_chars_body)`. Пока вместимость у кандидатов
     разная, он прав: вместительный макет даёт меньше поводов деградировать дальше.
     Но на шаблоне без макетов под текст она у всех нулевая, `max` отдаёт первый
     по порядку, и все двенадцать слайдов ложатся на один макет.
+
+    Со `slide` вместимость считается по живым местам, а не по всем (B8): место
+    под диаграмму на слайде без набора данных — это не вместимость, а дыра.
     """
     candidates = [
         layout for layout in manifest.layouts_of_kind(kind) if _layout_supports(layout, kind)
     ]
     if not candidates:
         return []
+    if slide is not None:
+        return best_by_content(candidates, manifest, slide)
     best = max(layout.capacity.max_chars_body for layout in candidates)
     return [layout for layout in candidates if layout.capacity.max_chars_body == best]
 
@@ -223,12 +244,19 @@ def _distinct(candidates: list[LayoutSpec], limit: int) -> list[LayoutSpec]:
     return chosen
 
 
-def content_palette(manifest: TemplateManifest, candidates: list[LayoutSpec]) -> list[LayoutSpec]:
-    """Макеты под содержательные слайды: разные и не занятые титулом с перебивкой."""
+def content_palette(
+    manifest: TemplateManifest, candidates: list[LayoutSpec], slide: SlidePlan | None = None
+) -> list[LayoutSpec]:
+    """Макеты под содержательные слайды: разные и не занятые титулом с перебивкой.
+
+    Порядок задаёт `ranked_for_content`, а не манифест: из равно вместительных
+    в палитру должны попасть те, у которых меньше мёртвого места (B8), иначе
+    чередование подложек само же и выбирает макет с пустой половиной.
+    """
     reserved = _reserved(manifest)
     free = [layout for layout in candidates if layout.layout_id not in reserved]
     # Всё занято структурными ролями — лучше повторить макет, чем остаться без слайда.
-    return _distinct(free or candidates, MAX_CONTENT_LAYOUTS)
+    return _distinct(ranked_for_content(manifest, free or candidates, slide), MAX_CONTENT_LAYOUTS)
 
 
 def _rotation(slide_id: str, size: int) -> int:
@@ -257,7 +285,7 @@ def _choose(
         return _structural_choice(candidates, slide.intent, manifest)
     if len(candidates) == 1:
         return candidates[0]
-    palette = content_palette(manifest, candidates)
+    palette = content_palette(manifest, candidates, slide)
     return palette[_rotation(slide.slide_id, len(palette))]
 
 
@@ -265,10 +293,13 @@ def pick_layout(
     slide: SlidePlan, manifest: TemplateManifest, variant: VariantProfile
 ) -> LayoutSpec:
     """Макет из манифеста под роль слайда. Никогда не по имени — только по виду."""
+    # Титул, перебивка и финал идут прежним путём: вид макета им задаёт роль,
+    # а схема содержания у них пустая по определению.
+    schema = None if slide.intent in _STRUCTURAL else slide
     for kind in kind_chain(slide, variant):
         if not _slide_can_carry(slide, kind):
             continue
-        if tied := _equally_fit(manifest, kind):
+        if tied := _equally_fit(manifest, kind, schema):
             return _choose(tied, slide, manifest)
 
     return _choose(_last_resort(slide, manifest), slide, manifest)
@@ -282,11 +313,18 @@ def _last_resort(slide: SlidePlan, manifest: TemplateManifest) -> list[LayoutSpe
 
     Возвращается список, а не один макет: выбрать из него — дело `_choose`, и без этого
     на шаблоне, где ни один макет не размечен под текст, вся колода легла бы на первый.
+
+    Место под текст считается **живым** (B8): именно сюда попадал «Шаблон 2024». Ни один
+    вид из цепочки не находился, а `max_chars_body` у макета под диаграмму самый большой —
+    его площадь считает парсер вместе с текстовыми местами. Слайд без набора данных
+    ложился на макет с диаграммой, диаграммы не появлялось, и левые 60 % оставались
+    пустыми (прогон 1d0bc29cf23f).
     """
-    with_body = [layout for layout in manifest.layouts if layout.capacity.max_chars_body > 0]
+    with_body = [
+        layout for layout in manifest.layouts if fillable_chars(layout, manifest, slide) > 0
+    ]
     if with_body:
-        best = max(layout.capacity.max_chars_body for layout in with_body)
-        return [layout for layout in with_body if layout.capacity.max_chars_body == best]
+        return best_by_content(with_body, manifest, slide)
     if manifest.layouts:
-        return ranked_for_content(manifest, list(manifest.layouts))
+        return ranked_for_content(manifest, list(manifest.layouts), slide)
     raise LayoutPickError(f"слайд {slide.slide_id}: в манифесте нет ни одного макета")

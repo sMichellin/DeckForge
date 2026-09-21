@@ -60,6 +60,11 @@ class DeckState(TypedDict, total=False):
     pptx_path: Path
     #: `slide_id` → путь к png. Пусто, если LibreOffice недоступен.
     previews: dict[str, Path]
+    #: `layout_id` → путь к png пустого макета: оформление шаблона без содержания (C9).
+    layout_previews: dict[str, Path]
+    #: `slide_id` → метрики оформления слайда (C7). Есть у каждого слайда, а не только
+    #: у нарушителей: иначе колоды между прогонами не сравнить.
+    design_metrics: dict[str, dict[str, float]]
     audit: AuditReport
 
     selected_fixes: list[Finding]

@@ -196,3 +196,57 @@ def test_run_metrics_without_runs_explains_itself(capsys: pytest.CaptureFixture[
 
     assert run_metrics.main([]) == 2
     assert "медиана и разброс" in capsys.readouterr().out
+
+
+def test_run_metrics_counts_slides_with_a_wide_empty_zone(tmp_path: Path) -> None:
+    """C7. Целевая метрика B8 считается по колоде, а не по находкам.
+
+    Находка есть только у слайда за порогом, и по находкам не видно, стала колода лучше
+    или просто не дошла до порога.
+    """
+    import run_metrics
+
+    run = write_run(
+        tmp_path,
+        "cccc",
+        design_metrics={
+            # Половина слайда пуста рядом с содержанием — это дыра.
+            "s01": {"ink": 0.02, "imbalance": 2.4, "zone_w": 0.55, "zone_h": 1.0, "chrome": 1.0},
+            # Воздух над рядом показателей: широко, но низко — не дыра.
+            "s02": {"ink": 0.03, "imbalance": 0.6, "zone_w": 1.0, "zone_h": 0.32, "chrome": 1.0},
+            "s03": {"ink": 0.04, "imbalance": 0.4, "zone_w": 0.2, "zone_h": 0.3, "chrome": 1.0},
+            "s04": {"ink": 0.05, "imbalance": 0.3, "zone_w": 0.1, "zone_h": 0.2, "chrome": 1.0},
+        },
+    )
+    values = run_metrics.metrics(run)
+
+    assert values["слайдов с пустой зоной, %"] == 25.0
+    assert values["дисбаланс (медиана)"] == 0.5
+    assert "без превью макетов, слайдов" not in values
+
+
+def test_run_metrics_says_when_the_layout_previews_were_missing(tmp_path: Path) -> None:
+    """Без превью макетов метрики считают декор шаблона содержанием (C9).
+
+    Такой прогон с прогоном, где превью были, сравнивать нельзя, и сводка обязана
+    об этом сказать, а не молча смешать два разных замера.
+    """
+    import run_metrics
+
+    run = write_run(
+        tmp_path,
+        "dddd",
+        design_metrics={
+            "s01": {"ink": 0.02, "imbalance": 0.4, "zone_w": 0.2, "zone_h": 0.2, "chrome": 0.0},
+            "s02": {"ink": 0.03, "imbalance": 0.5, "zone_w": 0.2, "zone_h": 0.2, "chrome": 1.0},
+        },
+    )
+
+    assert run_metrics.metrics(run)["без превью макетов, слайдов"] == 1.0
+
+
+def test_run_metrics_survives_a_run_without_design_metrics(tmp_path: Path) -> None:
+    """Прогоны до C7 отчёта с метриками не содержат: сводка молчит, а не падает."""
+    import run_metrics
+
+    assert "дисбаланс (медиана)" not in run_metrics.metrics(write_run(tmp_path, "eeee"))

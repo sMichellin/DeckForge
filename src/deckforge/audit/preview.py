@@ -10,12 +10,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from pathlib import Path
 
 from deckforge.domain.slide import DeckIR
+from deckforge.domain.template import TemplateManifest
+from deckforge.rendering.layout_preview import SofficePreview
 from deckforge.rendering.soffice import SofficeRenderer, SofficeUnavailableError
 
-__all__ = ["SofficeUnavailableError", "render_deck_previews", "render_previews"]
+__all__ = [
+    "SofficeUnavailableError",
+    "render_deck_previews",
+    "render_layout_previews",
+    "render_previews",
+]
 
 
 def render_previews(pptx_path: Path, out_dir: Path, dpi: int = 150) -> dict[str, Path]:
@@ -43,3 +51,27 @@ def render_deck_previews(
         slide.slide_id: pages[str(number)]
         for number, slide in enumerate(deck.slides, start=1)
     }
+
+
+def render_layout_previews(
+    template_path: Path,
+    manifest: TemplateManifest,
+    out_dir: Path,
+    layout_ids: Collection[str],
+) -> dict[str, Path]:
+    """Пустые макеты картинками: `layout_id` → png. Задача C9.
+
+    Это оформление шаблона без содержания — фон, логотип, плашки. Метрики оформления
+    вычитают его из превью слайда, и декор перестаёт считаться содержанием.
+
+    Рендерит тот же поставщик, что и классификатор макетов (change 6): плейсхолдеры
+    он не заполняет, а пустых плейсхолдеров PowerPoint и LibreOffice не показывают —
+    на картинке остаётся ровно шаблон.
+
+    Рендерятся только перечисленные макеты: колода использует два-три из тридцати,
+    а конвертация всего шаблона стоит 23–53 с (§12).
+    """
+    if not layout_ids:
+        return {}
+    provider = SofficePreview(template_path, manifest, out_dir, only=set(layout_ids))
+    return provider.save_previews(out_dir)

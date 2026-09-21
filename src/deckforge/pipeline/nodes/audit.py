@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 from langgraph.runtime import Runtime
 
+from deckforge.audit.deterministic.design import slide_metrics
 from deckforge.audit.runner import AuditRunner
 from deckforge.config import get_settings
 from deckforge.pipeline.deps import Deps
@@ -39,6 +41,26 @@ def run_params(audit: dict[str, Any], languagetool_url: str) -> dict[str, Any]:
     return {"server_url": languagetool_url, **check_params(audit)}
 
 
+DESIGN_CHECK = "design.ink_balance"
+
+
+def _design_tolerances(audit: dict[str, Any]) -> dict[str, float]:
+    """Допуски дисбаланса — те же, что у проверки: метрика в отчёте и в находке одна.
+
+    Порядок тот же, что в `AuditRunner`: порог проверки из `audit_checks.yaml` главнее
+    профиля прогона. Иначе отчёт и находка мерили бы одно разными линейками.
+    """
+    from deckforge.registry import load_check_specs
+
+    spec = load_check_specs().by_id(DESIGN_CHECK)
+    params = {**check_params(audit), **(dict(spec.params) if spec is not None else {})}
+    return {
+        name: float(value)
+        for name in ("x_tol", "y_tol")
+        if isinstance(value := params.get(name), int | float)
+    }
+
+
 def _read_previews(previews: dict[str, Path]) -> dict[str, bytes]:
     out: dict[str, bytes] = {}
     for slide_id, path in previews.items():
@@ -51,6 +73,7 @@ async def audit_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     """Детерминированные проверки и VLM-судья по готовой колоде (changes 15, 18)."""
     deps = runtime.context
     previews = state.get("previews") or {}
+    layout_previews = state.get("layout_previews") or {}
 
     degradations: list[str] = []
     vlm = deps.vlm if deps.run.audit.get("run_semantic", True) else None
@@ -62,17 +85,33 @@ async def audit_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
 
     runner = AuditRunner(run_params=run_params(deps.run.audit, get_settings().languagetool_url))
     async with timed(deps, "audit") as timings:
+        pngs = await asyncio.to_thread(_read_previews, previews)
+        chrome = await asyncio.to_thread(_read_previews, layout_previews)
         report = await runner.run(
             state["deck"],
             state["manifest"],
             state["content"],
-            previews=await asyncio.to_thread(_read_previews, previews),
+            previews=pngs,
+            layout_previews=chrome,
             deck_path=state.get("pptx_path"),
             vlm=vlm,
+        )
+        # Метрики оформления по каждому слайду (C7): по находкам не видно, стала колода
+        # лучше или просто не дошла до порога. Считаются по тем же картинкам, что уже
+        # прочитаны, — это миллисекунды на слайд.
+        metrics = await asyncio.to_thread(
+            partial(
+                slide_metrics,
+                pngs,
+                {slide.slide_id: slide.layout_id for slide in state["deck"].slides},
+                chrome,
+                **_design_tolerances(deps.run.audit),
+            )
         )
 
     return {
         "audit": report,
+        "design_metrics": metrics,
         "skipped_checks": runner.skipped_checks,
         "stage_timings_s": timings,
         "degradations": degradations,

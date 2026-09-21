@@ -133,6 +133,9 @@ class RunResult:
             "total_s": round(sum(timings.values()), 3),
             "audit": audit.summary.model_dump(mode="json") if audit is not None else None,
             "findings": audit.summary.errors + audit.summary.warnings if audit else 0,
+            # Метрики оформления по каждому слайду (C7): находка есть только
+            # у нарушителя, а сравнивать колоды надо по величинам, которые есть у всех.
+            "design_metrics": dict(self.state.get("design_metrics") or {}),
             "skipped_checks": list(self.state.get("skipped_checks") or []),
             "degradations": list(self.state.get("degradations") or []),
             "notes": list(self.state.get("notes") or []),

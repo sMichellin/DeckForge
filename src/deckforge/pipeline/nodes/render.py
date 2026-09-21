@@ -14,7 +14,11 @@ from pathlib import Path
 
 from langgraph.runtime import Runtime
 
-from deckforge.audit.preview import SofficeUnavailableError, render_deck_previews
+from deckforge.audit.preview import (
+    SofficeUnavailableError,
+    render_deck_previews,
+    render_layout_previews,
+)
 from deckforge.export.pptx import export_pptx
 from deckforge.pipeline.deps import Deps
 from deckforge.pipeline.nodes import timed
@@ -32,6 +36,7 @@ async def render_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     notes: list[str] = []
     degradations: list[str] = []
     previews: dict[str, Path] = {}
+    layout_previews: dict[str, Path] = {}
 
     # Превью нужны не только судье-VLM: по картинке слайда считаются метрики оформления
     # (`design.ink_balance`), а они детерминированные и идут всегда. Рендер десяти
@@ -70,9 +75,36 @@ async def render_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
             except (SofficeUnavailableError, OSError) as error:
                 notes.append(f"превью не сняты ({error}): проверки по изображению будут пропущены")
 
+        # Пустые макеты (C9): метрики оформления вычитают их из превью слайда, иначе
+        # логотип и плашки шаблона считаются содержанием и тянут центр тяжести.
+        # Без них проверка не пропускается, а считает как прежде, поэтому неудача здесь —
+        # это оговорка, а не потеря проверки.
+        if previews:
+            try:
+                layout_previews = dict(
+                    await asyncio.to_thread(
+                        partial(
+                            render_layout_previews,
+                            state["template_path"],
+                            state["manifest"],
+                            deps.previews_dir() / "layouts",
+                            {slide.layout_id for slide in deck.slides},
+                        )
+                    )
+                )
+            # Широкий перехват намеренно: макет читает python-pptx, а пустые макеты —
+            # не обязательная часть колоды. Любая их неудача обязана остаться оговоркой,
+            # а не уронить рендер уже собранного файла.
+            except Exception as error:
+                notes.append(
+                    f"превью пустых макетов не сняты ({error}): метрики оформления "
+                    "посчитают декор шаблона содержанием"
+                )
+
     return {
         "pptx_path": pptx_path,
         "previews": previews,
+        "layout_previews": layout_previews,
         "stage_timings_s": timings,
         "notes": notes,
         "degradations": degradations,
