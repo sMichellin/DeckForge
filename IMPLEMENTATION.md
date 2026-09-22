@@ -943,6 +943,25 @@ ingest_content ─┘                       ↑                              │
 [docs/agents/tasks-design-system.md](docs/agents/tasks-design-system.md), change тимлида
 на DS1–DS2 — `openspec/changes/design-system-from-examples/proposal.md`.
 
+### `design-system-page` — готово, в генерации не участвует (#142)
+
+Слой `deckforge.designsystem` (`models`, `derive`, `measure`, `synth`, `contrast`),
+`export/design_system_page.py`, команда `deckforge design-system <шаблон>`.
+Из шаблона собирается одна html-страница по семи разделам образца, у каждого блока —
+метка «измерено в шаблоне» или «достроено системой».
+
+**Критерий выхода — выполнен частично.** Страница строится на трёх шаблонах кейса
+и на двух холодных, два запуска дают побайтно равный html, внешних ссылок ноль.
+Но слой импортируют только `cli.py` и сборщик страницы: `pipeline`, `composition`,
+`layout`, `rendering` и `audit` о нём не знают, и вид собранной колоды не изменился.
+
+**Не выполнено:** шаг 4 брифа — вёрстка слайдов по дизайн-системе (R23) и ДС как этап
+конвейера (R24). Задачи DG1–DG4 — [tasks-design-system-in-generation.md](docs/agents/tasks-design-system-in-generation.md),
+предложения `one-contrast-rule`, `design-system-in-the-pipeline`,
+`compose-by-the-design-system`, `ir-callout-and-quote`. CI по PR не отработал
+(конфликт в `.gitignore` не дал собрать merge-коммит); проверки прогнаны вручную
+при ревью: 1585 тестов, `ruff`, `mypy`, гейт C6 — чисто.
+
 ### Постоянные обязанности
 
 * `domain/**` и `schemas/**` — единственный, кто их правит (TEAMWORK.md §4);
