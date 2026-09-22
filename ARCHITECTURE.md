@@ -346,7 +346,7 @@ JSON-схемы генерируются из них и лежат в `schemas/`
 | | `template.size_not_in_scale` | кегль ∉ `typography_scale` |
 | | `template.color_not_in_palette` | цвет ∉ `theme.colors` (с учётом тонов) |
 | | `template.layout_not_from_template` | slide.layout ∉ манифест |
-| | `template.decor_moved` | смещение логотипа/колонтитула > допуска |
+| | `template.decor_moved` | знак шаблона (логотип, фигура в полях) закрыт блоком ≥ чем наполовину |
 | | `template.contrast_below_wcag` | относительная яркость, порог 4.5:1 (3:1 для крупного) |
 | Плотность | `density.too_many_bullets` (> 6) | подсчёт |
 | | `density.bullet_too_long` (> 15 слов) | подсчёт |
