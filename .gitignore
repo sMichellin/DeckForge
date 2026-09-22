@@ -20,3 +20,7 @@ submission/decks/**
 # Положите свои локально: tests/integration/test_real_templates.py подхватит их сам.
 tests/fixtures/templates/**/*.pptx
 tests/fixtures/templates/**/*.potx
+
+.autopilot/serve.*
+
+.playwright-mcp/
