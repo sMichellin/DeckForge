@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from deckforge.config import RunConfig, load_yaml
+from deckforge.designsystem import DesignSystem
 from deckforge.domain.content import Brief
 from deckforge.domain.variants import VariantProfile
 from deckforge.layout.fonts import FontLibrary
@@ -63,6 +64,31 @@ def collect_content_paths(source: Path) -> list[Path]:
     if not files:
         raise ValueError(f"в {source} нет ни одного файла, который умеет читать ingestion")
     return files
+
+
+def design_system_summary(ds: DesignSystem | None) -> dict[str, Any] | None:
+    """Числа разделов дизайн-системы для `run.json` (DG2).
+
+    По ним видно, что конвейер разобрал шаблон, а не взял заготовку: у разных шаблонов
+    числа разные, а у шаблона без слайдов-примеров измеряемые разделы пусты. Самих
+    значений здесь нет — они в чекпойнте, а сводка прогона остаётся сводкой.
+    """
+    if ds is None:
+        return None
+    return {
+        "template_id": ds.template_id,
+        "type_levels": len(ds.typography.steps),
+        "theme_slots": len(ds.theme.slots),
+        "spacing_steps": len(ds.grid.spacing.steps_emu),
+        "color_roles": len(ds.palette_roles),
+        "combinations": len(ds.combinations),
+        "contrast_pairs": len(ds.contrast_pairs),
+        "contrast_defects": len(ds.contrast_defects),
+        "fonts_in_use": len(ds.fonts_in_use),
+        "components": len(ds.components),
+        "synthesized": len(ds.synthesized),
+        "assembly_rules": len(ds.assembly_rules),
+    }
 
 
 @asynccontextmanager
@@ -136,6 +162,9 @@ class RunResult:
             # Метрики оформления по каждому слайду (C7): находка есть только
             # у нарушителя, а сравнивать колоды надо по величинам, которые есть у всех.
             "design_metrics": dict(self.state.get("design_metrics") or {}),
+            # Дизайн-система шаблона (DG2): числа разделов, а не сами значения.
+            # `None` — узел `parse` до неё не дошёл, и это видно, а не замолчано.
+            "design_system": design_system_summary(self.state.get("design_system")),
             "skipped_checks": list(self.state.get("skipped_checks") or []),
             "degradations": list(self.state.get("degradations") or []),
             "notes": list(self.state.get("notes") or []),

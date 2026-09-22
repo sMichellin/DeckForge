@@ -1,8 +1,10 @@
 """Состояние графа. Change (17) `pipeline-orchestration`.
 
-В состоянии живут только доменные модели и пути: оно целиком уезжает в чекпойнт sqlite
-и читается интерфейсом. Клиенты инференса, судья и каталог шрифтов ходят мимо него —
-через `Deps` (см. `pipeline/deps.py`).
+В состоянии живут только модели и пути: оно целиком уезжает в чекпойнт sqlite
+и читается интерфейсом. Модели — доменные и производные от них (`designsystem`);
+и те и другие — pydantic, то есть переживают сериализацию чекпойнта.
+Клиенты инференса, судья и каталог шрифтов ходят мимо него — через `Deps`
+(см. `pipeline/deps.py`).
 
 Превью держатся **путями, а не байтами**: колода на 12 слайдов — это мегабайты png,
 и чекпойнт, который пишется после каждого узла, вырос бы на них в десятки раз.
@@ -13,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, TypedDict
 
+from deckforge.designsystem import DesignSystem
 from deckforge.domain.audit import AuditReport, Finding
 from deckforge.domain.content import ContentPackage
 from deckforge.domain.plan import DeckPlan
@@ -50,6 +53,10 @@ class DeckState(TypedDict, total=False):
     content_paths: list[Path]
 
     manifest: TemplateManifest
+    #: Производные шаблона: роли цветов, контрасты, лестница типографики, шкала
+    #: отступов, компоненты. Считается из манифеста тем же узлом `parse` (DG2) —
+    #: не кэшируется отдельно, потому что кэшируется её единственный источник.
+    design_system: DesignSystem
     content: ContentPackage
     variant: VariantProfile
 
