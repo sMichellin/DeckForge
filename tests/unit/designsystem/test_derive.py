@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from deckforge.designsystem import derive
-from deckforge.designsystem.models import Origin
+from deckforge.designsystem.models import DesignSystem, Origin, SpacingScale, TypeLevel
 from deckforge.domain.enums import ColorRef, TextRole
 from deckforge.domain.template import (
     BulletStyle,
@@ -22,17 +22,39 @@ from deckforge.parsing import TemplateParser
 from tests.case_templates import case_template
 from tests.e2e.cold_corpus import cold_templates
 
+#: Восемь уровней типографики, перечисленных заказчиком в образце дизайн-системы:
+#: display, заголовок слайда, подзаголовок раздела, заголовок карточки, body large,
+#: body, caption, label/tag. Порядок — сверху вниз, от крупного к мелкому.
+EIGHT_LEVELS = [
+    TypeLevel.DISPLAY,
+    TypeLevel.SLIDE_TITLE,
+    TypeLevel.SECTION_SUBTITLE,
+    TypeLevel.CARD_TITLE,
+    TypeLevel.BODY_LARGE,
+    TypeLevel.BODY,
+    TypeLevel.CAPTION,
+    TypeLevel.LABEL,
+]
+
 
 def test_every_role_of_the_scale_is_in_the_ladder(manifest: TemplateManifest) -> None:
+    """Каждая роль шкалы шаблона стоит на своей ступени лестницы с тем же кеглем."""
     ds = derive(manifest)
+    measured = [step for step in ds.typography.steps if step.origin is Origin.MEASURED]
 
-    assert [step.role for step in ds.typography.steps] == [
+    assert [step.role for step in measured] == [
         TextRole.TITLE,
         TextRole.SUBTITLE,
         TextRole.BODY,
         TextRole.CAPTION,
     ]
-    assert [step.size_pt for step in ds.typography.steps] == [40.0, 24.0, 18.0, 12.0]
+    assert [step.size_pt for step in measured] == [40.0, 24.0, 18.0, 12.0]
+    assert [step.level for step in measured] == [
+        TypeLevel.SLIDE_TITLE,
+        TypeLevel.SECTION_SUBTITLE,
+        TypeLevel.BODY,
+        TypeLevel.CAPTION,
+    ]
     assert ds.typography.origin is Origin.MEASURED
 
 
@@ -40,7 +62,8 @@ def test_the_ladder_names_the_font_of_the_theme_and_the_purpose_of_the_role(
     manifest: TemplateManifest,
 ) -> None:
     ds = derive(manifest)
-    title, subtitle = ds.typography.steps[0], ds.typography.steps[1]
+    by_level = {step.level: step for step in ds.typography.steps}
+    title, subtitle = by_level[TypeLevel.SLIDE_TITLE], by_level[TypeLevel.SECTION_SUBTITLE]
 
     assert title.font_family == "TestSans Display", "major_latin темы"
     assert subtitle.font_family == "TestSans Text", "minor_latin темы"
@@ -56,8 +79,12 @@ def test_the_size_of_a_role_is_kept_as_a_share_of_the_slide_width(
     """Кегль 40 pt на слайде 12 746 000 EMU — это 3,99 % ширины (решение §9)."""
     ds = derive(manifest)
 
-    assert ds.typography.steps[0].width_share == 0.039856, "508 000 EMU на 12 746 000"
-    assert ds.typography.steps[-1].width_share < ds.typography.steps[0].width_share
+    by_level = {step.level: step for step in ds.typography.steps}
+
+    assert by_level[TypeLevel.SLIDE_TITLE].width_share == 0.039856, "508 000 EMU на 12 746 000"
+    assert (
+        by_level[TypeLevel.LABEL].width_share < by_level[TypeLevel.SLIDE_TITLE].width_share
+    )
 
 
 def test_the_grid_repeats_the_numbers_of_the_manifest(manifest: TemplateManifest) -> None:
@@ -170,21 +197,36 @@ def test_the_palette_carries_every_theme_slot_with_its_colour(
     assert ds.theme.origin is Origin.MEASURED
 
 
-def test_the_fields_of_the_next_tasks_exist_and_start_empty(
+def test_one_structure_carries_the_fields_of_all_three_tasks(
     manifest: TemplateManifest,
 ) -> None:
-    """Форма структуры решается здесь: таски 02 и 03 дописывают в готовые поля."""
+    """Форма структуры решается здесь: таски 02 и 03 дописывают в готовые поля одной
+    структуры, а не заводят рядом свои.
+
+    Набор полей перечислен руками по спецификации таска 01, а не считан из модели:
+    поле, пропавшее из структуры или переименованное, обязан заметить именно этот тест.
+    """
     ds = derive(manifest)
 
-    assert ds.palette_roles == []
-    assert ds.combinations == []
-    assert ds.contrast_pairs == []
-    assert ds.fonts_in_use == []
-    assert ds.components == []
-    assert ds.synthesized == []
-    assert ds.assembly_rules == []
-    assert ds.number_sizes.large_pt is None
-    assert ds.number_sizes.origin is Origin.DERIVED
+    assert set(DesignSystem.model_fields) == {
+        "template_id",
+        "source_name",
+        "typography",
+        "grid",
+        "bullets",
+        "theme",
+        "palette_roles",
+        "combinations",
+        "contrast_pairs",
+        "fonts_in_use",
+        "number_sizes",
+        "components",
+        "synthesized",
+        "assembly_rules",
+    }
+    assert ds.typography.steps and ds.grid.spacing.steps_emu and ds.theme.slots, "таск 01"
+    assert ds.contrast_pairs, "измеренное таском 02 лежит в той же структуре"
+    assert ds.synthesized and ds.assembly_rules, "достроенное таском 03 — там же"
 
 
 def test_a_template_without_examples_does_not_break_derive(
@@ -195,7 +237,7 @@ def test_a_template_without_examples_does_not_break_derive(
 
     ds = derive(bare)
 
-    assert len(ds.typography.steps) == 4
+    assert len(ds.typography.steps) == len(EIGHT_LEVELS)
     assert ds.grid.spacing.steps_emu
     assert ds.theme.slots
     assert (ds.palette_roles, ds.combinations, ds.fonts_in_use) == ([], [], [])
@@ -236,9 +278,16 @@ def test_the_case_templates_give_a_design_system(name: str) -> None:
 
     ds = derive(parsed)
 
-    assert {step.role for step in ds.typography.steps} == {
-        step.role for step in parsed.typography_scale
+    assert [step.level for step in ds.typography.steps] == EIGHT_LEVELS
+    measured = {
+        step.role: step.size_pt
+        for step in ds.typography.steps
+        if step.origin is Origin.MEASURED
     }
+    assert measured == {step.role: step.size_pt for step in parsed.typography_scale}
+    assert all(step.size_pt in parsed.size_ladder_pt for step in ds.typography.steps), (
+        "кегль вне шкалы шаблона — правило 6"
+    )
     assert all(step.width_share > 0 for step in ds.typography.steps)
     assert len(ds.theme.slots) == len(list(ColorRef))
     assert ds.grid.spacing.base_emu > 0
@@ -258,3 +307,121 @@ def test_a_cold_template_gives_a_design_system_too() -> None:
 
         assert ds.theme.slots, f"{path.name}: палитра пуста"
         assert ds.grid.spacing.base_emu > 0, f"{path.name}: базовый шаг нулевой"
+
+
+def test_the_ladder_carries_all_eight_levels_of_the_brief(manifest: TemplateManifest) -> None:
+    """Заказчик назвала восемь уровней — лестница несёт все восемь, а не четыре роли домена.
+
+    Четыре уровня совпадают с ролями шкалы шаблона и помечены измеренными; остальные
+    четыре достроены и помечены достроенными.
+    """
+    ds = derive(manifest)
+
+    assert [step.level for step in ds.typography.steps] == EIGHT_LEVELS
+    measured = {
+        step.level: step.size_pt
+        for step in ds.typography.steps
+        if step.origin is Origin.MEASURED
+    }
+    assert measured == {
+        TypeLevel.SLIDE_TITLE: 40.0,
+        TypeLevel.SECTION_SUBTITLE: 24.0,
+        TypeLevel.BODY: 18.0,
+        TypeLevel.CAPTION: 12.0,
+    }, "кегли ролей шкалы шаблона остаются измеренными и не меняются"
+    derived = {step.level for step in ds.typography.steps if step.origin is Origin.DERIVED}
+    assert derived == {
+        TypeLevel.DISPLAY,
+        TypeLevel.CARD_TITLE,
+        TypeLevel.BODY_LARGE,
+        TypeLevel.LABEL,
+    }
+    assert len({step.purpose for step in ds.typography.steps}) == 8, (
+        "у каждого уровня своё назначение словами — иначе лестница немая"
+    )
+
+
+def test_a_scale_shorter_than_the_ladder_takes_only_steps_of_the_template(
+    manifest: TemplateManifest,
+) -> None:
+    """Ступеней в шаблоне меньше, чем уровней: лишние берут ступень шкалы, а не число из головы.
+
+    Шкала из двух кеглей — 40 и 12 pt. Восемь уровней всё равно собираются, и каждый
+    несёт один из этих двух кеглей (правило 6). Уровень повторяет кегль той ступени,
+    чей вид наследует: заголовочные держат 40, текстовые прижимаются к подписи — 12.
+    """
+    scale = [
+        step
+        for step in manifest.typography_scale
+        if step.role in (TextRole.TITLE, TextRole.CAPTION)
+    ]
+    short = manifest.model_copy(update={"typography_scale": scale})
+
+    ds = derive(short)
+    sizes = [step.size_pt for step in ds.typography.steps]
+
+    assert [step.level for step in ds.typography.steps] == EIGHT_LEVELS
+    assert set(sizes) <= set(short.size_ladder_pt), "кегль, которого нет в шкале шаблона"
+    assert sizes == sorted(sizes, reverse=True), "лестница обязана не возрастать"
+    assert sizes == [40.0, 40.0, 40.0, 40.0, 12.0, 12.0, 12.0, 12.0], (
+        "заголовочные уровни держат крупную ступень, текстовые — подпись"
+    )
+    origins = {step.level: step.origin for step in ds.typography.steps}
+    assert origins[TypeLevel.SLIDE_TITLE] is Origin.MEASURED
+    assert origins[TypeLevel.CAPTION] is Origin.MEASURED
+    assert origins[TypeLevel.SECTION_SUBTITLE] is Origin.DERIVED, (
+        "подзаголовка в шкале нет — уровень достроен и обязан это сказать"
+    )
+
+
+def test_the_grid_is_measured_even_when_the_guides_are_inferred(
+    manifest: TemplateManifest,
+) -> None:
+    """Направляющие выведены — но формат и пропорции из `slide_size` измерены всегда.
+
+    Метка блока говорит про то, что в блоке измерено. Одна метка на весь раздел
+    объявила бы достроенными и формат, и пропорции — а их никто не выводил.
+    Про выведенные направляющие говорит отдельная метка.
+    """
+    grid = manifest.grid.model_copy(update={"guides_source": "inferred"})
+    inferred = derive(manifest.model_copy(update={"grid": grid})).grid
+
+    assert inferred.origin is Origin.MEASURED, "формат и пропорции сняты со слайда"
+    assert inferred.guides_origin is Origin.DERIVED, "направляющие выведены кластеризацией"
+
+    from_xml = derive(manifest).grid
+    assert manifest.grid.guides_source == "xml"
+    assert from_xml.origin is Origin.MEASURED
+    assert from_xml.guides_origin is Origin.MEASURED
+
+
+def test_the_description_of_base_source_names_exactly_what_derive_can_give(
+    manifest: TemplateManifest,
+) -> None:
+    """Метку `base_source` читает таск 04 из другого контекста — по описанию поля.
+
+    Описание перечисляет значения «имя — пояснение» через точку с запятой. Набор имён
+    в описании обязан совпадать с набором, который отдаёт `derive`: иначе следующий
+    читатель будет ветвиться по значению, которого не бывает, и не обработает то,
+    которое бывает.
+    """
+    no_gutter = manifest.grid.model_copy(update={"gutter_emu": 0})
+    coprime = no_gutter.model_copy(
+        update={
+            "margins_emu": Margins(left=1_143_000, right=1_143_000, top=260_350, bottom=260_351)
+        }
+    )
+    no_margins = no_gutter.model_copy(
+        update={"margins_emu": Margins(left=0, right=0, top=0, bottom=0)}
+    )
+    given = {
+        derive(manifest.model_copy(update={"grid": grid})).grid.spacing.base_source
+        for grid in (manifest.grid, no_gutter, coprime, no_margins)
+    }
+    described = {
+        clause.split("—")[0].strip()
+        for clause in SpacingScale.model_fields["base_source"].description.split(";")  # type: ignore[union-attr]
+    }
+
+    assert given == {"gutter", "margins_gcd", "margin", "columns"}, "набор значений изменился"
+    assert described == given, "описание поля разошлось с тем, что отдаёт derive"

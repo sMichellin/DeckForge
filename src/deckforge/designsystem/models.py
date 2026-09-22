@@ -31,6 +31,27 @@ class Origin(StrEnum):
     DERIVED = "derived"
 
 
+class TypeLevel(StrEnum):
+    """Ступень типографической лестницы страницы — восемь уровней из образца заказчика.
+
+    Не то же самое, что `TextRole`: ролей в домене четыре, и они описывают контракт
+    композиции (что писать в заголовок, что в подпись). Уровень описывает лестницу,
+    которую человек видит на странице: между заголовком слайда и основным текстом
+    живут заголовок карточки и крупный абзац, а под подписью — метка.
+
+    Порядок объявления — порядок лестницы, сверху вниз.
+    """
+
+    DISPLAY = "display"
+    SLIDE_TITLE = "slide_title"
+    SECTION_SUBTITLE = "section_subtitle"
+    CARD_TITLE = "card_title"
+    BODY_LARGE = "body_large"
+    BODY = "body"
+    CAPTION = "caption"
+    LABEL = "label"
+
+
 class TypeStep(DomainModel):
     """Ступень лестницы типографики: роль шаблона, названная словами и в долях слайда."""
 
@@ -51,6 +72,14 @@ class TypeStep(DomainModel):
         ),
     )
     origin: Origin = Origin.MEASURED
+    #: Новое поле идёт последним: форму `TypeStep` читают параллельные таски, и порядок
+    #: объявленных до него полей менять нельзя.
+    level: TypeLevel = Field(
+        description=(
+            "Ступень лестницы страницы. Уровень, которого в шкале шаблона нет, "
+            "достроен из её же ступеней и несёт origin=derived"
+        )
+    )
 
 
 class Typography(DomainModel):
@@ -67,8 +96,14 @@ class SpacingScale(DomainModel):
     """
 
     base_emu: int = Field(gt=0)
+    #: Значения перечислены как «имя — пояснение» через точку с запятой: по этому
+    #: описанию таск 04 узнаёт набор, не читая `derive`. Набор обязан совпадать с тем,
+    #: что отдаёт `_base_step`, — расхождение проверяется тестом.
     base_source: str = Field(
-        description="gutter — шаг объявлен в сетке; margins — НОД полей; columns — ширина колонки"
+        description=(
+            "gutter — шаг объявлен в сетке; margins_gcd — НОД полей; "
+            "margin — наименьшее поле; columns — ширина колонки"
+        )
     )
     steps_emu: list[int] = Field(default_factory=list, description="Кратности базового шага")
     steps_in_margin: int = Field(
@@ -90,7 +125,18 @@ class GridSpec(DomainModel):
     content_width_emu: int = Field(gt=0)
     content_height_emu: int = Field(gt=0)
     spacing: SpacingScale
+    #: Метка всего блока: формат, пропорции и размеры слайда сняты из `slide_size`
+    #: и измерены на любом шаблоне. Одна метка `derived` на весь раздел объявила бы
+    #: достроенным и формат — а его никто не выводил.
     origin: Origin = Origin.MEASURED
+    #: Новое поле идёт последним: форму `GridSpec` читают параллельные таски.
+    guides_origin: Origin = Field(
+        default=Origin.MEASURED,
+        description=(
+            "Поля, колонки и шаг: measured — направляющие объявлены в мастере, "
+            "derived — выведены кластеризацией"
+        ),
+    )
 
 
 class BulletSpec(DomainModel):
