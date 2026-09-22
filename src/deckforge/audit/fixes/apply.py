@@ -26,8 +26,9 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from deckforge.audit.geometry import FULL_BLEED_SHARE, covers, positioned_blocks
 from deckforge.domain.audit import AuditReport, AuditSummary, Finding
-from deckforge.domain.base import DomainModel
+from deckforge.domain.base import BBox, DomainModel
 from deckforge.domain.enums import AutoFix, ColorRef, Severity, TextRole
 from deckforge.domain.rules import delta_e_rgb, next_size_down, snap_to_nearest
 from deckforge.domain.slide import (
@@ -212,6 +213,18 @@ class FixApplier:
             return slide, Outcome(
                 False,
                 f"направляющая вывела бы блок за поля шаблона "
+                f"({emu_to_cm(value):.2f} → {emu_to_cm(snapped):.2f} см)",
+            )
+
+        # Рамка соседа — такая же граница, как поле шаблона. Направляющие шаблона
+        # проходят и там, где стоит заголовок: у VK Tech направляющая на 1,98 см
+        # против рамок заголовков до 2,08 см, и подтяжка затаскивала свободный блок
+        # под заголовок (прогон 5507bff9e589, слайды 4 и 9). Выравнивание —
+        # предупреждение, наложение — ошибка: менять первое на второе починка не вправе.
+        if box is not None and (neighbour := _climbed_onto(slide, block, box, manifest)):
+            return slide, Outcome(
+                False,
+                f"направляющая положила бы блок на {neighbour} "
                 f"({emu_to_cm(value):.2f} → {emu_to_cm(snapped):.2f} см)",
             )
 
@@ -429,6 +442,31 @@ def _record(finding: Finding, outcome: Outcome) -> Finding:
         auto_fix_applied=outcome.applied,
         evidence={**finding.evidence, key: outcome.note},
     )
+
+
+def _climbed_onto(
+    slide: SlideIR, block: Block, moved: BBox, manifest: TemplateManifest
+) -> str | None:
+    """Сосед, на которого блок наехал бы после подтяжки, — или `None`, если таких нет.
+
+    Мерило — не «пересекается ли», а «стало ли хуже»: блок, уже лежащий на соседе,
+    сдвинуть к направляющей можно, лишь бы не глубже. Иначе починка отказывалась бы
+    там, где сама же и исправляет положение.
+
+    Подложка во весь слайд соседом не считается: она лежит под контентом по замыслу —
+    то же правило `FULL_BLEED_SHARE`, по которому её пропускает `layout.overlap`.
+    """
+    before = block.bbox
+    slide_box = manifest.slide_size.bbox
+    if covers(moved, slide_box, FULL_BLEED_SHARE):
+        return None
+    for other, other_box in positioned_blocks(slide, manifest):
+        if other.block_id == block.block_id or covers(other_box, slide_box, FULL_BLEED_SHARE):
+            continue
+        was = before.intersection_area(other_box) if before is not None else 0
+        if moved.intersection_area(other_box) > was:
+            return other.block_id
+    return None
 
 
 def _with_block(slide: SlideIR, block: Block) -> list[Block]:

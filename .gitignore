@@ -23,4 +23,5 @@ tests/fixtures/templates/**/*.potx
 
 .autopilot/serve.*
 
+# Логи и скриншоты браузерных прогонов Playwright MCP — локальный мусор.
 .playwright-mcp/

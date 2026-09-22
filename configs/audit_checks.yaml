@@ -60,7 +60,9 @@ checks:
     deterministic: true
     severity: warning
     title: "Логотип или колонтитул сдвинуты с положенного места"
-    params: { tolerance_emu: 45720 }
+    # Доля площади знака, которую блок должен закрыть, чтобы считаться накрывшим его.
+    # Прежний tolerance_emu был длиной и сравнивался с площадью в EMU² — то есть с нулём.
+    params: { min_cover_ratio: 0.5 }
   template.contrast_below_wcag:
     deterministic: true
     severity: error

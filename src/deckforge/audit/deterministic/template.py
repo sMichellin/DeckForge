@@ -34,11 +34,17 @@ from deckforge.audit.geometry import (
 )
 from deckforge.audit.registry import CheckContext, check
 from deckforge.domain.audit import Finding
+from deckforge.domain.base import BBox
 from deckforge.domain.enums import AutoFix, ColorRef, Severity, TextRole
 from deckforge.domain.rules import contrast_ratio
 from deckforge.domain.slide import ChartBlock, KpiBlock
 from deckforge.domain.template import LayoutSpec, TemplateManifest
 from deckforge.rendering.theme_binding import font_family_for_token
+
+#: Доля своей площади, начиная с которой фигура макета считается лежащей в области
+#: контента, — то есть подложкой под содержание, а не знаком в полях. Величина
+#: безразмерная и от шаблона не зависит: это про приём, а не про бренд.
+IN_CONTENT_SHARE = 0.5
 
 
 def template_fonts(manifest: TemplateManifest) -> set[str]:
@@ -332,17 +338,32 @@ def layout_not_from_template(ctx: CheckContext) -> Iterable[Finding]:
 @check(id="template.decor_moved", deterministic=True, severity=Severity.WARNING,
        title="Логотип или колонтитул сдвинуты с положенного места")
 def decor_moved(ctx: CheckContext) -> Iterable[Finding]:
-    """Логотип или колонтитул сдвинуты с положенного места."""
-    tolerance = int(ctx.param("tolerance_emu", 0))
+    """Логотип или колонтитул сдвинуты с положенного места.
+
+    Проверка отвечает на два вопроса по отдельности, и прежде путала их (C12:
+    19 предупреждений из 35 на каждом прогоне VK WorkSpace, ни одного про логотип).
+
+    **Что защищаем — знак, а не подложку.** `LayoutSpec.shapes` по своему описанию
+    «фон, фотографии, декор»: на трёх шаблонах кейса 13 из 34, 36 из 76 и 28 из 28
+    таких фигур лежат внутри области контента и занимают до 76 % слайда. Это подложка
+    под содержание — решатель ставит текст ровно туда, и иначе на VK WorkSpace ставить
+    его будет некуда. Знак шаблон держит **в полях**, поэтому защищается фигура,
+    которая в область контента заходит меньше чем наполовину. Логотип защищён всегда:
+    парсер отличает его от прочих картинок мастера по построению (мелкий, у края).
+
+    **Что значит «накрыл» — скрыл, а не задел краем.** Порог — доля площади знака,
+    как `min_overlap_ratio` у `layout.overlap`. Прежний `tolerance_emu` был длиной
+    и сравнивался с площадью в EMU², то есть с нулём.
+    """
+    min_ratio = ctx.param("min_cover_ratio", 0.5)
     slide_box = ctx.manifest.slide_size.bbox
+    content = ctx.manifest.content_bbox
     logo = ctx.manifest.decor.logo
 
     for slide in ctx.deck.slides:
         layout = layout_of(slide, ctx.manifest)
 
-        # Декор макета — фигуры вне плейсхолдеров: знак, плашка, подпись. Без них
-        # декор для аудита невидим, и «накрыли логотип» не поймать (kickoff C-15).
-        decor_boxes: list[tuple[str, object]] = []
+        decor_boxes: list[tuple[str, BBox]] = []
         if logo is not None:
             decor_boxes.append(("логотип шаблона", logo.bbox))
         if layout is not None:
@@ -351,6 +372,7 @@ def decor_moved(ctx: CheckContext) -> Iterable[Finding]:
                 for shape in layout.shapes
                 # Фон во весь слайд лежит под контентом по замыслу, а не по ошибке.
                 if not covers(shape.bbox, slide_box, FULL_BLEED_SHARE)
+                and content.intersection_area(shape.bbox) < IN_CONTENT_SHARE * shape.bbox.area
             ]
         if not decor_boxes:
             continue
@@ -361,8 +383,10 @@ def decor_moved(ctx: CheckContext) -> Iterable[Finding]:
             # Сдвинуть декор из IR нельзя — он приезжает с мастера (ADR-002).
             # Испортить его можно единственным способом: накрыть своим блоком.
             for label, decor_box in decor_boxes:
-                overlap = bbox.intersection_area(decor_box)  # type: ignore[arg-type]
-                if overlap <= tolerance:
+                if decor_box.area <= 0:
+                    continue
+                ratio = bbox.intersection_area(decor_box) / decor_box.area
+                if ratio < min_ratio:
                     continue
                 yield make_finding(
                     check_id="template.decor_moved",
@@ -370,8 +394,8 @@ def decor_moved(ctx: CheckContext) -> Iterable[Finding]:
                     block_id=block.block_id,
                     bbox=bbox,
                     reason=f"covered:{label}",
-                    message=f"Блок {block.block_id} накрывает {label}",
-                    evidence={"overlap_emu2": str(overlap), "decor": label},
+                    message=f"Блок {block.block_id} накрывает {label} на {ratio:.0%} площади",
+                    evidence={"ratio": f"{ratio:.3f}", "decor": label},
                 )
 
 

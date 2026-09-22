@@ -34,7 +34,7 @@ from deckforge.domain.template import LayoutBackground, PlaceholderSpec, Templat
 from deckforge.domain.units import EMU_PER_CM
 from deckforge.domain.variants import VariantProfile
 from deckforge.inference.client import Completion
-from deckforge.registry import load_variant_profiles
+from deckforge.registry import get_prompt_registry, load_variant_profiles
 
 
 class FakeLlm:
@@ -166,7 +166,10 @@ async def test_layout_and_variant_are_forced_by_the_pipeline(
     assert ir.slide_id == "s02"
     assert ir.variant == "A"
     assert ir.provenance.seed == 7
-    assert ir.provenance.prompt_version == "slide_composer@1.1.0"
+    # Версия читается из реестра, а не вписана числом: иначе каждая правка промпта
+    # роняет тест, который проверяет не версию, а то, что провенанс её вообще несёт.
+    active = get_prompt_registry().load("slide_composer").ref
+    assert ir.provenance.prompt_version == active
 
 
 async def test_text_with_a_foreign_placeholder_is_kept_not_dropped(

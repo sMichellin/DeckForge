@@ -12,7 +12,13 @@ from __future__ import annotations
 import zlib
 from typing import Final
 
-from deckforge.composition.content_fit import best_by_content, dead_bucket, fillable_chars
+from deckforge.composition.content_fit import (
+    best_by_content,
+    covered_share,
+    dead_bucket,
+    fillable_chars,
+)
+from deckforge.composition.example_fit import ranked_by_example
 from deckforge.composition.free_space import free_capacity
 from deckforge.domain.enums import LayoutKind, SlideIntent
 from deckforge.domain.plan import SlidePlan
@@ -296,6 +302,15 @@ def pick_layout(
     # Титул, перебивка и финал идут прежним путём: вид макета им задаёт роль,
     # а схема содержания у них пустая по определению.
     schema = None if slide.intent in _STRUCTURAL else slide
+
+    # DS5. Где у макетов есть слайды-примеры, слово автора шаблона перевешивает нашу
+    # догадку о виде: вид выводит классификатор из геометрии плейсхолдеров, а пример —
+    # это то, что автор на этот макет положил сам. На VK Tech цепочка видов приводит
+    # содержательный слайд к четырём макетам «Содержание» с пустой левой половиной,
+    # а макеты, где автор разложил четыре текстовых блока, классифицированы `custom`
+    # и в цепочку не входят вовсе.
+    if schema is not None and (palette := _example_palette(slide, manifest)):
+        return palette[_rotation(slide.slide_id, len(palette))]
     for kind in kind_chain(slide, variant):
         if not _slide_can_carry(slide, kind):
             continue
@@ -303,6 +318,39 @@ def pick_layout(
             return _choose(tied, slide, manifest)
 
     return _choose(_last_resort(slide, manifest), slide, manifest)
+
+
+def _example_palette(slide: SlidePlan, manifest: TemplateManifest) -> list[LayoutSpec]:
+    """Палитра макетов по примерам шаблона. Пусто — примеров нет, решает цепочка видов.
+
+    Отбор тот же, что у палитры по видам, и по тем же причинам:
+
+    * обложки содержанию не отдаются. Пример на обложке — это «заголовок и подпись»,
+      и слайд с четырьмя тезисами подходит к нему по схеме лучше всех прочих. На
+      VK Education так выбирался титульный макет **на все восемь** содержательных
+      слайдов, на VK WorkSpace — макет перебивки;
+    * макеты, занятые титулом, перебивкой и финалом, тоже не отдаются: титул, встреченный
+      в середине колоды, читается как начало второй презентации;
+    * в чередование идут `MAX_CONTENT_LAYOUTS` штук с разным фоном — иначе вся колода
+      ложится на один макет, каким бы близким он ни был.
+    """
+    reserved = _reserved(manifest)
+    scored = [
+        (round(covered_share(layout, manifest, slide), 2), distance, layout.layout_id, layout)
+        for distance, layout in ranked_by_example(slide, manifest)
+        if layout.kind not in _COVERISH and layout.layout_id not in reserved
+    ]
+    if not scored:
+        return []
+    # Покрытие первым, близость примера — вторым. Замер по трём шаблонам: у примеров
+    # 94 % содержательных фигур лежат **вне** плейсхолдеров (VK Tech — 6 % внутри),
+    # то есть автор шаблона наполняет слайд рисованными фигурами, а не местами макета.
+    # Поэтому «макет, который автор взял под такое содержание» сам по себе не делает
+    # слайд полным: у VK Tech покрытие остаётся 31 % против 30 % до правки, а у VK
+    # Education падает с 83 % до 72 %. Примеры отвечают на вопрос «какие макеты вообще
+    # годятся под это содержание», покрытие — на вопрос «где содержанию есть место».
+    scored.sort(key=lambda row: (-row[0], row[1], row[2]))
+    return _distinct([layout for *_rest, layout in scored], MAX_CONTENT_LAYOUTS)
 
 
 def _last_resort(slide: SlidePlan, manifest: TemplateManifest) -> list[LayoutSpec]:

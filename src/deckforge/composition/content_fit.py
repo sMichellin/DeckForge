@@ -22,9 +22,11 @@ SlideTailor ([arXiv:2512.20292](https://arxiv.org/html/2512.20292v1)) назыв
 
 from __future__ import annotations
 
+from itertools import pairwise
 from typing import Final
 
 from deckforge.composition.free_space import clip
+from deckforge.domain.base import BBox
 from deckforge.domain.enums import TextRole
 from deckforge.domain.plan import SlidePlan
 from deckforge.domain.template import LayoutSpec, PlaceholderSpec, TemplateManifest
@@ -93,6 +95,48 @@ def fillable_chars(layout: LayoutSpec, manifest: TemplateManifest, slide: SlideP
         for placeholder in layout.placeholders
         if placeholder.ph_type in CONTENT_PH_TYPES and can_fill(placeholder, slide)
     )
+
+
+def _union_area(boxes: list[BBox]) -> int:
+    """Площадь объединения прямоугольников — точная, без двойного счёта пересечений.
+
+    Сжатие координат: стороны любого куска объединения лежат на краях прямоугольников,
+    поэтому достаточно перебрать полосы между краями. Мест на макете единицы — перебор
+    дешевле любой хитрости.
+    """
+    if not boxes:
+        return 0
+    xs = sorted({value for box in boxes for value in (box.x, box.right)})
+    ys = sorted({value for box in boxes for value in (box.y, box.bottom)})
+    return sum(
+        (x1 - x0) * (y1 - y0)
+        for x0, x1 in pairwise(xs)
+        for y0, y1 in pairwise(ys)
+        if any(
+            box.x <= x0 and box.right >= x1 and box.y <= y0 and box.bottom >= y1
+            for box in boxes
+        )
+    )
+
+
+def covered_share(layout: LayoutSpec, manifest: TemplateManifest, slide: SlidePlan) -> float:
+    """Какую долю области контента покрывают места, которые слайд может занять.
+
+    Не то же, что вместимость в знаках: `max_chars_body` растёт и от узкой высокой полосы,
+    а пустая половина слайда — это про **площадь**. Замер по шаблонам кейса: у VK Tech
+    содержательные макеты покрывают 13–49 % области контента, медиана 26 %, и именно этот
+    разброс отличает макет, на котором слайд выглядит полным, от макета с пустой половиной.
+    """
+    content = manifest.content_bbox
+    area = content.cx * content.cy
+    if area <= 0:
+        return 0.0
+    boxes = [
+        box
+        for placeholder in layout.placeholders
+        if can_fill(placeholder, slide) and (box := clip(placeholder.bbox, content)) is not None
+    ]
+    return min(1.0, _union_area(boxes) / area)
 
 
 def best_by_content(
