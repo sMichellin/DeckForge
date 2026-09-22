@@ -65,6 +65,18 @@ class BlockType(StrEnum):
     ICON = "icon"
     IMAGE = "image"
     KPI = "kpi"
+    QUOTE = "quote"
+    CALLOUT = "callout"
+
+
+class CalloutTone(StrEnum):
+    """Вид callout. Набор закрыт: это часть контракта, а не вкус композитора (DG4).
+
+    Цвет и подпись вида решает вёрстка по дизайн-системе, а не модель.
+    """
+
+    INSIGHT = "insight"
+    RISK = "risk"
 
 
 class ChartType(StrEnum):

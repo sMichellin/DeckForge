@@ -16,6 +16,12 @@
 заполнять **не должна**. Без него поле остаётся в схеме, а строгий режим делает его
 обязательным: промпт композитора запрещал координаты, схема требовала `x, y, cx, cy`,
 и модель клала минимум, который пускала схема, — точку 0, 0, 1, 1 (прогон f4cf4257e07f).
+
+Третье сужение — виды блоков, которые контракт уже знает, а рендер ещё не рисует
+(`WITHHELD_BLOCK_TYPES`). Контракт заводится раньше рендера, чтобы потоки не ждали друг
+друга; но пока рисовать нечем, модель не должна мочь такой блок заказать — иначе слайд
+теряет содержимое. Вид убирается из объединения блоков схемы ответа целиком: ветка
+`oneOf`, запись `discriminator.mapping` и определения, на которые больше никто не ссылается.
 """
 
 from __future__ import annotations
@@ -39,6 +45,15 @@ EXPORTED: dict[str, str] = {
     "deck_ir": "deckforge.domain.slide.DeckIR",
     "audit_report": "deckforge.domain.audit.AuditReport",
     "variant_profile": "deckforge.domain.variants.VariantProfile",
+}
+
+
+# Виды блоков, которые есть в контракте (`schemas/`), но которых нет в схемах ответа
+# моделей (`prompts/*/schema.json`), — с причиной. Вид отсюда убирает тот change, который
+# учит рендер его рисовать, вместе с новой версией промпта, где этот вид описан.
+WITHHELD_BLOCK_TYPES: dict[str, str] = {
+    "quote": "рендера цитаты ещё нет — compose-by-the-design-system (DG3)",
+    "callout": "рендера callout ещё нет — compose-by-the-design-system (DG3)",
 }
 
 
@@ -96,10 +111,89 @@ def narrow(node: Any, dropped: set[str], omit: frozenset[str] = frozenset()) -> 
     return out
 
 
-def response_schema(model: type, omit: frozenset[str] = frozenset()) -> tuple[str, set[str]]:
-    """Схема ответа модели: доменная минус невыразимое в строгом режиме и минус `omit`."""
-    dropped: set[str] = set()
-    schema = narrow(model.model_json_schema(), dropped, omit)
+def _refs(node: Any) -> set[str]:
+    """Имена `$defs`, на которые ссылается узел, на любой глубине."""
+    if isinstance(node, list):
+        return set().union(*(_refs(item) for item in node))
+    if not isinstance(node, dict):
+        return set()
+    out = set().union(*(_refs(value) for value in node.values()))
+    ref = node.get("$ref")
+    if isinstance(ref, str) and ref.startswith("#/$defs/"):
+        out.add(ref.removeprefix("#/$defs/"))
+    return out
+
+
+def _reachable(schema: dict[str, Any]) -> set[str]:
+    """Определения, достижимые от корня схемы по ссылкам."""
+    defs = schema.get("$defs") or {}
+    seen: set[str] = set()
+    todo = _refs({key: value for key, value in schema.items() if key != "$defs"})
+    while todo:
+        name = todo.pop()
+        if name in seen or name not in defs:
+            continue
+        seen.add(name)
+        todo |= _refs(defs[name])
+    return seen
+
+
+def _without_variants(node: Any, withheld: frozenset[str], cut: set[str]) -> Any:
+    """Убирает из дискриминированных объединений ветки с `type` из `withheld`."""
+    if isinstance(node, list):
+        return [_without_variants(item, withheld, cut) for item in node]
+    if not isinstance(node, dict):
+        return node
+
+    out = {key: _without_variants(value, withheld, cut) for key, value in node.items()}
+    discriminator = out.get("discriminator")
+    if isinstance(discriminator, dict) and isinstance(discriminator.get("mapping"), dict):
+        mapping = discriminator["mapping"]
+        kinds = {kind for kind in withheld if kind in mapping}
+        refs = {mapping[kind] for kind in kinds}
+        if refs:
+            cut.update(kinds)
+            out["discriminator"] = {
+                **discriminator,
+                "mapping": {k: v for k, v in mapping.items() if v not in refs},
+            }
+            for key in ("oneOf", "anyOf"):
+                if isinstance(out.get(key), list):
+                    out[key] = [b for b in out[key] if not (
+                        isinstance(b, dict) and b.get("$ref") in refs
+                    )]
+    return out
+
+
+def withhold(schema: dict[str, Any], withheld: frozenset[str]) -> tuple[dict[str, Any], set[str]]:
+    """Схема без видов блоков из `withheld` и без определений, осиротевших из-за этого.
+
+    Второе значение — виды, которые действительно нашлись в схеме и убраны.
+
+    Удаляются только те определения, которые были достижимы до сужения и перестали
+    быть достижимы после: чужие сироты (например, `FitResult` после выброса карты
+    `fit_report`) остаются как были, и схема ответа без таких видов не меняется ни на байт.
+    """
+    cut: set[str] = set()
+    before = _reachable(schema)
+    out = _without_variants(schema, withheld, cut)
+    if not cut:
+        return schema, cut
+    orphaned = before - _reachable(out)
+    out["$defs"] = {k: v for k, v in out["$defs"].items() if k not in orphaned}
+    return out, cut
+
+
+def response_schema(
+    model: type,
+    omit: frozenset[str] = frozenset(),
+    withheld: frozenset[str] = frozenset(WITHHELD_BLOCK_TYPES),
+) -> tuple[str, set[str]]:
+    """Схема ответа модели: доменная минус невыразимое в строгом режиме, минус `omit`
+    и минус виды блоков, которые рендер ещё не рисует (`withheld`)."""
+    schema, cut = withhold(model.model_json_schema(), withheld)
+    dropped = {f"блок {kind}" for kind in cut}
+    schema = narrow(schema, dropped, omit)
     return json.dumps(schema, ensure_ascii=False, indent=2) + "\n", dropped
 
 

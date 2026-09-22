@@ -11,6 +11,7 @@ from pydantic import Field, model_validator
 
 from deckforge.domain.base import BBox, DomainModel
 from deckforge.domain.enums import (
+    CalloutTone,
     ChartType,
     ColorRef,
     ImageFit,
@@ -133,6 +134,40 @@ class KpiBlock(_Positioned):
     items: list[KpiItem] = Field(min_length=1, max_length=6)
 
 
+class QuoteBlock(_Positioned):
+    """Цитата с акцентной полосой (DG4, страница дизайн-системы #142).
+
+    Модель задаёт только содержание и слот цвета. Ширину полосы, отбивку и кегль
+    решает вёрстка по дизайн-системе шаблона: кегля здесь нет (правило 6).
+    """
+
+    block_id: str
+    type: Literal["quote"] = "quote"
+    text: str = Field(min_length=1)
+    author: str | None = None
+    accent_ref: ColorRef | None = Field(
+        default=None,
+        description="Слот темы для полосы; не задан — акцент берёт вёрстка по дизайн-системе",
+    )
+
+
+class CalloutBlock(_Positioned):
+    """Callout «инсайт» или «риск» (DG4, страница дизайн-системы #142).
+
+    `tone` — закрытое перечисление: вид callout входит в контракт. Плашку, подпись вида
+    и отступы рисует вёрстка; кегля здесь нет (правило 6).
+    """
+
+    block_id: str
+    type: Literal["callout"] = "callout"
+    text: str = Field(min_length=1)
+    tone: CalloutTone
+    accent_ref: ColorRef | None = Field(
+        default=None,
+        description="Слот темы для акцента; не задан — акцент берёт вёрстка по дизайн-системе",
+    )
+
+
 Block = Annotated[
     TextBlock
     | BulletsBlock
@@ -141,7 +176,9 @@ Block = Annotated[
     | SmartArtBlock
     | IconBlock
     | ImageBlock
-    | KpiBlock,
+    | KpiBlock
+    | QuoteBlock
+    | CalloutBlock,
     Field(discriminator="type"),
 ]
 
