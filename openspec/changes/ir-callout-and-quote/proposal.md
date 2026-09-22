@@ -4,7 +4,7 @@ Capability: `domain-models`. Основание:
 [docs/agents/tasks-design-system-in-generation.md](../../../docs/agents/tasks-design-system-in-generation.md),
 задача DG4.
 
-Статус: proposed. Исполнитель — **тимлид**: change правит `domain/**` и `schemas/**`
+Статус: accepted (тимлид, 22.09). Исполнитель — **тимлид**: change правит `domain/**` и `schemas/**`
 (правило 11). Идёт отдельным маленьким PR **до** `compose-by-the-design-system`, чтобы
 потоки A и B не ждали контракта.
 

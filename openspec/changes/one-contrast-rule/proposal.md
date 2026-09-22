@@ -3,7 +3,7 @@
 Capability: `audit-deterministic`. Основание:
 [docs/agents/tasks-design-system-in-generation.md](../../../docs/agents/tasks-design-system-in-generation.md), задача DG1.
 
-Статус: proposed. Исполнитель — поток C (`audit/**`, `configs/audit_checks.yaml`);
+Статус: accepted (тимлид, 22.09). Исполнитель — поток C (`audit/**`, `configs/audit_checks.yaml`);
 правка `rendering/writer.py` согласуется с потоком B в том же PR.
 
 ## Explore

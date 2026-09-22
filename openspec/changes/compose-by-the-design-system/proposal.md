@@ -5,7 +5,7 @@ Capability: `slide-composition`. Основание:
 задача DG3; требование R23 брифа прогона `design-system-page` — «агент просто кладёт
 текст на слайд».
 
-Статус: proposed. Исполнители — поток A (`composition/**`, `prompts/**`) и поток B
+Статус: accepted (тимлид, 22.09). Исполнители — поток A (`composition/**`, `prompts/**`) и поток B
 (`layout/**`, `rendering/**`), по файлам не пересекаются. Зависит от
 `design-system-in-the-pipeline` (DG2) и `ir-callout-and-quote` (DG4).
 

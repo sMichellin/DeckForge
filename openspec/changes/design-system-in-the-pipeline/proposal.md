@@ -4,7 +4,7 @@ Capability: `pipeline-orchestration`. Основание:
 [docs/agents/tasks-design-system-in-generation.md](../../../docs/agents/tasks-design-system-in-generation.md),
 задача DG2; требование R24 брифа прогона `design-system-page`.
 
-Статус: proposed. Исполнитель — тимлид (`pipeline/**`).
+Статус: accepted (тимлид, 22.09). Исполнитель — тимлид (`pipeline/**`).
 
 ## Explore
 
