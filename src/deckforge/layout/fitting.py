@@ -238,34 +238,77 @@ def fit_kpi(
     *,
     fonts: FontLibrary | None = None,
 ) -> FitResult:
-    """Показатели колонками: значение — одной строкой от кегля `subtitle` вниз по шкале,
-    подпись — кеглем `caption`. `final_size_pt` — кегль значения."""
+    """Показатели колонками: значение от кегля `subtitle` вниз по шкале, подпись —
+    кеглем `caption`. `final_size_pt` — кегль значения.
+
+    Значение верстается как текст: перенос между словами допустим, разрыв слова
+    и разрыв числа — нет (см. `_value_holds_together`)."""
     value_step = manifest.typography(TextRole.SUBTITLE) or _step_for(TextRole.BODY, manifest)
     label_step = manifest.typography(TextRole.CAPTION) or _step_for(TextRole.BODY, manifest)
     column = BBox(x=box.x, y=box.y, cx=max(1, box.cx // len(block.items)), cy=box.cy)
     available = usable_height_emu(box)
+    value_font = _font_of(value_step, manifest)
 
     def measured(size_pt: float) -> tuple[bool, int, int]:
-        """(значение в одну строку, строк всего, нужная высота) при этом кегле."""
-        one_line, lines, required = True, 0, 0
+        """(значение верстается без разрывов, строк всего, нужная высота) при этом кегле."""
+        whole, lines, required = True, 0, 0
         for item in block.items:
-            value = measure_text(item.value, font_family=_font_of(value_step, manifest),
-                                 size_pt=size_pt, box=column, bold=value_step.bold, fonts=fonts)
+            value = measure_text(item.value, font_family=value_font, size_pt=size_pt,
+                                 box=column, bold=value_step.bold, fonts=fonts)
             label = measure_text(item.label, font_family=_font_of(label_step, manifest),
                                  size_pt=label_step.size_pt, box=column, fonts=fonts)
-            one_line = one_line and value.lines <= 1
+            whole = whole and _value_holds_together(
+                item.value, value.lines, font=value_font, size_pt=size_pt,
+                column=column, bold=value_step.bold, fonts=fonts
+            )
             lines = max(lines, value.lines + label.lines)
             required = max(required, value.height_emu + label.height_emu)
-        return one_line, lines, required
+        return whole, lines, required
 
     size, lines, required = value_step.size_pt, 0, 0
     for size in _sizes(manifest, value_step.size_pt, allow_shrink=True):
-        one_line, lines, required = measured(size)
-        if one_line and required <= available:
+        whole, lines, required = measured(size)
+        if whole and required <= available:
             return _grown_kpi(
                 _fits(size, value_step.size_pt, lines, required), measured, manifest, available
             )
     return _overflow(size, lines, required, available, splittable=False)
+
+
+def _value_holds_together(
+    text: str,
+    lines: int,
+    *,
+    font: str,
+    size_pt: float,
+    column: BBox,
+    bold: bool,
+    fonts: FontLibrary | None,
+) -> bool:
+    """Значение перенеслось без порчи.
+
+    Одна строка — вопроса нет. Дальше два разных случая, которые прежде считались одним:
+
+    * **Число** рвать нельзя: «1 200 ₽» в две строки читается как два числа — та же беда,
+      что change `thousands-group-is-three-digits` лечил в парсере. Точку переноса
+      измеритель не отдаёт, поэтому значение с цифрой требует одной строки целиком.
+    * **Фраза** — обычный текст: «часы → минуты» переносится между словами, как подписи
+      схемы в `fit_smartart`. Запрещён только разрыв по знакам внутри слова, поэтому
+      каждое слово обязано встать в колонку целиком.
+
+    Без этого разделения один фразовый показатель сажал весь блок на кегль, при котором
+    фраза влезает в строку: VK WorkSpace s04 прогона 6c4277d898c3 — 14 pt при списке
+    рядом в 23,4 pt.
+    """
+    if lines <= 1:
+        return True
+    if any(char.isdigit() for char in text):
+        return False
+    return all(
+        measure_text(word, font_family=font, size_pt=size_pt, box=column,
+                     bold=bold, fonts=fonts).lines <= 1
+        for word in text.split()
+    )
 
 
 def _grown_kpi(
@@ -288,8 +331,8 @@ def _grown_kpi(
     best = result
     size = next_size_up(manifest, result.final_size_pt)
     while size is not None and size <= cap:
-        one_line, lines, required = measured(size)
-        if not one_line or required > available:
+        whole, lines, required = measured(size)
+        if not whole or required > available:
             break
         best = FitResult(
             final_size_pt=size, overflow=False, lines=lines,
