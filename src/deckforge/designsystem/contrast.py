@@ -73,22 +73,44 @@ class Readability(DomainModel):
         return self.passes and self.ratio < self.comfort
 
 
+def is_large(size_pt: float | None, *, bold: bool = False) -> bool:
+    """Крупный ли кегль по WCAG — единственное место, где решается, с какого кегля."""
+    if size_pt is None:
+        return False
+    return size_pt >= LARGE_PT or (bold and size_pt >= LARGE_BOLD_PT)
+
+
 def text_class(
     size_pt: float | None, *, bold: bool = False, role: TextRole | None = None
 ) -> TextClass:
     """Класс текста по кеглю и начертанию шаблона, а не по нашему представлению о крупном."""
     if role is TextRole.CAPTION:
         return TextClass.CAPTION
-    if size_pt is None:
-        return TextClass.BODY
-    if size_pt >= LARGE_PT or (bold and size_pt >= LARGE_BOLD_PT):
-        return TextClass.LARGE
-    return TextClass.BODY
+    return TextClass.LARGE if is_large(size_pt, bold=bold) else TextClass.BODY
 
 
-def required_ratio(kind: TextClass) -> float:
-    if kind in (TextClass.LARGE, TextClass.GRAPHICS):
-        return MIN_LARGE if kind is TextClass.LARGE else MIN_GRAPHICS
+def text_classes(
+    size_pt: float | None, *, bold: bool = False, role: TextRole | None = None
+) -> tuple[TextClass, TextClass]:
+    """Два ответа о тексте: чей минимум он обязан взять и чей запас ему нужен.
+
+    Минимум решают кегль и начертание: текст от 18 pt или от 14 pt полужирным читается
+    при 3,0, какой бы ролью его ни назвали. Запас решает роль: подпись просит
+    комфортный порог сверх минимума. Разнесено не случайно — у VK Education подпись
+    набрана 18 pt, и роль вперёд кегля дала бы ей минимум 4,5 (change `one-contrast-rule`).
+    Этим правилом пользуются и страница дизайн-системы, и аудит колоды: иначе на один
+    вопрос опять было бы два ответа.
+    """
+    return text_class(size_pt, bold=bold), text_class(size_pt, bold=bold, role=role)
+
+
+def required_ratio(kind: TextClass, *, size_pt: float | None = None, bold: bool = False) -> float:
+    """Минимум класса. Подпись крупным кеглем берёт минимум крупного текста, а не свой:
+    её отличие от прочего текста — в запасе (`comfort_ratio`), а не в минимуме."""
+    if kind is TextClass.GRAPHICS:
+        return MIN_GRAPHICS
+    if kind is TextClass.LARGE or is_large(size_pt, bold=bold):
+        return MIN_LARGE
     return MIN_BODY
 
 
@@ -97,11 +119,21 @@ def comfort_ratio(kind: TextClass) -> float:
     return COMFORT_CAPTION if kind is TextClass.CAPTION else required_ratio(kind)
 
 
-def readability(foreground_hex: str, background_hex: str, kind: TextClass) -> Readability:
+def readability(
+    foreground_hex: str,
+    background_hex: str,
+    kind: TextClass,
+    *,
+    size_pt: float | None = None,
+    bold: bool = False,
+) -> Readability:
+    """Приговор паре. Кегль нужен подписи: без него её минимум — минимум мелкого текста."""
+    required = required_ratio(kind, size_pt=size_pt, bold=bold)
     return Readability(
         ratio=round(contrast_ratio(foreground_hex, background_hex), 2),
-        required=required_ratio(kind),
-        comfort=comfort_ratio(kind),
+        required=required,
+        #: Запас выше минимума бывает только у подписи — у прочих он и есть минимум.
+        comfort=COMFORT_CAPTION if kind is TextClass.CAPTION else required,
         text_class=kind,
     )
 

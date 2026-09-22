@@ -37,7 +37,7 @@ from deckforge.designsystem.contrast import (
     TextClass,
     comfort_ratio,
     required_ratio,
-    text_class,
+    text_classes,
 )
 from deckforge.domain.audit import Finding
 from deckforge.domain.base import BBox
@@ -429,12 +429,11 @@ def contrast_thresholds(ctx: CheckContext) -> dict[TextClass, float]:
 def block_text_classes(block: object, manifest: TemplateManifest) -> tuple[TextClass, TextClass]:
     """Два ответа слоя ДС о блоке: чей минимум он обязан взять и чей запас ему нужен.
 
-    Минимум решают кегль и начертание (`text_class` без роли): текст от 18 pt или
-    от 14 pt полужирным читается при 3,0, какой бы ролью его ни назвали. Запас решает
-    роль (`text_class` с ролью): подпись просит комфортный порог слоя сверх минимума.
-    Разнесено не случайно: у VK Education подпись набрана 18 pt, и роль вперёд кегля
-    дала бы ей минимум 4,5 — 14 из 144 пар «слот × фон» этого шаблона из нормы стали бы
-    ошибками. Требование change — «от 18 pt порог 3,0», а подписи — замечание о запасе.
+    Само правило — «минимум по кеглю, запас по роли» — живёт в слое:
+    `designsystem.contrast.text_classes`. Им же считает страница дизайн-системы, иначе
+    она показала бы подписи 18 pt минимум 4,5, а аудит спрашивал бы 3,0
+    (change `contrast-minimum-by-size`). Здесь только то, чего слой знать не может:
+    кегль и начертание блока.
 
     Кегль — свой у блока, иначе ступени шкалы по роли; начертание — всегда ступени:
     в IR полужирного нет, его задаёт шаблон.
@@ -446,7 +445,7 @@ def block_text_classes(block: object, manifest: TemplateManifest) -> tuple[TextC
     if size is None and step is not None:
         size = step.size_pt
     bold = bool(step is not None and step.bold)
-    return text_class(size, bold=bold), text_class(size, bold=bold, role=role)
+    return text_classes(size, bold=bold, role=role)
 
 
 @check(id="template.contrast_below_wcag", deterministic=True, severity=Severity.ERROR,

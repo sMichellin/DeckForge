@@ -715,7 +715,7 @@ def _readable_elements(
                 polar_ref, polar_ratio = best_polar(theme, fill)
                 reason = (
                     f"лучшая подходящая надпись темы ({polar_ref.value}) даёт "
-                    f"{polar_ratio:.2f} при нужных {required_ratio(kind):.1f}"
+                    f"{polar_ratio:.2f} при нужных {required_ratio(kind, size_pt=item.size_pt):.1f}"
                     if polar_ref is not None
                     else "в теме нет ни одного слота подходящей светлоты"
                 )
@@ -739,7 +739,7 @@ def _readable_elements(
                         text_class=_CLASS_WORDS[kind],
                         background_label=item.color_ref.value,
                         background_hex=fill,
-                        required=required_ratio(kind),
+                        required=required_ratio(kind, size_pt=item.size_pt),
                         best_ratio=best_ratio,
                         best_ref=best_ref,
                         origin=Origin.MEASURED,
@@ -749,7 +749,9 @@ def _readable_elements(
             continue
 
         background = theme.colors.get(item.on_color_ref)
-        verdict = readability(theme.colors.get(item.color_ref), background, kind)
+        verdict = readability(
+            theme.colors.get(item.color_ref), background, kind, size_pt=item.size_pt
+        )
         if verdict.passes and not verdict.tight:
             fixed.append(item)
             continue
@@ -763,7 +765,7 @@ def _readable_elements(
                     text_class=_CLASS_WORDS[kind],
                     background_label=item.on_color_ref.value,
                     background_hex=background,
-                    required=required_ratio(kind),
+                    required=required_ratio(kind, size_pt=item.size_pt),
                     best_ratio=best_ratio,
                     best_ref=best_ref,
                     origin=Origin.MEASURED,
@@ -774,7 +776,7 @@ def _readable_elements(
         if chosen is item.color_ref:
             fixed.append(item)
             continue
-        taken = readability(theme.colors.get(chosen), background, kind)
+        taken = readability(theme.colors.get(chosen), background, kind, size_pt=item.size_pt)
         fixed.append(
             item.model_copy(
                 update={
