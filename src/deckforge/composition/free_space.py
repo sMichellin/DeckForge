@@ -98,3 +98,37 @@ def free_capacity(layout: LayoutSpec, manifest: TemplateManifest) -> LayoutCapac
 def effective_capacity(layout: LayoutSpec, manifest: TemplateManifest) -> LayoutCapacity:
     """Вместимость, которую видит промпт: своя у макета, иначе — свободного места."""
     return layout.capacity if has_body_slot(layout) else free_capacity(layout, manifest)
+
+
+#: Какую долю ширины области контента должна занимать свободная зона, чтобы её стоило
+#: предлагать под отдельный блок. Та же величина, которой нас меряет C9 («пустая зона
+#: ≥ 40 % ширины»): зона, из-за которой мы получаем находку, и зона, которую мы просим
+#: занять, обязаны быть одной и той же.
+ZONE_MIN_WIDTH_SHARE = 0.4
+
+#: Сколько строк зона должна держать. Полоса в одну строку — не место под блок: на
+#: VK Education s05 свободный блок `smartart` получил 30 × 1,5 см и не влез ни в каком
+#: кегле, схема выродилась в список (A13, прогон add3de1e5918).
+ZONE_MIN_LINES = 3
+
+
+def spare_zone(layout: LayoutSpec, manifest: TemplateManifest) -> LayoutCapacity | None:
+    """Свободная зона, которую стоит предложить **вдобавок** к месту под тело. Задача B10.
+
+    У макета либо есть место под тело, либо нет. Когда нет, свободная часть слайда и есть
+    тело (`effective_capacity`, change 25) — здесь не о ней. Когда есть, свободная часть
+    до сих пор не предлагалась никому, и на шаблонах кейса это половина слайда: у VK Tech
+    место под тело обещает промпту 874 знака, а рядом лежит зона 12,4 × 9,4 см ещё
+    на 954 знака; у VK Education обещают 76 знаков при свободных 648.
+
+    Зона предлагается, только если она **широкая и высокая разом**. Узкая полоса во всю
+    ширину — это воздух между блоками, а не место: ставить в неё блок значит менять пустоту
+    на переполнение.
+    """
+    if not has_body_slot(layout):
+        return None
+    area = free_area(layout, manifest)
+    if area is None or area.cx < manifest.content_bbox.cx * ZONE_MIN_WIDTH_SHARE:
+        return None
+    capacity = free_capacity(layout, manifest)
+    return capacity if capacity.max_bullets >= ZONE_MIN_LINES else None

@@ -15,7 +15,12 @@ import re
 from functools import partial
 from typing import Any
 
-from deckforge.composition.free_space import clip, effective_capacity, has_body_slot
+from deckforge.composition.free_space import (
+    clip,
+    effective_capacity,
+    has_body_slot,
+    spare_zone,
+)
 from deckforge.composition.layout_picker import pick_layout
 from deckforge.composition.visual_selector import select_chart
 from deckforge.domain.base import BBox
@@ -233,6 +238,9 @@ class SlideComposer:
             target_chars=round(capacity.max_chars_body * variant.capacity_ratio()),
             target_bullets=max(2, min(capacity.max_bullets, len(facts) or 3)),
             body_free=body_free,
+            # B10. Свободная зона рядом с местом под тело: до сих пор её не предлагали
+            # никому, и на шаблонах кейса это половина слайда.
+            spare_zone=spare_zone(layout, manifest),
             body_slots=body_slots,
             slot_lines=slot_lines,
             smartart_patterns=sorted(pattern.value for pattern in SUPPORTED_PATTERNS),
