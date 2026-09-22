@@ -33,6 +33,12 @@ from deckforge.audit.geometry import (
     self_positioned_blocks,
 )
 from deckforge.audit.registry import CheckContext, check
+from deckforge.designsystem.contrast import (
+    TextClass,
+    comfort_ratio,
+    required_ratio,
+    text_class,
+)
 from deckforge.domain.audit import Finding
 from deckforge.domain.base import BBox
 from deckforge.domain.enums import AutoFix, ColorRef, Severity, TextRole
@@ -399,10 +405,62 @@ def decor_moved(ctx: CheckContext) -> Iterable[Finding]:
                 )
 
 
+#: Какой параметр проверки задаёт минимум какого класса текста. Класс выбирает слой
+#: `designsystem.contrast`, значение — `configs/audit_checks.yaml`. У подписи минимум
+#: тот же, что у обычного текста: отличается она только запасом.
+CONTRAST_PARAM: dict[TextClass, str] = {
+    TextClass.BODY: "body",
+    TextClass.CAPTION: "body",
+    TextClass.LARGE: "large",
+    TextClass.GRAPHICS: "graphics",
+}
+
+
+def contrast_thresholds(ctx: CheckContext) -> dict[TextClass, float]:
+    """Минимум контраста по классу текста: значение из конфига, по умолчанию — слоя ДС.
+
+    Значения по умолчанию берутся у `designsystem.contrast.required_ratio`, а не пишутся
+    здесь второй раз: если параметр пропал из YAML, проверка съезжает на правило слоя,
+    а не на собственное число.
+    """
+    return {kind: ctx.param(CONTRAST_PARAM[kind], required_ratio(kind)) for kind in TextClass}
+
+
+def block_text_classes(block: object, manifest: TemplateManifest) -> tuple[TextClass, TextClass]:
+    """Два ответа слоя ДС о блоке: чей минимум он обязан взять и чей запас ему нужен.
+
+    Минимум решают кегль и начертание (`text_class` без роли): текст от 18 pt или
+    от 14 pt полужирным читается при 3,0, какой бы ролью его ни назвали. Запас решает
+    роль (`text_class` с ролью): подпись просит комфортный порог слоя сверх минимума.
+    Разнесено не случайно: у VK Education подпись набрана 18 pt, и роль вперёд кегля
+    дала бы ей минимум 4,5 — 14 из 144 пар «слот × фон» этого шаблона из нормы стали бы
+    ошибками. Требование change — «от 18 pt порог 3,0», а подписи — замечание о запасе.
+
+    Кегль — свой у блока, иначе ступени шкалы по роли; начертание — всегда ступени:
+    в IR полужирного нет, его задаёт шаблон.
+    """
+    role = getattr(block, "role", None)
+    role = role if isinstance(role, TextRole) else None
+    step = manifest.typography(role) if role is not None else None
+    size = getattr(block, "size_pt", None)
+    if size is None and step is not None:
+        size = step.size_pt
+    bold = bool(step is not None and step.bold)
+    return text_class(size, bold=bold), text_class(size, bold=bold, role=role)
+
+
 @check(id="template.contrast_below_wcag", deterministic=True, severity=Severity.ERROR,
-       title="Контраст текста к фону ниже 4.5:1")
+       title="Контраст текста к фону ниже порога своего класса")
 def contrast_below_wcag(ctx: CheckContext) -> Iterable[Finding]:
-    """Контраст текста к фону ниже 4.5:1.
+    """Контраст текста к фону ниже порога своего класса.
+
+    **Порог — по классу текста, правилом `designsystem.contrast`** (change
+    `one-contrast-rule`). Один свод правил на страницу дизайн-системы, вёрстку и аудит:
+    крупный текст (от 18 pt или от 14 pt полужирным) — 3,0, обычный — 4,5. Подпись
+    берёт минимум своего кегля, а сверх него у неё есть комфортный порог слоя (7,0).
+    Подпись между минимумом и комфортом — находка `info`, а не ошибка: минимум взят,
+    не хватает запаса. Иначе каждый шаблон с серой подписью давал бы ошибку на каждом
+    слайде, как `font_not_in_theme` до C3.
 
     Фон берётся **макета**, а не темы. Разница не теоретическая: 19.09 колода из
     двенадцати заголовков цвета `dk1` на макете, залитом `dk1`, прошла аудит без единой
@@ -411,14 +469,13 @@ def contrast_below_wcag(ctx: CheckContext) -> Iterable[Finding]:
     Проверяются блоки, у которых цвет задан **явно**: это наш выбор, и отвечаем за него
     мы. Блок без `color_ref` наследует цвет плейсхолдера шаблона, и спрашивать за него
     с генератора нельзя — шаблон не нарушает сам себя (тот же довод, что у
-    `self_positioned_blocks`). Свободный текст без `color_ref` цвет получает по этому же
-    фону при записи, поэтому неразличимым он быть не может.
+    `self_positioned_blocks`). Свободный текст без `color_ref` цвет получает при записи
+    тем же правилом слоя (`contrast.readable_ref`, класс обычного текста), поэтому
+    неразличимым он становится только на шаблоне, где порог не берёт ни один слот.
     """
     manifest = ctx.manifest
     colors = manifest.theme.colors
-    min_ratio = ctx.param("min_ratio", 4.5)
-    min_ratio_large = ctx.param("min_ratio_large", 3.0)
-    large_text_pt = ctx.param("large_text_pt", 18.0)
+    thresholds = contrast_thresholds(ctx)
 
     for slide in ctx.deck.slides:
         layout = layout_of(slide, ctx.manifest)
@@ -429,17 +486,42 @@ def contrast_below_wcag(ctx: CheckContext) -> Iterable[Finding]:
             ref = getattr(block, "color_ref", None)
             if not isinstance(ref, ColorRef):
                 continue
-            role = getattr(block, "role", None)
-            size = getattr(block, "size_pt", None)
-            if size is None and isinstance(role, TextRole):
-                step = manifest.typography(role)
-                size = step.size_pt if step is not None else None
+            kind, role_kind = block_text_classes(block, manifest)
+            required = thresholds[kind]
+            # Запас слой даёт не каждому классу: у кого его нет, у того комфорт — это
+            # минимум из конфига, и промежутка для `info` не остаётся.
+            has_margin = comfort_ratio(role_kind) > required_ratio(role_kind)
+            comfort = max(required, comfort_ratio(role_kind)) if has_margin else required
 
             foreground = colors.get(ref)
             ratio = contrast_ratio(foreground, background)
-            is_large = size is not None and size >= large_text_pt
-            threshold = min_ratio_large if is_large else min_ratio
-            if ratio >= threshold:
+            if ratio >= comfort:
+                continue
+            evidence = {
+                "foreground": foreground,
+                "background": background,
+                "background_source": background_source,
+                "ratio": f"{ratio:.2f}",
+                "text_class": role_kind.value,
+                "minimum_class": kind.value,
+                "required": f"{required:.1f}",
+                "comfort": f"{comfort:.1f}",
+            }
+            if ratio >= required:
+                # Минимум взят, запаса нет: замечание, а не нарушение.
+                yield make_finding(
+                    check_id="template.contrast_below_wcag",
+                    slide_id=slide.slide_id,
+                    block_id=block.block_id,
+                    bbox=block_bbox(block, layout),
+                    reason=f"contrast-tight:{ref.value}",
+                    message=(
+                        f"Контраст подписи блока {block.block_id} к фону {ratio:.1f}:1 — "
+                        f"минимум {required:.1f}:1 взят, но без запаса {comfort:.1f}:1"
+                    ),
+                    evidence=evidence,
+                    severity=Severity.INFO,
+                )
                 continue
             yield make_finding(
                 check_id="template.contrast_below_wcag",
@@ -449,14 +531,9 @@ def contrast_below_wcag(ctx: CheckContext) -> Iterable[Finding]:
                 reason=f"contrast:{ref.value}",
                 message=(
                     f"Контраст текста блока {block.block_id} к фону {ratio:.1f}:1 "
-                    f"при требуемых {threshold:.1f}:1"
+                    f"при требуемых {required:.1f}:1"
                 ),
-                evidence={
-                    "foreground": foreground,
-                    "background": background,
-                    "background_source": background_source,
-                    "ratio": f"{ratio:.2f}",
-                },
+                evidence=evidence,
             )
 
 

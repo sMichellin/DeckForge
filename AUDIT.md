@@ -70,7 +70,7 @@ make checks
 | `template.color_not_in_palette` | цвет не из палитры | сверка с `theme.colors` с учётом тонов | `map_to_nearest_theme_color` |
 | `template.layout_not_from_template` | слайд собран не на макете шаблона | `slide.layout` против манифеста | — |
 | `template.decor_moved` | знак шаблона накрыт блоком | блок закрывает ≥ половины площади знака; знак — логотип и фигуры, которые шаблон держит вне области контента | — |
-| `template.contrast_below_wcag` | контраст ниже 4.5:1 | относительная яркость WCAG 2.1 к фону **макета** (`LayoutSpec.background`), 3:1 для крупного текста | — |
+| `template.contrast_below_wcag` | контраст ниже порога своего класса текста | относительная яркость WCAG 2.1 к фону **макета** (`LayoutSpec.background`); класс — `designsystem.contrast.text_class`: минимум по кеглю и начертанию (крупный от 18 pt или 14 pt полужирным — `large` 3.0, иначе `body` 4.5; `graphics` 3.0), запас по роли — подпись между своим минимумом и комфортом слоя (7.0) даёт `info`, а не `error` | — |
 
 ### Плотность
 

@@ -66,8 +66,11 @@ checks:
   template.contrast_below_wcag:
     deterministic: true
     severity: error
-    title: "Контраст текста к фону ниже 4.5:1"
-    params: { min_ratio: 4.5, min_ratio_large: 3.0, large_text_pt: 18 }
+    title: "Контраст текста к фону ниже порога своего класса"
+    # Минимум по классу текста. Класс (крупный, обычный, графика) выбирает
+    # designsystem.contrast по кеглю и начертанию шаблона — здесь только значения.
+    # Подпись берёт минимум своего кегля; ниже комфортного порога слоя — находка info.
+    params: { body: 4.5, large: 3.0, graphics: 3.0 }
 
   # --- плотность ---
   density.too_many_bullets:

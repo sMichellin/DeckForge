@@ -24,10 +24,11 @@ from pptx.enum.text import MSO_ANCHOR
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Pt
 
+from deckforge.designsystem.contrast import TextClass, readable_ref
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage, Dataset
 from deckforge.domain.enums import ColorRef, ImageSource, TextRole
-from deckforge.domain.rules import readable_text_ref
+from deckforge.domain.rules import TEXT_SLOTS, readable_text_ref
 from deckforge.domain.slide import (
     Block,
     BulletItem,
@@ -546,12 +547,25 @@ class PptxWriter:
         решение автора шаблона всегда главнее измерения. Фона нет в манифесте (он снят
         прежним парсером) — выбирать не из чего, и тогда цвет остаётся за типошкалой,
         как было.
+
+        Порог — правилом `designsystem.contrast`, тем же, что у аудита (change
+        `one-contrast-rule`): класс обычного текста, 4,5. Цвет один на весь свободный
+        текст слайда — заголовок, подписи диаграммы, показатели, — поэтому берётся класс
+        с самым строгим минимумом, а не самый мягкий. Выбор — из пары «тёмный/светлый»
+        темы: акценты для текста не предназначены.
+
+        Порог не берёт ни один слот — это дефект шаблона, и `readable_ref` честно
+        отвечает `None`. Оставить текст чёрным по умолчанию ещё хуже, поэтому ставится
+        лучший из слотов, как до change.
         """
         layout = self.manifest.layout(slide_ir.layout_id)
         background = layout.background if layout is not None else None
         if background is None:
             return None
-        return readable_text_ref(self.manifest, background.color_hex)
+        chosen = readable_ref(
+            self.manifest.theme, background.color_hex, TextClass.BODY, slots=TEXT_SLOTS
+        )
+        return chosen or readable_text_ref(self.manifest, background.color_hex)
 
     def _fill_placeholder(
         self, slide: object, layout: object, block: TextBlock | BulletsBlock, size_pt: float
