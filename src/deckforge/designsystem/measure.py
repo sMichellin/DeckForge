@@ -16,9 +16,12 @@ from collections import defaultdict
 from deckforge.designsystem.models import (
     ColorRoleKind,
     Combination,
+    ComponentCard,
     ContrastLevel,
     ContrastPair,
     DesignSystem,
+    FontInUse,
+    NumberScale,
     Origin,
     PaletteRole,
 )
@@ -28,9 +31,11 @@ from deckforge.domain.rules import (
     contrast_ratio,
     delta_e_rgb,
     meets_wcag_aa,
+    next_size_down,
     relative_luminance,
 )
 from deckforge.domain.template import (
+    ComponentKind,
     ExampleShape,
     TemplateExample,
     TemplateManifest,
@@ -88,6 +93,12 @@ TAIL_COVERAGE = 0.95
 #: нужен и сверх покрытия: акценты шаблона лежат далеко за 95 % площади — фон один
 #: закрывает почти всю, — и без потолка они утащили бы в раздел весь список.
 SHOWN_LIMIT = 10
+
+#: Сколько сочетаний раздел показывает по отдельности. Потолок того же порядка, что
+#: у палитры, и нужен по той же причине: у шаблона кейса троек двадцать семь, и хвост
+#: из них — тройки, встреченные на одном слайде из полусотни. Такая тройка описывает
+#: слайд, а не шаблон, и в раздел идёт суммой, а не строкой.
+COMBINATIONS_SHOWN = 8
 
 
 def _channels(color_hex: str) -> tuple[int, int, int]:
@@ -304,16 +315,49 @@ def _combinations(manifest: TemplateManifest) -> list[Combination]:
         seen.items(),
         key=lambda item: (-len(item[1]), tuple(color or "" for color in item[0])),
     )
+    return _collapse_combinations(
+        [
+            Combination(
+                background_hex=background,
+                text_hex=text,
+                accent_hex=accent,
+                share=round(len(slides) / total, SHARE_DIGITS),
+                seen_on=sorted(slides),
+                origin=Origin.MEASURED,
+            )
+            for (background, text, accent), slides in ordered
+        ]
+    )
+
+
+def _collapse_combinations(combinations: list[Combination]) -> list[Combination]:
+    """Свернуть хвост сочетаний в одну запись с суммарной долей — как у палитры.
+
+    Сворачивается двоякое: то, что не поместилось в потолок, и тройка, у которой нет
+    ни текста, ни акцента. Вторая — это один фон, а не сочетание: показывать в ней
+    нечего, и она же делает запись хвоста узнаваемой. Отсутствие и текста, и акцента
+    встречается только у неё, потому что всякая такая тройка сюда и уходит, — по этому
+    признаку страница и отличает хвост от настоящего сочетания.
+    """
+    shown: list[Combination] = []
+    collapsed: list[Combination] = []
+    for combination in combinations:
+        speaks = combination.text_hex is not None or combination.accent_hex is not None
+        target = shown if speaks and len(shown) < COMBINATIONS_SHOWN else collapsed
+        target.append(combination)
+
+    if not collapsed:
+        return shown
     return [
+        *shown,
         Combination(
-            background_hex=background,
-            text_hex=text,
-            accent_hex=accent,
-            share=round(len(slides) / total, SHARE_DIGITS),
-            seen_on=sorted(slides),
+            #: Фон записи — фон самого крупного из свёрнутых: показать хвост нечем,
+            #: кроме одной из его троек.
+            background_hex=collapsed[0].background_hex,
+            share=round(sum(item.share for item in collapsed), SHARE_DIGITS),
+            seen_on=sorted(slide for item in collapsed for slide in item.seen_on),
             origin=Origin.MEASURED,
-        )
-        for (background, text, accent), slides in ordered
+        ),
     ]
 
 
@@ -373,10 +417,30 @@ def _contrast_pairs(
     """
     theme = manifest.theme
     light, dark = _theme_backgrounds(theme)
-    pairs: dict[tuple[str, str], ContrastPair] = {}
+    pairs: dict[tuple[str, str, bool], ContrastPair] = {}
 
     def add(pair: ContrastPair) -> None:
-        pairs.setdefault((pair.foreground_hex.upper(), pair.background_hex.upper()), pair)
+        """Ключ включает происхождение: пара с примера не схлопывается с парой темы.
+
+        Совпав по цветам, они говорят разное — тема обещает, примеры показывают, — и
+        одна запись вместо двух оставила бы на странице только обещание.
+
+        Отметки внутри одного происхождения складываются, а не достаются первой записи:
+        акцент, чей цвет совпал со слотом схемы, приходит вторым и потерял бы отметку
+        «только для графики» ровно из-за порядка.
+        """
+        key = (pair.foreground_hex.upper(), pair.background_hex.upper(), pair.from_theme)
+        known = pairs.get(key)
+        pairs[key] = (
+            pair
+            if known is None
+            else known.model_copy(
+                update={
+                    "is_risk": known.is_risk or pair.is_risk,
+                    "display_only": known.display_only or pair.display_only,
+                }
+            )
+        )
 
     for foreground_ref, background_ref in SCHEME_PAIRS:
         pair = _pair(
@@ -421,6 +485,101 @@ def _contrast_pairs(
     return list(pairs.values())
 
 
+def _fonts_in_use(manifest: TemplateManifest) -> list[FontInUse]:
+    """Гарнитуры по фактическому набору, от самой ходовой к редкой.
+
+    Смысл раздела — расхождение: тема называет одну гарнитуру, а примеры набраны другой,
+    и у всех трёх шаблонов кейса это так. Поэтому факт живёт отдельно от объявленного
+    в `theme`, а не вместо него.
+
+    Гарнитура, которой не набрано ни знака, в факты не попадает: тема перечисляет её
+    наравне с остальными, но набран ею ровно ноль текста — это объявление, а не факт.
+    """
+    typeset = [usage for usage in manifest.usage.fonts if usage.chars > 0]
+    return [
+        FontInUse(
+            family=usage.family,
+            share=round(usage.share, SHARE_DIGITS),
+            in_titles=usage.in_titles,
+            in_body=usage.in_body,
+            origin=Origin.MEASURED,
+        )
+        for usage in sorted(typeset, key=lambda usage: (-usage.share, usage.family))
+    ]
+
+
+def _number_sizes(manifest: TemplateManifest) -> NumberScale:
+    """Три размера числа: крупный, средний, мелкий.
+
+    Крупный — старший кегль, которым шаблон сам набрал показатель: KPI-компонент
+    хранит кегли экземпляра по убыванию, и первый из них и есть число. Берётся максимум
+    по всем KPI-компонентам, а не по самому частому: у шаблона кейса их два, и частый
+    из них — мелкая строка списка, а число крупно набрано в другом.
+
+    Средний и мелкий — ближайшие вниз по шкале шаблона (`next_size_down`, правило 6):
+    своих кеглей мы не изобретаем. Показателей в шаблоне нет — мерить нечего, и тогда
+    берутся три верхних кегля шкалы, а блок помечается достроенным.
+    """
+    kpi_sizes = [
+        size
+        for component in manifest.components
+        if component.kind is ComponentKind.KPI
+        for size in component.text_sizes_pt
+        if size > 0
+    ]
+    if kpi_sizes:
+        large = max(kpi_sizes)
+        medium = next_size_down(manifest, large)
+        small = next_size_down(manifest, medium) if medium is not None else None
+        return NumberScale(
+            large_pt=large, medium_pt=medium, small_pt=small, origin=Origin.MEASURED
+        )
+
+    #: Шкала короче трёх ступеней — недостающие размеры остаются пустыми: придумать
+    #: кегль, которого в шаблоне нет, правило 6 не позволяет.
+    top: list[float | None] = [*manifest.size_ladder_pt[:3], None, None, None]
+    return NumberScale(large_pt=top[0], medium_pt=top[1], small_pt=top[2], origin=Origin.DERIVED)
+
+
+def _components(manifest: TemplateManifest) -> list[ComponentCard]:
+    """Каталог повторяющихся элементов шаблона — перенос разобранного парсером.
+
+    Разбирать заново нечего: `parsing/components.py` уже нашёл повторы с равным шагом
+    и снял с них пропорции. Здесь меняется только форма — доли округляются до того же
+    знака, что и остальные доли страницы (G01), — и порядок.
+
+    Порядок: вид, затем число слайдов, затем площадь экземпляра. Внутри вида первым
+    идёт самый представительный — тот, что встречен на большем числе слайдов, — и
+    странице не приходится выбирать его самой.
+    """
+    kinds = list(ComponentKind)
+    ordered = sorted(
+        manifest.components,
+        key=lambda item: (
+            kinds.index(item.kind),
+            -len(item.seen_on),
+            -item.width_share * item.height_share,
+            item.seen_on,
+        ),
+    )
+    return [
+        ComponentCard(
+            kind=item.kind,
+            repeats=item.repeats,
+            axis=item.axis,
+            width_share=round(item.width_share, SHARE_DIGITS),
+            height_share=round(item.height_share, SHARE_DIGITS),
+            gap_share=round(item.gap_share, SHARE_DIGITS),
+            text_sizes_pt=list(item.text_sizes_pt),
+            fill_ref=item.fill_ref,
+            fill_hex=item.fill_hex,
+            seen_on=list(item.seen_on),
+            origin=Origin.MEASURED,
+        )
+        for item in ordered
+    ]
+
+
 def measure(manifest: TemplateManifest, ds: DesignSystem) -> DesignSystem:
     """Дополнить структуру тем, что измеряется по слайдам-примерам."""
     combinations = _combinations(manifest)
@@ -429,5 +588,8 @@ def measure(manifest: TemplateManifest, ds: DesignSystem) -> DesignSystem:
             "palette_roles": _palette_roles(manifest),
             "combinations": combinations,
             "contrast_pairs": _contrast_pairs(manifest, combinations),
+            "fonts_in_use": _fonts_in_use(manifest),
+            "number_sizes": _number_sizes(manifest),
+            "components": _components(manifest),
         }
     )
