@@ -1,6 +1,7 @@
 """CLI DeckForge. Воспроизводимый запуск конфиг-файлом (C11).
 
     deckforge parse   template.pptx -o manifest.json
+    deckforge design-system template.pptx -o дизайн-система.html
     deckforge ingest  content/ --brief brief.yaml -o content.json
     deckforge generate template.pptx content/ --variant A --config configs/default.yaml
     deckforge audit   deck.pptx --manifest manifest.json
@@ -32,6 +33,49 @@ def parse(
 ) -> None:
     """Шаблон → TemplateManifest (change 3)."""
     raise NotImplementedError("change (3) template-parsing-core")
+
+
+@app.command(name="design-system")
+def design_system(
+    template: Path = typer.Argument(..., exists=True, help="Файл .pptx или .potx"),
+    out: Path = typer.Option(
+        None, "--out", "-o", help="Куда положить html; по умолчанию — рядом с шаблоном"
+    ),
+) -> None:
+    """Шаблон → html-страница его дизайн-системы (change 30)."""
+    from deckforge.designsystem import derive
+    from deckforge.export.design_system_page import render
+    from deckforge.parsing import TemplateParser
+    from deckforge.parsing.package import NotATemplateError
+
+    suffix = template.suffix.lower()
+    if suffix not in {".pptx", ".potx"}:
+        named = f"с расширением «{suffix}»" if suffix else "без расширения"
+        typer.echo(
+            f"Нужен шаблон презентации .pptx или .potx, "
+            f"а файл «{template.name}» — {named}.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    try:
+        # Без кэша: команду зовут ради свежего разбора конкретного файла, а не ради скорости.
+        manifest = TemplateParser().parse(template, use_cache=False)
+    except NotATemplateError as exc:
+        # Сообщение уже написано для человека и начинается с имени файла — незачем
+        # оборачивать его второй раз.
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    except ValueError as exc:
+        # Шаблон открылся, но разобрать нечего. Наружу идёт строка, а не трассировка.
+        typer.echo(f"Шаблон «{template.name}» не разбирается: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    default = template.with_name(f"{template.stem} — дизайн-система.html")
+    target = default if out is None else out
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(render(derive(manifest)), encoding="utf-8")
+    typer.echo(str(target))
 
 
 @app.command()

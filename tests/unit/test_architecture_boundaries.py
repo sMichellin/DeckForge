@@ -16,6 +16,7 @@ SRC = Path(__file__).resolve().parents[2] / "src" / "deckforge"
 # Порядок снизу вверх: каждый слой может импортировать только то, что левее него.
 ORDER = [
     "domain",
+    "designsystem",
     "registry",
     "inference",
     "parsing",
