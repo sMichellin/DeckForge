@@ -110,7 +110,7 @@ def _open_template(path: Path) -> object:
     return Presentation(buffer)
 
 
-def _drop_sample_slides(prs: object, keep: list[object] | None = None) -> None:
+def _drop_sample_slides(prs: object, keep: list[object]) -> None:
     """Слайды-примеры шаблона в колоду не попадают; части без связей python-pptx не пишет.
 
     Произвольные показы и разделы ссылаются на слайды-примеры: без них ссылки повисли бы,
@@ -123,9 +123,9 @@ def _drop_sample_slides(prs: object, keep: list[object] | None = None) -> None:
         if any(etree.QName(child).localname == "sectionLst" for child in ext):
             ext.getparent().remove(ext)
 
-    # Слайды колоды, собранные по рецепту, — это копии примеров, и удалять их нельзя
-    # (change `recipe-slide-in-the-writer`).
-    kept = {slide.part.partname for slide in (keep or [])}  # type: ignore[attr-defined]
+    # Слайды колоды уже в файле рядом с примерами: копии примеров по рецепту и обычные
+    # удалять нельзя (changes `recipe-slide-in-the-writer`, `slide-order-follows-the-deck`).
+    kept = {slide.part.partname for slide in keep}  # type: ignore[attr-defined]
     slide_ids = prs.slides._sldIdLst  # type: ignore[attr-defined]
     for slide_id in list(slide_ids):
         part = prs.part.related_part(slide_id.rId)  # type: ignore[attr-defined]
@@ -483,20 +483,21 @@ class PptxWriter:
             raise WriterError("\n".join(problems))
 
         prs = _open_template(self.template_path)
-        # Рецепты клонируются раньше, чем примеры удаляются: копировать нечего, если
-        # источник уже выброшен (change `recipe-slide-in-the-writer`).
-        cloned = {
-            slide.slide_id: clone_recipe(prs, self.recipes[slide.recipe_id], slide)
-            for slide in slides
-            if slide.recipe_id and slide.recipe_id in self.recipes
-        }
-        _drop_sample_slides(prs, keep=list(cloned.values()))
         layouts = self._layouts_by_id(prs)
         table_style = template_table_style(prs)
+        # Один проход в порядке колоды: каждый слайд встаёт в конец `sldIdLst`, так что
+        # порядок в файле = порядок IR. Примеры удаляются после прохода — рецепту есть
+        # что копировать, а новые части не получают имён удалённых примеров
+        # (changes `recipe-slide-in-the-writer`, `slide-order-follows-the-deck`).
+        written: list[object] = []
         for slide in slides:
-            if slide.slide_id in cloned:
-                continue
-            self._render_slide(prs, layouts[slide.layout_id], slide, content, table_style)
+            if slide.recipe_id and slide.recipe_id in self.recipes:
+                written.append(clone_recipe(prs, self.recipes[slide.recipe_id], slide))
+            else:
+                written.append(
+                    self._render_slide(prs, layouts[slide.layout_id], slide, content, table_style)
+                )
+        _drop_sample_slides(prs, keep=written)
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         prs.save(str(out_path))  # type: ignore[attr-defined]
@@ -547,7 +548,7 @@ class PptxWriter:
         slide_ir: SlideIR,
         content: ContentPackage | None,
         table_style: str | None,
-    ) -> None:
+    ) -> object:
         slide = prs.slides.add_slide(layout)  # type: ignore[attr-defined]
         text_color = _layout_text_color(layout) or self._readable_on_background(slide_ir)
         #: Фон, по которому дизайн-система выбирает видимый акцент (DG3).
@@ -614,6 +615,7 @@ class PptxWriter:
 
         if slide_ir.speaker_note:
             slide.notes_slide.notes_text_frame.text = slide_ir.speaker_note
+        return slide
 
     def _readable_on_background(self, slide_ir: SlideIR) -> ColorRef | None:
         """Цвет свободного текста, когда макет не назвал его ни в одном плейсхолдере.
