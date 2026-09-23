@@ -30,6 +30,7 @@ from deckforge.designsystem.contrast import (
     MIN_LARGE,
     TextClass,
     best_available,
+    best_polar,
     deeper_plate,
     ink_on_plate,
     readability,
@@ -711,15 +712,20 @@ def _readable_elements(
                 )
                 continue
             if item.text:
-                best_ref, best_ratio = best_available(theme, fill)
+                polar_ref, polar_ratio = best_polar(theme, fill)
+                reason = (
+                    f"лучшая подходящая надпись темы ({polar_ref.value}) даёт "
+                    f"{polar_ratio:.2f} при нужных {required_ratio(kind):.1f}"
+                    if polar_ref is not None
+                    else "в теме нет ни одного слота подходящей светлоты"
+                )
                 fixed.append(
                     item.model_copy(
                         update={
                             "outlined": True,
                             "note": (
-                                f"Надписи на заливке {item.color_ref.value} не хватает "
-                                f"контраста нужной полярности: лучшее в теме — "
-                                f"{best_ratio:.2f}. Акцент оставлен границей."
+                                f"Заливка {item.color_ref.value} надписи не держит: "
+                                f"{reason}. Акцент оставлен границей."
                             ),
                         }
                     )

@@ -203,8 +203,11 @@ def ink_on_plate(theme: Theme, plate_hex: str, kind: TextClass) -> ColorRef | No
 
 
 #: Насколько далеко от исходного цвета можно уйти, подбирая плашку глубже. Расстояние
-#: в RGB: за этой границей «тот же цвет темнее» превращается в другой цвет.
-PLATE_HUE_DISTANCE = 190.0
+#: в RGB: за этой границей «тот же цвет темнее» превращается в другой цвет. Порог
+#: проверен на шаблонах: у одного тёмный сосед акцента отстоит на 65 единиц и годится,
+#: у другого ближайший подходящий — нейтральный серый на 131, и это уже подмена цвета,
+#: а не его углубление; такой акцент честнее оставить границей.
+PLATE_HUE_DISTANCE = 90.0
 
 
 def deeper_plate(theme: Theme, plate_hex: str, kind: TextClass) -> tuple[ColorRef, ColorRef] | None:
@@ -234,6 +237,25 @@ def deeper_plate(theme: Theme, plate_hex: str, kind: TextClass) -> tuple[ColorRe
     candidates.sort()
     _distance, _name, plate, ink = candidates[0]
     return plate, ink
+
+
+def best_polar(theme: Theme, plate_hex: str) -> tuple[ColorRef | None, float]:
+    """Лучшее, что даёт тема надписью **нужной полярности**: светлой на тёмной плашке
+    и тёмной на светлой.
+
+    Именно это число объясняет отказ от заливки. Лучшее без учёта полярности бывает
+    втрое выше и только путает: оно про надпись, которую ставить нельзя.
+    """
+    lightness = relative_luminance(plate_hex)
+    polar = [
+        ref
+        for ref in ColorRef
+        if (relative_luminance(theme.colors.get(ref)) > lightness) is (lightness < _MID_LUMINANCE)
+    ]
+    if not polar:
+        return None, 0.0
+    best = max(polar, key=lambda ref: contrast_ratio(theme.colors.get(ref), plate_hex))
+    return best, round(contrast_ratio(theme.colors.get(best), plate_hex), 2)
 
 
 def best_available(theme: Theme, background_hex: str) -> tuple[ColorRef, float]:
