@@ -221,6 +221,8 @@ def test_one_structure_carries_the_fields_of_all_three_tasks(
         "components",
         #: Change `a-minimum-is-not-a-norm`: места, где шаблон не даёт читаемой пары.
         "contrast_defects",
+        #: Change `recipes-in-the-design-system`: седьмой раздел, композиции шаблона.
+        "recipes",
         "synthesized",
         "assembly_rules",
     }
