@@ -127,6 +127,44 @@ def test_an_example_with_a_row_of_repeats_is_a_cards_recipe(manifest: TemplateMa
     assert {zone.repeat for zone in recipe.zones if zone.repeat is not None} == {0, 1, 2}
 
 
+def test_a_shape_above_the_row_does_not_join_a_repeat(manifest: TemplateManifest) -> None:
+    """Нарушитель к предыдущему: заголовок стоит над рядом и отцентрован по его середине.
+
+    Вдоль оси он попадает в среднюю ячейку, и без проверки поперёк оси доставался повтору:
+    заголовок слайда получал пункт списка, а вёрстка удаляла его вместе с лишним повтором.
+    """
+    width = manifest.slide_size.cx_emu
+    cell, step = width // 5, width // 4
+    cards = [
+        shape(f"c{i}", x=step * i, y=4_000_000, cx=cell, cy=1_000_000, kind=ShapeKind.SHAPE)
+        for i in range(3)
+    ]
+    texts = [
+        shape(f"t{i}", x=step * i, y=4_200_000, cx=cell, cy=400_000, xml_id=100 + i)
+        for i in range(3)
+    ]
+    middle = step + cell // 2
+    title = shape(
+        "title", x=middle - cell // 2, y=400_000, cx=cell, cy=900_000, size_pt=40.0, xml_id=9
+    )
+    tile = ComponentSpec(
+        kind=ComponentKind.TILE,
+        repeats=3,
+        axis="row",
+        width_share=cell / width,
+        height_share=1_000_000 / manifest.slide_size.cy_emu,
+        gap_share=step / width,
+        seen_on=[1],
+    )
+
+    recipe = only(with_example(manifest, [title, *cards, *texts], components=[tile]))
+
+    heading = next(zone for zone in recipe.zones if zone.zone_id == "z9")
+    assert heading.repeat is None
+    assert heading.role is TypeLevel.SLIDE_TITLE
+    assert all(9 not in row for row in recipe.repeat_xml_ids)
+
+
 def test_a_row_with_a_big_number_is_a_metrics_recipe(manifest: TemplateManifest) -> None:
     """Нарушитель к предыдущему: тот же ряд, но с крупным коротким числом на плашке."""
     width = manifest.slide_size.cx_emu
