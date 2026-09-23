@@ -61,6 +61,39 @@ def test_slide_ir_discriminates_block_types() -> None:
     assert isinstance(slide.blocks[1], BulletsBlock)
 
 
+def test_slide_ir_accepts_recipe_id_and_zone_id() -> None:
+    """slide-recipes: слайд по рецепту несёт recipe_id, блоки — zone_id."""
+    slide = SlideIR(
+        slide_id="s05",
+        layout_id="L07",
+        variant="A",
+        recipe_id="ex003",
+        blocks=[
+            TextBlock(block_id="b1", role=TextRole.TITLE, text="Выручка", zone_id="z5"),
+            BulletsBlock(
+                block_id="b2",
+                items=[{"text": "Первый тезис", "level": 0}],
+                zone_id="z7",
+            ),
+        ],
+    )
+    assert slide.recipe_id == "ex003"
+    assert slide.blocks[0].zone_id == "z5"
+    assert slide.blocks[1].zone_id == "z7"
+
+
+def test_slide_ir_recipe_fields_default_to_none() -> None:
+    """Старые IR без рецепта читаются без миграции: поля необязательны."""
+    slide = SlideIR(
+        slide_id="s05",
+        layout_id="L07",
+        variant="A",
+        blocks=[TextBlock(block_id="b1", role=TextRole.TITLE, text="A")],
+    )
+    assert slide.recipe_id is None
+    assert slide.blocks[0].zone_id is None
+
+
 def test_slide_ir_rejects_duplicate_block_ids() -> None:
     with pytest.raises(ValidationError, match="уникальны"):
         SlideIR(

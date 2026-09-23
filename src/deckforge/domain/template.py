@@ -302,6 +302,13 @@ class ExampleShape(DomainModel):
     cx: int = Field(gt=0)
     cy: int = Field(gt=0)
     z: int = Field(default=0, ge=0)
+    xml_id: int | None = Field(
+        default=None,
+        description=(
+            "Настоящий cNvPr id фигуры в XML; по нему фигура находится "
+            "при копировании рецепта"
+        ),
+    )
     placeholder_idx: int | None = Field(
         default=None,
         description="idx плейсхолдера макета, если фигура стоит в нём; иначе свободная фигура",
@@ -343,6 +350,13 @@ class TemplateExample(DomainModel):
     """
 
     slide_index: int = Field(ge=1, description="Номер части ppt/slides/slideN.xml")
+    part_name: str | None = Field(
+        default=None,
+        description=(
+            "Имя части слайда-примера (slideN.xml); по нему часть находится "
+            "при копировании рецепта"
+        ),
+    )
     layout_id: str | None = None
     shapes: list[ExampleShape] = Field(default_factory=list)
 

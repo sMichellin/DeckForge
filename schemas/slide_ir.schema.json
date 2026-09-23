@@ -90,6 +90,19 @@
           "default": null,
           "title": "Cy"
         },
+        "zone_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
+          "title": "Zone Id"
+        },
         "block_id": {
           "title": "Block Id",
           "type": "string"
@@ -221,6 +234,19 @@
           "default": null,
           "title": "Cy"
         },
+        "zone_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
+          "title": "Zone Id"
+        },
         "block_id": {
           "title": "Block Id",
           "type": "string"
@@ -323,6 +349,19 @@
           ],
           "default": null,
           "title": "Cy"
+        },
+        "zone_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
+          "title": "Zone Id"
         },
         "block_id": {
           "title": "Block Id",
@@ -523,6 +562,19 @@
           "default": null,
           "title": "Cy"
         },
+        "zone_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
+          "title": "Zone Id"
+        },
         "block_id": {
           "title": "Block Id",
           "type": "string"
@@ -611,6 +663,19 @@
           ],
           "default": null,
           "title": "Cy"
+        },
+        "zone_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
+          "title": "Zone Id"
         },
         "block_id": {
           "title": "Block Id",
@@ -743,6 +808,19 @@
           ],
           "default": null,
           "title": "Cy"
+        },
+        "zone_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
+          "title": "Zone Id"
         },
         "block_id": {
           "title": "Block Id",
@@ -918,6 +996,19 @@
           "default": null,
           "title": "Cy"
         },
+        "zone_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
+          "title": "Zone Id"
+        },
         "block_id": {
           "title": "Block Id",
           "type": "string"
@@ -1019,6 +1110,19 @@
           ],
           "default": null,
           "title": "Cy"
+        },
+        "zone_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
+          "title": "Zone Id"
         },
         "block_id": {
           "title": "Block Id",
@@ -1124,6 +1228,19 @@
           ],
           "default": null,
           "title": "Cy"
+        },
+        "zone_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
+          "title": "Zone Id"
         },
         "block_id": {
           "title": "Block Id",
@@ -1235,6 +1352,19 @@
           ],
           "default": null,
           "title": "Cy"
+        },
+        "zone_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
+          "title": "Zone Id"
         },
         "block_id": {
           "title": "Block Id",
@@ -1401,6 +1531,19 @@
       },
       "title": "Fit Report",
       "type": "object"
+    },
+    "recipe_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Рецепт (слайд-пример шаблона), по которому writer копирует слайд (slide-recipes)",
+      "title": "Recipe Id"
     }
   },
   "required": [

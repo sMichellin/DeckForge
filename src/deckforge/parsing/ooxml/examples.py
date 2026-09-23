@@ -104,6 +104,7 @@ def parse_example(
     slide_xml: bytes,
     layout: LayoutSpec | None,
     theme: Theme,
+    part_name: str | None = None,
 ) -> TemplateExample:
     """Один слайд-пример: фигуры в координатах слайда, группы раскрыты.
 
@@ -113,7 +114,7 @@ def parse_example(
     try:
         root = etree.fromstring(slide_xml)
     except etree.XMLSyntaxError:
-        return TemplateExample(slide_index=slide_index, layout_id=None)
+        return TemplateExample(slide_index=slide_index, layout_id=None, part_name=part_name)
 
     tree = root.find(f"{{{P}}}cSld/{{{P}}}spTree")
     shapes: list[ExampleShape] = []
@@ -121,6 +122,7 @@ def parse_example(
         _collect(tree, _Frame(), layout, theme, shapes)
     return TemplateExample(
         slide_index=slide_index,
+        part_name=part_name,
         layout_id=layout.layout_id if layout is not None else None,
         shapes=shapes,
     )
@@ -164,6 +166,7 @@ def _shape(
     fill_ref, fill_hex = _fill_colour(node, theme)
     return ExampleShape(
         shape_id=f"s{z:03d}",
+        xml_id=_xml_id(node),
         kind=_kind(node, tag, text),
         x=x,
         y=y,
@@ -222,6 +225,25 @@ def _placeholder_idx(node: etree._Element) -> int | None:
     if raw is None:
         # Заголовок объявляют без idx: у него он нулевой по умолчанию.
         return 0
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _xml_id(node: etree._Element) -> int | None:
+    """Настоящий `cNvPr id` фигуры в XML.
+
+    `cNvPr` лежит в `nv*Pr` (nvSpPr, nvPicPr, nvGraphicFramePr, nvCxnSpPr) — имя
+    зависит от вида фигуры, поэтому ищем по тегу напрямую. По этому id фигура
+    находится при копировании рецепта (slide-recipes).
+    """
+    cNvPr = node.find(f".//{{{P}}}cNvPr")
+    if cNvPr is None:
+        return None
+    raw = cNvPr.get("id")
+    if raw is None:
+        return None
     try:
         return int(raw)
     except ValueError:

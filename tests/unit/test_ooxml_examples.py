@@ -132,6 +132,40 @@ def test_an_empty_slide_gives_an_empty_example() -> None:
     assert example.shapes == []
 
 
+def test_xml_id_is_read_from_cnvpr() -> None:
+    """`cNvPr id` — настоящий id фигуры в XML; по нему фигура находится при копировании."""
+    box = (
+        "<p:sp><p:nvSpPr><p:cNvPr id='42' name='Тезис'/><p:nvPr/></p:nvSpPr>"
+        "<p:spPr><a:xfrm><a:off x='0' y='0'/><a:ext cx='100' cy='100'/></a:xfrm></p:spPr>"
+        "<p:txBody><a:p><a:r><a:t>Тезис</a:t></a:r></a:p></p:txBody></p:sp>"
+    )
+    example = parse_example(1, slide(box), None, theme())
+
+    assert example.shapes[0].xml_id == 42
+
+
+def test_xml_id_is_none_when_cnvpr_has_no_id() -> None:
+    """Фигура без `cNvPr id` — xml_id остаётся None, а не падает."""
+    box = textbox(0, 0, 100, 100, "Тезис")
+    example = parse_example(1, slide(box), None, theme())
+
+    assert example.shapes[0].xml_id is None
+
+
+def test_part_name_is_passed_through() -> None:
+    """`part_name` — имя части слайда-примера; по нему часть находится при копировании."""
+    example = parse_example(1, slide(textbox(0, 0, 100, 100, "Тезис")), None, theme(),
+                            part_name="ppt/slides/slide1.xml")
+
+    assert example.part_name == "ppt/slides/slide1.xml"
+
+
+def test_part_name_defaults_to_none() -> None:
+    example = parse_example(1, slide(""), None, theme())
+
+    assert example.part_name is None
+
+
 # --- настоящие шаблоны (правило 10) ------------------------------------------
 
 

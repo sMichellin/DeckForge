@@ -345,6 +345,19 @@
           "title": "Z",
           "type": "integer"
         },
+        "xml_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Настоящий cNvPr id фигуры в XML; по нему фигура находится при копировании рецепта",
+          "title": "Xml Id"
+        },
         "placeholder_idx": {
           "anyOf": [
             {
@@ -1082,6 +1095,19 @@
           "minimum": 1,
           "title": "Slide Index",
           "type": "integer"
+        },
+        "part_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Имя части слайда-примера (slideN.xml); по нему часть находится при копировании рецепта",
+          "title": "Part Name"
         },
         "layout_id": {
           "anyOf": [
