@@ -29,6 +29,13 @@ class _Positioned(DomainModel):
     y: int | None = Field(default=None, ge=0)
     cx: int | None = Field(default=None, gt=0)
     cy: int | None = Field(default=None, gt=0)
+    zone_id: str | None = Field(
+        default=None,
+        description=(
+            "Зона рецепта, в которую пишется блок (slide-recipes); не задан — "
+            "блок идёт в плейсхолдер макета"
+        ),
+    )
 
     @property
     def bbox(self) -> BBox | None:
@@ -229,6 +236,13 @@ class SlideIR(DomainModel):
     speaker_note: str | None = None
     provenance: Provenance = Field(default_factory=Provenance)
     fit_report: dict[str, FitResult] = Field(default_factory=dict)
+    recipe_id: str | None = Field(
+        default=None,
+        description=(
+            "Рецепт (слайд-пример шаблона), по которому writer копирует слайд "
+            "(slide-recipes)"
+        ),
+    )
 
     @model_validator(mode="after")
     def _unique_block_ids(self) -> SlideIR:

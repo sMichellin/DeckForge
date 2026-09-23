@@ -379,7 +379,7 @@ class TemplateParser:
         for index, part in enumerate(pkg.slide_parts(), start=1):
             layout_part = pkg.layout_of_slide(part)
             layout = by_part.get(layout_part or "")
-            examples.append(parse_example(index, pkg.read(part), layout, theme))
+            examples.append(parse_example(index, pkg.read(part), layout, theme, part_name=part))
         return examples
 
     def _read_decor(
