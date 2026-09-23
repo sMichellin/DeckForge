@@ -10,6 +10,7 @@ from pathlib import Path
 
 from pptx import Presentation
 
+from deckforge.designsystem import DesignSystem
 from deckforge.domain.content import ContentPackage
 from deckforge.domain.slide import DeckIR
 from deckforge.domain.template import TemplateManifest
@@ -25,8 +26,11 @@ def export_pptx(
     out: Path,
     content: ContentPackage | None = None,
     fonts: FontLibrary | None = None,
+    design_system: DesignSystem | None = None,
 ) -> Path:
-    path = PptxWriter(template_path, manifest, fonts=fonts).write(deck, out, content=content)
+    """`design_system` — та же, что видело вписывание (DG3); нет — считается из манифеста."""
+    writer = PptxWriter(template_path, manifest, fonts=fonts, design_system=design_system)
+    path = writer.write(deck, out, content=content)
     try:
         Presentation(str(path))
     except Exception as exc:

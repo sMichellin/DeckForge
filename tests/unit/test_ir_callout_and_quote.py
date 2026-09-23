@@ -292,8 +292,10 @@ async def run_nodes_after_compose(
 
 @pytest.mark.cold
 async def test_pipeline_survives_new_blocks_in_the_ir(tmp_path: Path) -> None:
-    """Нарушитель: блок, который ещё не рисуется, проходит вписывание, рендер, аудит
-    и экспорт — не исключение и не молчаливая потеря, а пропуск с заметкой."""
+    """Нарушитель: новый блок в IR проходит вписывание, рендер, аудит и экспорт —
+    не исключение и не молчаливая потеря. С DG3 (`draw-by-the-design-system`) рендер
+    его рисует, и заметки «не нарисован» больше нет: рисунок проверяет
+    `tests/unit/test_draw_by_the_design_system.py`."""
     state, notes = await run_nodes_after_compose(tmp_path, with_new_blocks=True)
 
     deck: DeckIR = state["deck"]
@@ -301,11 +303,8 @@ async def test_pipeline_survives_new_blocks_in_the_ir(tmp_path: Path) -> None:
         assert {"dg4q", "dg4c"} <= {b.block_id for b in slide.blocks}, (
             "новый блок выпал из колоды молча"
         )
-        for block_id, kind in (("dg4q", "quote"), ("dg4c", "callout")):
-            assert any(
-                note.startswith(f"{slide.slide_id}/{block_id}: блок {kind} не нарисован")
-                for note in notes
-            ), notes
+        assert {"dg4q", "dg4c"} <= set(slide.fit_report), "новый блок не вписан"
+    assert not [note for note in notes if "не нарисован" in note], notes
     assert state["pptx_path"].is_file()
     assert state["exports"]["html"].is_file()
     assert state["audit"].summary.passed + len(state["audit"].findings) > 0

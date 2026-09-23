@@ -24,6 +24,7 @@ from pptx.enum.text import MSO_ANCHOR
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Pt
 
+from deckforge.designsystem import DesignSystem
 from deckforge.designsystem.contrast import TextClass, readable_ref
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage, Dataset
@@ -33,12 +34,14 @@ from deckforge.domain.slide import (
     Block,
     BulletItem,
     BulletsBlock,
+    CalloutBlock,
     ChartBlock,
     DeckIR,
     FitResult,
     IconBlock,
     ImageBlock,
     KpiBlock,
+    QuoteBlock,
     SlideIR,
     SmartArtBlock,
     TableBlock,
@@ -51,6 +54,7 @@ from deckforge.domain.template import (
     TemplateManifest,
 )
 from deckforge.domain.units import EMU_PER_PT
+from deckforge.layout.by_design import DesignRules
 from deckforge.layout.diagram import SUPPORTED_PATTERNS
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fitting import fit_block, fit_table, table_row_heights
@@ -58,6 +62,7 @@ from deckforge.layout.fonts import FontLibrary
 from deckforge.layout.tabular import dataset_bullets, table_cells, table_has_header
 from deckforge.parsing.ooxml.layouts import resolve_placeholders
 from deckforge.parsing.package import TemplatePackage
+from deckforge.rendering.boxed import add_boxed
 from deckforge.rendering.charts import add_chart, chart_problem
 from deckforge.rendering.icons import add_icon, icon_nodes
 from deckforge.rendering.images import add_image
@@ -212,6 +217,11 @@ class SlideValidator:
                 out += self._box_problems(where, block.bbox, block.type)
                 if icon_nodes(block.query) is None:
                     out.append(f"{where}: иконки «{block.query}» нет в Lucide")
+            elif isinstance(block, QuoteBlock | CalloutBlock):
+                # Цитата и callout — свободные блоки (DG4): место им даёт решатель,
+                # кегль — вписывание по дизайн-системе. Без того и другого не пишутся.
+                out += self._box_problems(where, block.bbox, block.type)
+                out += self._fit_problems(where, block.block_id, slide)
         return out
 
     def _box_problems(self, where: str, box: BBox | None, kind: str) -> list[str]:
@@ -394,11 +404,15 @@ class PptxWriter:
         template_path: Path,
         manifest: TemplateManifest,
         fonts: FontLibrary | None = None,
+        design_system: DesignSystem | None = None,
     ) -> None:
         self.template_path = template_path
         self.manifest = manifest
         #: Шрифты для вписывания подменённых блоков (цепочка деградации диаграммы).
         self.fonts = fonts
+        #: Ответы дизайн-системы (DG3): акцент по роли, кегли числа, плитка, полоса
+        #: цитаты. Те же, что видело вписывание, — иначе записанное разойдётся с вписанным.
+        self.design = DesignRules(manifest, design_system)
         #: Что было подменено при последней записи и почему — для аудита и интерфейса.
         self.degradations: list[str] = []
         self.validator = SlideValidator(manifest)
@@ -482,6 +496,8 @@ class PptxWriter:
     ) -> None:
         slide = prs.slides.add_slide(layout)  # type: ignore[attr-defined]
         text_color = _layout_text_color(layout) or self._readable_on_background(slide_ir)
+        #: Фон, по которому дизайн-система выбирает видимый акцент (DG3).
+        background = self.design.background_hex(slide_ir.layout_id)
         used: set[int] = set()
         for block in slide_ir.blocks:
             if isinstance(block, TextBlock | BulletsBlock):
@@ -515,16 +531,24 @@ class PptxWriter:
                 )
             elif isinstance(block, KpiBlock):
                 self._add_kpi(
-                    slide, block, slide_ir.fit_report[block.block_id].final_size_pt, text_color
+                    slide, block, slide_ir.fit_report[block.block_id].final_size_pt, text_color,
+                    background,
                 )
             elif isinstance(block, SmartArtBlock):
                 add_smartart(
                     slide, block, self.manifest,
                     size_pt=slide_ir.fit_report[block.block_id].final_size_pt,
                     text_color=text_color,
+                    design=self.design,
+                    fill=self.design.block_accent(background),
                 )
             elif isinstance(block, IconBlock):
-                add_icon(slide, block)
+                add_icon(slide, block, default=self.design.block_accent(background))
+            elif isinstance(block, QuoteBlock | CalloutBlock):
+                add_boxed(
+                    slide, block, slide_ir.fit_report[block.block_id], self.manifest,
+                    self.design, text_color=text_color, background_hex=background,
+                )
 
         # Пустой плейсхолдер в PowerPoint показывает «Введите текст» — такой слайд выглядит
         # недоделанным.
@@ -634,9 +658,18 @@ class PptxWriter:
             _apply_bullets(shape.text_frame, self.manifest, size_pt)
 
     def _add_kpi(
-        self, slide: object, block: KpiBlock, size_pt: float, text_color: ColorRef | None
+        self,
+        slide: object,
+        block: KpiBlock,
+        size_pt: float,
+        text_color: ColorRef | None,
+        background: str | None = None,
     ) -> None:
-        """Колонка на показатель: значение и подпись — ссылками на тему, кегли из шкалы."""
+        """Колонка на показатель: значение и подпись — ссылками на тему, кегли из шкалы.
+
+        Кегль подписи и цвет значения — по дизайн-системе (DG3): подпись — мелкий кегль
+        числа шаблона, значение — акцент по роли. Дизайн-система не ответила — как было:
+        подпись по отношению из компонента (DS4), значение — `accent1`."""
         box: BBox = block.bbox  # type: ignore[assignment]
         value_step = self.manifest.typography(TextRole.SUBTITLE) or self.manifest.typography(
             TextRole.BODY
@@ -644,9 +677,15 @@ class PptxWriter:
         label_step = self.manifest.typography(TextRole.CAPTION) or self.manifest.typography(
             TextRole.BODY
         )
+        sizes = self.design.kpi_sizes()
         # Отношение кегля подписи к кеглю значения шаблон показывает сам — на своём
         # показателе из примеров (DS4). Нет такого компонента — кегль роли, как было.
-        label_pt = _label_size_pt(self.manifest, size_pt, label_step, size_pt)
+        label_pt = (
+            sizes.label_for(size_pt, self.manifest)
+            if sizes is not None
+            else _label_size_pt(self.manifest, size_pt, label_step, size_pt)
+        )
+        accent = self.design.block_accent(background, size_pt=size_pt)
         width = box.cx // len(block.items)
         for i, item in enumerate(block.items):
             shape = slide.shapes.add_textbox(  # type: ignore[attr-defined]
@@ -662,7 +701,7 @@ class PptxWriter:
             value = frame.paragraphs[0]
             value.text = item.value
             _style_runs(
-                value, size_pt, item.color_ref or ColorRef.ACCENT1,
+                value, size_pt, item.color_ref or accent,
                 theme_font_token(value_step.font_ref) if value_step else None,
                 value_step.bold if value_step else None,
             )

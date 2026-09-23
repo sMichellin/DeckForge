@@ -21,33 +21,12 @@ from deckforge.audit.preview import (
     render_layout_previews,
     render_previews,
 )
-from deckforge.domain.slide import CalloutBlock, DeckIR, QuoteBlock
 from deckforge.export.pptx import export_pptx
 from deckforge.pipeline.deps import Deps
 from deckforge.pipeline.nodes import timed
 from deckforge.pipeline.state import DeckState
 
 DECK_FILENAME = "deck.pptx"
-
-
-#: Виды блоков, которые контракт уже знает (DG4, `ir-callout-and-quote`), а рендер
-#: ещё не рисует — это change `compose-by-the-design-system` (DG3). Модели их не выдают
-#: (`WITHHELD_BLOCK_TYPES` в `scripts/gen_schemas.py`), композитор без места отбрасывает
-#: с заметкой; но в колоду они могут прийти и мимо модели — из чекпойнта или правки.
-#: Тогда рендер и html их пропускают, а узел называет пропуск: потеря содержимого
-#: не должна быть молчаливой. DG3 убирает вид отсюда вместе с рендером.
-NOT_DRAWN_YET: tuple[type, ...] = (QuoteBlock, CalloutBlock)
-
-
-def not_drawn(deck: DeckIR) -> list[str]:
-    """Заметки о блоках колоды, которые рендер ещё не умеет рисовать."""
-    return [
-        f"{slide.slide_id}/{block.block_id}: блок {block.type} не нарисован — "
-        "рендера этого вида ещё нет (DG3), содержимое на слайд не попало"
-        for slide in deck.slides
-        for block in slide.blocks
-        if isinstance(block, NOT_DRAWN_YET)
-    ]
 
 
 #: Каталог превью слайдов-примеров внутри кэша. Разрешение то же, что у превью колоды:
@@ -77,12 +56,16 @@ def example_previews_of(template_path: Path, template_id: str, cache_root: Path)
 
 
 async def render_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
-    """`DeckIR` → нативный .pptx (changes 13, 14, 21) и превью для аудита (change 6)."""
+    """`DeckIR` → нативный .pptx (changes 13, 14, 21) и превью для аудита (change 6).
+
+    Цитату и callout (DG4) рендер рисует сам — полосой и текстом по дизайн-системе (DG3);
+    дизайн-система та же, что видело вписывание, — из состояния графа.
+    """
     deps = runtime.context
     deck = state["deck"]
     out = deps.out_dir / DECK_FILENAME
 
-    notes: list[str] = not_drawn(deck)
+    notes: list[str] = []
     degradations: list[str] = []
     previews: dict[str, Path] = {}
     layout_previews: dict[str, Path] = {}
@@ -113,6 +96,7 @@ async def render_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
                 out,
                 content=state["content"],
                 fonts=deps.fonts,
+                design_system=state.get("design_system"),
             )
         )
         if wants_previews:

@@ -20,6 +20,7 @@ from collections.abc import Callable
 from html import escape
 from pathlib import Path
 
+from deckforge.designsystem import DesignSystem
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage, Dataset
 from deckforge.domain.enums import ChartType, ColorRef, ImageFit, TextRole
@@ -27,22 +28,28 @@ from deckforge.domain.rules import contrast_ratio
 from deckforge.domain.slide import (
     Block,
     BulletsBlock,
+    CalloutBlock,
     ChartBlock,
     DeckIR,
+    FitResult,
     IconBlock,
     ImageBlock,
     KpiBlock,
+    QuoteBlock,
     SlideIR,
     SmartArtBlock,
     TableBlock,
     TextBlock,
 )
-from deckforge.domain.template import ComponentKind, TemplateManifest, TypographyStep
+from deckforge.domain.template import TemplateManifest, TypographyStep
 from deckforge.domain.units import EMU_PER_PT, TEXT_FRAME_INSET_X_EMU, TEXT_FRAME_INSET_Y_EMU
+from deckforge.layout.boxed import BoxedBlock, geometry, paragraphs, style_of
+from deckforge.layout.by_design import DesignRules
 from deckforge.layout.diagram import ROUND_RECT_RADIUS, diagram_geometry
 from deckforge.layout.fonts import FontLibrary
 from deckforge.layout.metrics import LINE_HEIGHT_RATIO
 from deckforge.layout.tabular import format_number, table_cells, table_has_header
+from deckforge.rendering.boxed import boxed_accent
 from deckforge.rendering.icons import ICON_STROKE_WIDTH, ICON_VIEWBOX, icon_nodes
 from deckforge.rendering.smartart import LINK_WEIGHT, node_colors, text_on
 from deckforge.rendering.writer import SlideDegrader, SlideValidator, WriterError
@@ -85,9 +92,20 @@ def _pct(value: int, total: int) -> str:
 
 
 class _HtmlDeck:
-    def __init__(self, manifest: TemplateManifest, content: ContentPackage | None) -> None:
+    def __init__(
+        self,
+        manifest: TemplateManifest,
+        content: ContentPackage | None,
+        design: DesignRules | None = None,
+    ) -> None:
         self.manifest = manifest
         self.content = content
+        #: Ответы дизайн-системы — те же, что у вписывания и pptx (DG3).
+        self.design = design if design is not None else DesignRules(manifest)
+        #: Фон html-слайда — `lt1` (см. `css`): по нему и выбирается видимый акцент.
+        #: Фона макета html не знает (ADR-003), поэтому слот может разойтись с pptx
+        #: на тёмном макете — так же, как расходится цвет текста.
+        self.background = manifest.theme.colors.get(ColorRef.LT1)
         self.cx = manifest.slide_size.cx_emu
         self.cy = manifest.slide_size.cy_emu
         #: Счётчик маркеров стрелок: id из `slide_id` и `block_id` ломался на пробелах.
@@ -156,7 +174,11 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
 .kpi-row {{ display: flex; width: 100%; }} .kpi-row > div {{ flex: 1; }}
 .block img {{ width: 100%; height: 100%; display: block; }}
 .block svg {{ width: 100%; height: 100%; display: block; overflow: visible; }}
-.image, .smartart, .icon {{ padding: 0; }}
+.image, .smartart, .icon, .boxed {{ padding: 0; }}
+.boxed > div {{ position: absolute; box-sizing: border-box; }}
+.boxed .frame {{ display: flex; flex-direction: column; justify-content: center;
+  padding: {self.cqw(TEXT_FRAME_INSET_Y_EMU)} {self.cqw(TEXT_FRAME_INSET_X_EMU)}; }}
+.boxed .frame p {{ margin: 0; white-space: pre-wrap; }}
 .smartart > div {{ position: absolute; box-sizing: border-box; }}
 .smartart .label {{ display: flex; align-items: center; justify-content: center;
   text-align: center; white-space: pre-wrap; overflow-wrap: normal;
@@ -233,6 +255,14 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
             return (
                 f'<div class="block icon" {head} style="{self.place(box)}">{self.icon(block)}</div>'
             )
+        if isinstance(block, QuoteBlock | CalloutBlock):
+            fit = slide.fit_report.get(block.block_id)
+            if fit is None:
+                return ""
+            return (
+                f'<div class="block boxed {block.type}" {head} style="{self.place(box)}">'
+                f"{self.boxed(block, box, fit)}</div>"
+            )
         if isinstance(block, ChartBlock):
             dataset = self.dataset(block.dataset_ref)
             svg = self.chart(block, dataset, box) if dataset is not None else ""
@@ -290,11 +320,17 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
     def kpi(self, block: KpiBlock, size_pt: float) -> str:
         value_step = self.step(TextRole.SUBTITLE)
         label_step = self.step(TextRole.CAPTION)
-        label_size = label_step.size_pt if label_step else size_pt
+        sizes = self.design.kpi_sizes()
+        label_size = (
+            sizes.label_for(size_pt, self.manifest)
+            if sizes is not None
+            else label_step.size_pt if label_step else size_pt
+        )
         label_color = _var(label_step.color_ref if label_step else None)
+        accent = self.design.block_accent(self.background, size_pt=size_pt)
         columns = "".join(
             "<div>"
-            f'<div class="kpi-value" style="color: {_var(item.color_ref or ColorRef.ACCENT1)}">'
+            f'<div class="kpi-value" style="color: {_var(item.color_ref or accent)}">'
             f"{escape(item.value)}</div>"
             f'<div class="kpi-label" style="color: {label_color}; '
             f'font-size: {self.font_size(label_size)}">{escape(item.label)}</div>'
@@ -310,12 +346,7 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
     def smartart(self, block: SmartArtBlock, box: BBox, size_pt: float) -> str:
         """Та же раскладка, что в pptx: узлы и подписи — в процентах от рамки блока,
         коннекторы — SVG в EMU рамки (пропорции рамки и блока совпадают)."""
-        geometry = diagram_geometry(
-            block.pattern,
-            len(block.items),
-            box,
-            self.manifest.component(ComponentKind.TILE),
-        )
+        geometry = diagram_geometry(block.pattern, len(block.items), box, self.design.tile())
         step = self.step(TextRole.BODY)
         on_background = _var(step.color_ref if step else None)
         weight = "bold" if step and step.bold else "normal"
@@ -350,7 +381,11 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
 
         parts = [svg]
         for text, node, label, fill in zip(
-            block.items, geometry.nodes, geometry.labels, node_colors(block), strict=True
+            block.items,
+            geometry.nodes,
+            geometry.labels,
+            node_colors(block, self.design.block_accent(self.background)),
+            strict=True,
         ):
             radius = (
                 "50%" if geometry.round_nodes
@@ -375,6 +410,7 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
 
     def icon(self, block: IconBlock) -> str:
         """Элементы Lucide как есть: линия `currentColor`, цвет — переменная темы."""
+        color = block.color_ref or self.design.block_accent(self.background)
         nodes = "".join(
             f"<{tag} "
             + " ".join(f'{name}="{escape(value, quote=True)}"' for name, value in attrs.items())
@@ -385,8 +421,44 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
             f'<svg viewBox="0 0 {ICON_VIEWBOX} {ICON_VIEWBOX}" xmlns="http://www.w3.org/2000/svg" '
             f'fill="none" stroke="currentColor" stroke-width="{ICON_STROKE_WIDTH}" '
             'stroke-linecap="round" stroke-linejoin="round" '
-            f'style="color: {_var(block.color_ref or ColorRef.ACCENT1)}" '
+            f'style="color: {_var(color)}" '
             f'aria-hidden="true">{nodes}</svg>'
+        )
+
+    def boxed(self, block: BoxedBlock, box: BBox, fit: FitResult) -> str:
+        """Цитата и callout — та же раскладка, что в pptx (`layout.boxed`): полоса и рамка
+        текста в процентах от рамки блока, кегли из `fit_report`."""
+        style = style_of(block, self.design)
+        parts = geometry(box, style, fit.required_cy_emu)
+        step = self.step(style.role)
+        accent = boxed_accent(block, self.design, self.background)
+        ink = step.color_ref if step else None
+
+        def inside(part: BBox) -> str:
+            return (
+                f"left: {_pct(part.x - box.x, box.cx)}; top: {_pct(part.y - box.y, box.cy)}; "
+                f"width: {_pct(part.cx, box.cx)}; height: {_pct(part.cy, box.cy)}"
+            )
+
+        lines = []
+        bold = bool(step and step.bold)
+        for paragraph in paragraphs(block, style, fit.final_size_pt, bold=bold):
+            color = ink
+            if paragraph.label:
+                color = self.design.accent_ink(
+                    accent, self.background, size_pt=paragraph.size_pt, bold=paragraph.bold
+                ) or ink
+            weight = "bold" if paragraph.bold else "normal"
+            kind = "label" if paragraph.label else "author" if paragraph.minor else "text"
+            lines.append(
+                f'<p class="{kind}" style="font-size: {self.font_size(paragraph.size_pt)}; '
+                f'font-weight: {weight}; color: {_var(color)}">{escape(paragraph.text)}</p>'
+            )
+        return (
+            f'<div class="bar" style="{inside(parts.bar)}; background: {_var(accent)}"></div>'
+            f'<div class="frame" style="{inside(parts.frame)}; font-family: {self.family(step)}">'
+            + "".join(lines)
+            + "</div>"
         )
 
     def chart(self, block: ChartBlock, dataset: Dataset, box: BBox) -> str:
@@ -664,8 +736,11 @@ def export_html(
     out: Path,
     content: ContentPackage | None = None,
     fonts: FontLibrary | None = None,
+    design_system: DesignSystem | None = None,
 ) -> Path:
-    """Один самодостаточный html на колоду: то же представление, что и в pptx."""
+    """Один самодостаточный html на колоду: то же представление, что и в pptx.
+
+    `design_system` — та же, что у вписывания и pptx (DG3); нет — считается из манифеста."""
     if deck.template_id != manifest.template_id:
         raise WriterError(
             f"template_id колоды {deck.template_id} не совпадает с манифестом "
@@ -677,7 +752,10 @@ def export_html(
     problems = [p for slide in slides for p in validator.problems(slide, content)]
     if problems:
         raise WriterError("\n".join(problems))
-    document = _HtmlDeck(manifest, content).document(deck.model_copy(update={"slides": slides}))
+    design = DesignRules(manifest, design_system)
+    document = _HtmlDeck(manifest, content, design).document(
+        deck.model_copy(update={"slides": slides})
+    )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(document, encoding="utf-8")
     return out

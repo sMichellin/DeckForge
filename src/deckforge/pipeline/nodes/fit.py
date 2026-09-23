@@ -1,4 +1,8 @@
-"""Узел `fit`. Change (17) `pipeline-orchestration`."""
+"""Узел `fit`. Change (17) `pipeline-orchestration`, DG3 `draw-by-the-design-system`.
+
+Вписывание идёт по дизайн-системе шаблона из состояния графа (DG2): кегль числа,
+плитка, полоса и кегль цитаты и callout — её ответы, а не свои правила вёрстки.
+"""
 
 from __future__ import annotations
 
@@ -14,12 +18,15 @@ from deckforge.domain.slide import (
     Block,
     BulletItem,
     BulletsBlock,
+    CalloutBlock,
     DeckIR,
+    QuoteBlock,
     SlideIR,
     SmartArtBlock,
     TextBlock,
 )
 from deckforge.domain.template import TemplateManifest
+from deckforge.layout.by_design import DesignRules
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fitting import GROW, SHORTEN, SPLIT, fit_slide
 from deckforge.layout.fonts import FontLibrary
@@ -96,7 +103,7 @@ def _shortened(block: Block) -> Block | None:
         words = len(text.split())
         return shorten_to_words(text, max(floor, int(words * _SHORTEN_KEEP)))
 
-    if isinstance(block, TextBlock):
+    if isinstance(block, TextBlock | QuoteBlock | CalloutBlock):
         text = cut(block.text)
         return None if text == block.text else block.model_copy(update={"text": text})
     if isinstance(block, BulletsBlock):
@@ -112,6 +119,7 @@ def _fit_shortening(
     manifest: TemplateManifest,
     fonts: FontLibrary | None,
     content: ContentPackage,
+    design: DesignRules | None = None,
 ) -> tuple[SlideIR, list[str]]:
     """Вписывает слайд, сокращая текст, пока `fit_report` требует `shorten`.
 
@@ -125,7 +133,9 @@ def _fit_shortening(
     один такой блок ронял весь прогон (f4cf4257e07f: 3 слайда из 12). Сокращённый текст
     хуже разнесённого на два слайда, но лучше колоды, которой нет. Заметка это называет.
     """
-    fitted = fit_slide(_into_placeholders(slide), manifest, fonts=fonts, content=content)
+    fitted = fit_slide(
+        _into_placeholders(slide), manifest, fonts=fonts, content=content, design=design
+    )
     touched: set[str] = set()
     wanted_split = {
         block_id
@@ -153,12 +163,13 @@ def _fit_shortening(
             manifest,
             fonts=fonts,
             content=content,
+            design=design,
         )
 
-    fitted, flattened = _smartart_to_bullets(fitted, manifest, fonts, content)
-    fitted, dropped = _bullets_drop_tail(fitted, manifest, fonts, content)
-    fitted, given_up = _text_last_resort(fitted, manifest, fonts, content)
-    fitted, shrunk = _titles_yield_size(fitted, manifest, fonts, content)
+    fitted, flattened = _smartart_to_bullets(fitted, manifest, fonts, content, design)
+    fitted, dropped = _bullets_drop_tail(fitted, manifest, fonts, content, design)
+    fitted, given_up = _text_last_resort(fitted, manifest, fonts, content, design)
+    fitted, shrunk = _titles_yield_size(fitted, manifest, fonts, content, design)
     grown = [
         f"{fitted.slide_id}/{block_id}: кегль поднят до {fit.final_size_pt:g} pt — "
         "текста было мало для отведённой рамки"
@@ -187,6 +198,7 @@ def _smartart_to_bullets(
     manifest: TemplateManifest,
     fonts: FontLibrary | None,
     content: ContentPackage,
+    design: DesignRules | None = None,
 ) -> tuple[SlideIR, list[str]]:
     """Схема, подписи которой не влезли в её рамку, становится списком тех же пунктов.
 
@@ -224,6 +236,7 @@ def _smartart_to_bullets(
         manifest,
         fonts=fonts,
         content=content,
+        design=design,
     )
     return slide, notes
 
@@ -233,6 +246,7 @@ def _bullets_drop_tail(
     manifest: TemplateManifest,
     fonts: FontLibrary | None,
     content: ContentPackage,
+    design: DesignRules | None = None,
 ) -> tuple[SlideIR, list[str]]:
     """Список, который не влез и сокращённым, теряет последние пункты — а не всю колоду.
 
@@ -268,6 +282,7 @@ def _bullets_drop_tail(
             manifest,
             fonts=fonts,
             content=content,
+            design=design,
         )
 
 
@@ -281,6 +296,7 @@ def _text_last_resort(
     manifest: TemplateManifest,
     fonts: FontLibrary | None,
     content: ContentPackage,
+    design: DesignRules | None = None,
 ) -> tuple[SlideIR, list[str]]:
     """Текст, не влезший и в три слова, режется до двух, а не влезший и так — снимается.
 
@@ -289,17 +305,18 @@ def _text_last_resort(
     целиком. Колода без подзаголовка лучше колоды, которой нет; заметка называет,
     что снято, а потерю факта увидит аудит. Заголовок сюда не попадает: ему уступает
     кегль (`_titles_yield_size`).
+
+    Цитата и callout (DG3) — тот же текст в рамке, и защищены так же: писатель блок
+    с переполнением не пишет, и одна цитата не в своей рамке роняла бы всю колоду.
     """
     notes: list[str] = []
 
     def stuck(block: Block) -> bool:
         fit = slide.fit_report.get(block.block_id)
-        return (
-            isinstance(block, TextBlock)
-            and block.role is not TextRole.TITLE
-            and fit is not None
-            and fit.overflow
-        )
+        text_like = (
+            isinstance(block, TextBlock) and block.role is not TextRole.TITLE
+        ) or isinstance(block, QuoteBlock | CalloutBlock)
+        return text_like and fit is not None and fit.overflow
 
     over = {block.block_id for block in slide.blocks if stuck(block)}
     if not over:
@@ -307,7 +324,7 @@ def _text_last_resort(
 
     blocks: list[Block] = []
     for block in slide.blocks:
-        if block.block_id in over and isinstance(block, TextBlock):
+        if block.block_id in over and isinstance(block, TextBlock | QuoteBlock | CalloutBlock):
             short = shorten_to_words(block.text, _MIN_TITLE_WORDS)
             block = block.model_copy(update={"text": short})
         blocks.append(block)
@@ -316,13 +333,15 @@ def _text_last_resort(
         manifest,
         fonts=fonts,
         content=content,
+        design=design,
     )
 
     kept: list[Block] = []
     for block in slide.blocks:
-        if stuck(block) and isinstance(block, TextBlock):
+        if stuck(block) and isinstance(block, TextBlock | QuoteBlock | CalloutBlock):
+            kind = "текст" if isinstance(block, TextBlock) else f"блок {block.type}"
             notes.append(
-                f"{slide.slide_id}/{block.block_id}: текст «{block.text}» снят — "
+                f"{slide.slide_id}/{block.block_id}: {kind} «{block.text}» снят — "
                 "не помещается в место макета даже в два слова"
             )
             continue
@@ -342,6 +361,7 @@ def _titles_yield_size(
     manifest: TemplateManifest,
     fonts: FontLibrary | None,
     content: ContentPackage,
+    design: DesignRules | None = None,
 ) -> tuple[SlideIR, list[str]]:
     """Заголовку, в котором сокращать уже нечего, уступает кегль.
 
@@ -377,15 +397,21 @@ def _titles_yield_size(
             manifest,
             fonts=fonts,
             content=content,
+            design=design,
         )
     return slide, notes
 
 
 async def fit_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
-    """Вписывание текста метриками гарнитуры до записи файла (change 12)."""
+    """Вписывание текста метриками гарнитуры до записи файла (change 12).
+
+    По дизайн-системе из состояния (DG3). Её нет — старый чекпойнт до DG2 — она
+    считается из манифеста: `derive` чистая и стоит миллисекунды.
+    """
     deps = runtime.context
     manifest = state["manifest"]
     plan = state["plan"]
+    design = DesignRules(manifest, state.get("design_system"))
 
     def work() -> tuple[list[SlideIR], list[str], list[str]]:
         fitted: list[SlideIR] = []
@@ -394,7 +420,7 @@ async def fit_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
         for slide in _ordered(state):
             try:
                 slide_fitted, slide_notes = _fit_shortening(
-                    slide, manifest, deps.fonts, state["content"]
+                    slide, manifest, deps.fonts, state["content"], design
                 )
             except LayoutFitError as error:
                 failed.append(f"слайд {slide.slide_id} не вписан: {error}")
@@ -408,6 +434,11 @@ async def fit_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
 
     if not fitted:
         raise RuntimeError(f"ни один слайд не вписан: {'; '.join(failed)}")
+
+    # Правило 10: чего дизайн-система не измерила, там вёрстка прежняя — и это названо.
+    # Один раз на прогон, а не на каждый виток починки: заметки копятся.
+    if not state.get("fix_round"):
+        notes = [*design.cold_notes(), *notes]
 
     deck = DeckIR(
         deck_id=plan.deck_id,

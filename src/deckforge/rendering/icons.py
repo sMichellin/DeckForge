@@ -363,8 +363,10 @@ def _path_xml(segments: list[Segment], filled: bool) -> str:
     return f'<a:path w="{size}" h="{size}"{fill}>{"".join(body)}</a:path>'
 
 
-def add_icon(slide: object, block: IconBlock) -> object:
-    """Квадратная иконка по центру рамки блока, линия и заливка — ссылкой на цвет темы."""
+def add_icon(slide: object, block: IconBlock, default: ColorRef = ColorRef.ACCENT1) -> object:
+    """Квадратная иконка по центру рамки блока, линия и заливка — ссылкой на цвет темы.
+
+    `default` — цвет, когда IR его не назвал: акцент по роли дизайн-системы (DG3)."""
     nodes = icon_nodes(block.query)
     if nodes is None:
         raise KeyError(f"иконки {block.query} нет в Lucide")
@@ -396,7 +398,7 @@ def add_icon(slide: object, block: IconBlock) -> object:
     preset.addprevious(geometry)
     element.spPr.remove(preset)
 
-    color = block.color_ref or ColorRef.ACCENT1
+    color = block.color_ref or default
     if any(filled):
         apply_theme_color(shape.fill, color)
     else:

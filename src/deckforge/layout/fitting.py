@@ -21,8 +21,10 @@ from deckforge.domain.enums import TextRole
 from deckforge.domain.rules import next_size_down, next_size_up
 from deckforge.domain.slide import (
     BulletsBlock,
+    CalloutBlock,
     FitResult,
     KpiBlock,
+    QuoteBlock,
     SlideIR,
     SmartArtBlock,
     TableBlock,
@@ -35,6 +37,8 @@ from deckforge.domain.template import (
     TypographyStep,
 )
 from deckforge.domain.units import TEXT_FRAME_INSET_Y_EMU
+from deckforge.layout.boxed import BoxedBlock, paragraphs, style_of, text_frame
+from deckforge.layout.by_design import DesignRules, KpiSizes
 from deckforge.layout.diagram import SUPPORTED_PATTERNS, diagram_geometry
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fonts import FontLibrary
@@ -49,6 +53,7 @@ from deckforge.layout.tabular import table_cells, table_has_header
 __all__ = [
     "LayoutFitError",
     "fit_block",
+    "fit_boxed",
     "fit_kpi",
     "fit_slide",
     "fit_smartart",
@@ -237,17 +242,27 @@ def fit_kpi(
     manifest: TemplateManifest,
     *,
     fonts: FontLibrary | None = None,
+    sizes: KpiSizes | None = None,
 ) -> FitResult:
-    """Показатели колонками: значение от кегля `subtitle` вниз по шкале, подпись —
-    кеглем `caption`. `final_size_pt` — кегль значения.
+    """Показатели колонками. `final_size_pt` — кегль значения.
+
+    `sizes` — кегли по дизайн-системе (`DesignRules.kpi_sizes`): значение начинается
+    с ступени, которой шаблон сам набрал своё число, подпись — мелкий кегль числа.
+    Шаблон ответил — выше своего кегля значение не растёт: это его размер, а не наш.
+    Нет ответа — прежнее правило: значение от кегля `subtitle` вниз по шкале и рост
+    до кегля заголовка (#87), подпись — кеглем `caption`.
 
     Значение верстается как текст: перенос между словами допустим, разрыв слова
-    и разрыв числа — нет (см. `_value_holds_together`)."""
+    и разрыв числа — нет (см. `_value_holds_together`, B13). Это общее для обоих путей:
+    иначе фразовое значение снова посадило бы весь блок на мелкий кегль."""
     value_step = manifest.typography(TextRole.SUBTITLE) or _step_for(TextRole.BODY, manifest)
     label_step = manifest.typography(TextRole.CAPTION) or _step_for(TextRole.BODY, manifest)
     column = BBox(x=box.x, y=box.y, cx=max(1, box.cx // len(block.items)), cy=box.cy)
     available = usable_height_emu(box)
     value_font = _font_of(value_step, manifest)
+
+    def label_pt(value_pt: float) -> float:
+        return sizes.label_for(value_pt, manifest) if sizes is not None else label_step.size_pt
 
     def measured(size_pt: float) -> tuple[bool, int, int]:
         """(значение верстается без разрывов, строк всего, нужная высота) при этом кегле."""
@@ -256,7 +271,7 @@ def fit_kpi(
             value = measure_text(item.value, font_family=value_font, size_pt=size_pt,
                                  box=column, bold=value_step.bold, fonts=fonts)
             label = measure_text(item.label, font_family=_font_of(label_step, manifest),
-                                 size_pt=label_step.size_pt, box=column, fonts=fonts)
+                                 size_pt=label_pt(size_pt), box=column, fonts=fonts)
             whole = whole and _value_holds_together(
                 item.value, value.lines, font=value_font, size_pt=size_pt,
                 column=column, bold=value_step.bold, fonts=fonts
@@ -265,13 +280,15 @@ def fit_kpi(
             required = max(required, value.height_emu + label.height_emu)
         return whole, lines, required
 
-    size, lines, required = value_step.size_pt, 0, 0
-    for size in _sizes(manifest, value_step.size_pt, allow_shrink=True):
+    start = sizes.value_pt if sizes is not None else value_step.size_pt
+    size, lines, required = start, 0, 0
+    for size in _sizes(manifest, start, allow_shrink=True):
         whole, lines, required = measured(size)
         if whole and required <= available:
-            return _grown_kpi(
-                _fits(size, value_step.size_pt, lines, required), measured, manifest, available
-            )
+            fitted = _fits(size, start, lines, required)
+            if sizes is not None:
+                return fitted
+            return _grown_kpi(fitted, measured, manifest, available)
     return _overflow(size, lines, required, available, splittable=False)
 
 
@@ -350,18 +367,21 @@ def fit_smartart(
     manifest: TemplateManifest,
     *,
     fonts: FontLibrary | None = None,
+    design: DesignRules | None = None,
 ) -> FitResult:
     """Все подписи компонента одним кеглем: от `body` вниз по шкале, пока каждая не влезет
     в свою рамку из `diagram_geometry`. Разный кегль у соседних шагов выглядит ошибкой.
 
     Рамки узлов узкие, и слово в них рвётся по знакам: высота при этом влезает, но «Прове/рка»
     в узле — брак вёрстки. Поэтому подпись влезла, только если и каждое её слово встало
-    в строку целиком."""
+    в строку целиком.
+
+    Плитка — из каталога дизайн-системы (`design.tile()`), без неё — из манифеста, как
+    было: запись pptx и html берут её из того же места, иначе рамки подписей разошлись бы."""
     step = _step_for(TextRole.BODY, manifest)
     font = _font_of(step, manifest)
-    labels = diagram_geometry(
-        block.pattern, len(block.items), box, manifest.component(ComponentKind.TILE)
-    ).labels
+    tile = design.tile() if design is not None else manifest.component(ComponentKind.TILE)
+    labels = diagram_geometry(block.pattern, len(block.items), box, tile).labels
     available = min(usable_height_emu(label) for label in labels)
 
     def measured(size_pt: float) -> tuple[bool, int, int]:
@@ -424,6 +444,47 @@ def _grown_labels(
             break
         size = next_size_up(manifest, size)
     return best
+
+
+def fit_boxed(
+    block: BoxedBlock,
+    box: BBox,
+    manifest: TemplateManifest,
+    design: DesignRules,
+    *,
+    fonts: FontLibrary | None = None,
+) -> FitResult:
+    """Цитата или callout: кегль текста от ступени дизайн-системы вниз по шкале.
+
+    Меряется всё, что встанет в рамку текста справа от полосы: подпись вида у callout,
+    сам текст и строку автора у цитаты. `final_size_pt` — кегль текста; подпись вида
+    идёт тем же кеглем, строка автора — кеглем подписи, но не крупнее текста.
+    Не растёт: кегль цитаты — решение дизайн-системы, а место вокруг неё — воздух.
+    """
+    style = style_of(block, design)
+    step = _step_for(style.role, manifest)
+    font = _font_of(step, manifest)
+    frame = text_frame(box, style)
+    available = usable_height_emu(frame)
+    spacing = step.line_spacing or 1.0
+
+    def measured(size_pt: float) -> tuple[int, int]:
+        lines, required = 0, 0
+        for paragraph in paragraphs(block, style, size_pt, bold=step.bold):
+            m = measure_text(
+                paragraph.text, font_family=font, size_pt=paragraph.size_pt, box=frame,
+                line_spacing=spacing, bold=paragraph.bold, italic=step.italic, fonts=fonts,
+            )
+            lines += m.lines
+            required += m.height_emu
+        return lines, required
+
+    size, lines, required = style.text_pt, 0, 0
+    for size in _sizes(manifest, style.text_pt, allow_shrink=True):
+        lines, required = measured(size)
+        if required <= available:
+            return _fits(size, style.text_pt, lines, required)
+    return _overflow(size, lines, required, available, splittable=False)
 
 
 def _box_for(block: TextBlock | BulletsBlock, layout: LayoutSpec) -> BBox:
@@ -592,13 +653,18 @@ def fit_slide(
     *,
     fonts: FontLibrary | None = None,
     content: ContentPackage | None = None,
+    design: DesignRules | None = None,
 ) -> SlideIR:
-    """Возвращает слайд с заполненным `fit_report` по текстовым блокам, таблицам, KPI
-    и составным компонентам. Неподдерживаемый паттерн не вписывается: писатель заменит его
-    буллетами и впишет их сам."""
+    """Возвращает слайд с заполненным `fit_report` по текстовым блокам, таблицам, KPI,
+    составным компонентам, цитатам и callout. Неподдерживаемый паттерн не вписывается:
+    писатель заменит его буллетами и впишет их сам.
+
+    `design` — ответы дизайн-системы (DG3). Узел `fit` передаёт их из состояния графа;
+    без них они считаются из манифеста здесь же."""
     layout = manifest.layout(slide.layout_id)
     if layout is None:
         raise LayoutFitError(f"слайд {slide.slide_id}: макета {slide.layout_id} нет в манифесте")
+    rules = design if design is not None else DesignRules(manifest)
     report: dict[str, FitResult] = {}
     for block in slide.blocks:
         if isinstance(block, TextBlock | BulletsBlock):
@@ -608,7 +674,13 @@ def fit_slide(
                 continue
             if block.bbox is None:
                 raise LayoutFitError(f"блок {block.block_id}: smartart требует координат")
-            report[block.block_id] = fit_smartart(block, block.bbox, manifest, fonts=fonts)
+            report[block.block_id] = fit_smartart(
+                block, block.bbox, manifest, fonts=fonts, design=rules
+            )
+        elif isinstance(block, QuoteBlock | CalloutBlock):
+            if block.bbox is None:
+                raise LayoutFitError(f"блок {block.block_id}: {block.type} требует координат")
+            report[block.block_id] = fit_boxed(block, block.bbox, manifest, rules, fonts=fonts)
         elif isinstance(block, TableBlock | KpiBlock):
             box = block.bbox
             if box is None:
@@ -623,5 +695,7 @@ def fit_slide(
                     block, box, manifest, dataset=dataset, fonts=fonts
                 )
             else:
-                report[block.block_id] = fit_kpi(block, box, manifest, fonts=fonts)
+                report[block.block_id] = fit_kpi(
+                    block, box, manifest, fonts=fonts, sizes=rules.kpi_sizes()
+                )
     return slide.model_copy(update={"fit_report": report})

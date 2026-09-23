@@ -22,6 +22,7 @@ from deckforge.domain.rules import contrast_ratio
 from deckforge.domain.slide import SmartArtBlock
 from deckforge.domain.template import ComponentKind, TemplateManifest
 from deckforge.domain.units import EMU_PER_PT
+from deckforge.layout.by_design import DesignRules
 from deckforge.layout.diagram import diagram_geometry
 from deckforge.rendering.theme_binding import apply_theme_color, theme_font_token
 
@@ -38,8 +39,9 @@ def text_on(fill: ColorRef, manifest: TemplateManifest) -> ColorRef:
     return ColorRef.DK1 if dark >= light else ColorRef.LT1
 
 
-def node_colors(block: SmartArtBlock) -> list[ColorRef]:
-    refs = block.color_refs or [ColorRef.ACCENT1]
+def node_colors(block: SmartArtBlock, default: ColorRef = ColorRef.ACCENT1) -> list[ColorRef]:
+    """Заливки узлов: слоты из IR, иначе `default` — акцент по роли дизайн-системы (DG3)."""
+    refs = block.color_refs or [default]
     return [refs[i % len(refs)] for i in range(len(block.items))]
 
 
@@ -50,15 +52,19 @@ def add_smartart(
     *,
     size_pt: float,
     text_color: ColorRef | None,
+    design: DesignRules | None = None,
+    fill: ColorRef = ColorRef.ACCENT1,
 ) -> object:
     """Группа фигур компонента. `text_color` — цвет свободного текста макета: им подписаны
-    элементы шкалы времени и нарисованы коннекторы, потому что они лежат на фоне слайда."""
+    элементы шкалы времени и нарисованы коннекторы, потому что они лежат на фоне слайда.
+
+    `design` — плитка из каталога дизайн-системы (та же, что у вписывания), `fill` —
+    заливка узлов, когда IR слотов не назвал."""
     box = block.bbox
     if box is None:
         raise ValueError(f"компонент {block.block_id} без координат")
-    geometry = diagram_geometry(
-        block.pattern, len(block.items), box, manifest.component(ComponentKind.TILE)
-    )
+    tile = design.tile() if design is not None else manifest.component(ComponentKind.TILE)
+    geometry = diagram_geometry(block.pattern, len(block.items), box, tile)
     body = manifest.typography(TextRole.BODY)
     on_background = text_color or (body.color_ref if body else None) or ColorRef.DK1
     font_token = theme_font_token(body.font_ref) if body else None
@@ -82,14 +88,16 @@ def add_smartart(
             )
 
     preset = MSO_SHAPE.OVAL if geometry.round_nodes else MSO_SHAPE.ROUNDED_RECTANGLE
-    for text, node, fill in zip(block.items, geometry.nodes, node_colors(block), strict=True):
+    for text, node, node_fill in zip(
+        block.items, geometry.nodes, node_colors(block, fill), strict=True
+    ):
         shape = shapes.add_shape(preset, *_emu(node))
         _drop_style(shape)
-        apply_theme_color(shape.fill, fill)
+        apply_theme_color(shape.fill, node_fill)
         shape.line.fill.background()
         if geometry.text_inside:
-            _write(shape.text_frame, text, size_pt, text_on(fill, manifest), font_token, bold,
-                   MSO_ANCHOR.MIDDLE)
+            _write(shape.text_frame, text, size_pt, text_on(node_fill, manifest), font_token,
+                   bold, MSO_ANCHOR.MIDDLE)
 
     if not geometry.text_inside:
         for text, label in zip(block.items, geometry.labels, strict=True):

@@ -12,10 +12,15 @@ from dataclasses import dataclass
 from itertools import pairwise
 from typing import NamedTuple
 
+from deckforge.designsystem.models import ComponentCard
 from deckforge.domain.base import BBox
 from deckforge.domain.enums import SmartArtPattern
 from deckforge.domain.template import ComponentKind, ComponentSpec
 from deckforge.layout.errors import LayoutFitError
+
+#: Плитка шаблона: из манифеста (DS3) или из каталога дизайн-системы (DG3). Поля
+#: у них одни и те же — доли ширины, высоты и шага; пропорции считаются по ним.
+Component = ComponentSpec | ComponentCard
 
 SUPPORTED_PATTERNS = frozenset(
     {
@@ -86,7 +91,7 @@ def diagram_geometry(
     pattern: SmartArtPattern,
     count: int,
     box: BBox,
-    component: ComponentSpec | None = None,
+    component: Component | None = None,
 ) -> Diagram:
     """Геометрия составного компонента.
 
@@ -147,7 +152,7 @@ def _matrix_columns(count: int, box: BBox) -> int:
     return max(range(1, count + 1), key=lambda columns: (short_side(columns), -columns))
 
 
-def _matrix_shape(component: ComponentSpec | None) -> tuple[float, float]:
+def _matrix_shape(component: Component | None) -> tuple[float, float]:
     """(зазор в долях плитки, наибольшая высота в ширинах) — от шаблона или наши.
 
     Шаблон говорит о плитке двумя числами: какой она формы и как далеко стоит от
@@ -164,7 +169,11 @@ def _matrix_shape(component: ComponentSpec | None) -> tuple[float, float]:
     gap = (component.gap_share - along) / along if along > 0 else 0.0
     # `ComponentSpec.aspect` — ширина к высоте, а раскладке нужна высота в ширинах:
     # величины обратные, и перепутать их значит сделать плитку вдвое выше вместо вдвое площе.
-    aspect = 1 / component.aspect if component.aspect > 0 else _MATRIX_NODE_ASPECT
+    # Считается по долям, а не свойством: у карточки дизайн-системы свойства `aspect` нет.
+    width_to_height = (
+        component.width_share / component.height_share if component.height_share else 0.0
+    )
+    aspect = 1 / width_to_height if width_to_height > 0 else _MATRIX_NODE_ASPECT
     return (
         gap if _MIN_TEMPLATE_GAP <= gap <= _MAX_TEMPLATE_GAP else _MATRIX_GAP,
         aspect if _MIN_TEMPLATE_ASPECT <= aspect <= _MAX_TEMPLATE_ASPECT
