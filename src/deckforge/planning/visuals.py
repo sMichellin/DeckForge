@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from deckforge.designsystem import DesignSystem
+from deckforge.designsystem.models import Recipe, RecipeKind
 from deckforge.domain.enums import CalloutTone, ChartType, ListStyle, SmartArtPattern
 
 #: Заказ без уточнения: вид схемы выберет композитор, тип диаграммы — правило по данным
@@ -34,6 +35,28 @@ DESIGN_ORDERS: dict[str, str] = {
     f"callout:{CalloutTone.RISK.value}": "callout_risk",
     f"bullets:{ListStyle.NUMBERED.value}": ListStyle.NUMBERED.value,
     f"bullets:{ListStyle.ICON.value}": ListStyle.ICON.value,
+}
+
+
+#: Вид композиции шаблона → заказ плана. `kpi` и `image` в словаре уже есть — у шаблона
+#: с такими рецептами они просто становятся заказом «у шаблона есть готовая композиция»;
+#: `cards` и `text` появляются в словаре только вместе с рецептами (change
+#: `recipe-kinds-in-the-plan`).
+RECIPE_ORDERS: dict[RecipeKind, str] = {
+    RecipeKind.METRICS: "kpi",
+    RecipeKind.CARDS: "cards",
+    RecipeKind.TEXT_WITH_PICTURE: "image",
+    RecipeKind.TEXT: "text",
+}
+
+#: Как вид композиции называется плану словами. Число повторов подставляется по шаблону:
+#: «карточки: 3–5 повторов» — это то, что план должен знать, чтобы не просить пять пунктов
+#: там, где у шаблона их три.
+RECIPE_PURPOSES: dict[RecipeKind, str] = {
+    RecipeKind.METRICS: "Готовая композиция шаблона: ряд показателей с крупными числами",
+    RecipeKind.CARDS: "Готовая композиция шаблона: ряд карточек",
+    RecipeKind.TEXT_WITH_PICTURE: "Готовая композиция шаблона: текст рядом с картинкой",
+    RecipeKind.TEXT: "Готовая композиция шаблона: заголовок и текст",
 }
 
 
@@ -62,11 +85,59 @@ def design_menu(ds: DesignSystem | None) -> list[DesignOrder]:
     purposes: dict[str, str] = {}
     for element in ds.synthesized:
         purposes.setdefault(element.kind, element.purpose)
-    return [
+    elements = [
         DesignOrder(order=order, purpose=purposes[kind])
         for order, kind in DESIGN_ORDERS.items()
         if purposes.get(kind)
     ]
+    #: Композиции шаблона идут первыми: слайд целиком по шаблону важнее отдельного
+    #: элемента на нём. Заказ, уже названный элементом, не повторяется.
+    named = {item.order for item in elements}
+    return [item for item in composition_menu(ds) if item.order not in named] + elements
+
+
+def _plural_repeats(count: int) -> str:
+    tail = count % 100
+    if 11 <= tail <= 14:
+        return "повторов"
+    last = count % 10
+    if last == 1:
+        return "повтор"
+    if 2 <= last <= 4:
+        return "повтора"
+    return "повторов"
+
+
+def _repeats_words(recipes: list[Recipe]) -> str:
+    """Сколько повторов у композиций этого вида — словами, диапазоном.
+
+    Это то, что плану нужно знать, чтобы не просить пять пунктов там, где шаблон
+    рисует три.
+    """
+    counts = sorted({recipe.repeats for recipe in recipes if recipe.repeats})
+    if not counts:
+        return ""
+    if len(counts) == 1:
+        return f", {counts[0]} {_plural_repeats(counts[0])}"
+    return f", {counts[0]}–{counts[-1]} {_plural_repeats(counts[-1])}"
+
+
+def composition_menu(ds: DesignSystem | None) -> list[DesignOrder]:
+    """Композиции, которые шаблон умеет сам: план называет вид, пример выберет счёт.
+
+    Обложка, перебивка и финал в меню не идут: их слайд получает по своему месту
+    в колоде, а не по заказу (решение §4 зонтичного предложения `slide-recipes`).
+    """
+    if ds is None or not ds.recipes:
+        return []
+    out: list[DesignOrder] = []
+    for kind, order in RECIPE_ORDERS.items():
+        same = [recipe for recipe in ds.recipes if recipe.kind is kind]
+        if same:
+            out.append(
+                DesignOrder(order=order, purpose=RECIPE_PURPOSES[kind] + _repeats_words(same))
+            )
+    return out
 
 
 def vocabulary(ds: DesignSystem | None = None) -> tuple[str, ...]:
