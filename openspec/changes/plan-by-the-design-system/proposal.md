@@ -86,9 +86,11 @@ Capability: `deck-planning`. Основание: прогон 23.09 — посл
 
 Промпт отрисован на VK Tech — меню из пяти элементов с назначениями из ДС шаблона.
 
-Полный `pytest`, `ruff check`, `mypy`, гейты C1/C2 и C6 — чисто, кроме
-`test_manifest_round_trips_through_json[Metropolis.pptx]`: он падает и на чистом `main`
-(локальный холодный шаблон, на CI шаблонов нет) и к этому change не относится.
+`ruff check`, `mypy`, гейты C1/C2 и C6 — чисто. Полный `pytest` локально: 1794 прошли,
+4 упали — те же 4 падают и на чистом `main` (1773 прошли), все про окружение машины
+разработки, а не про код: `test_manifest_round_trips_through_json[Metropolis.pptx]`
+(локальный холодный шаблон, на CI шаблонов нет), `test_runner_populates_the_registry_itself`
+(чистый процесс), два теста `test_audit_spelling` (сервер LanguageTool).
 
 ## Что осталось незакрытым
 
