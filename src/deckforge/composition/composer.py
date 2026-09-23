@@ -92,13 +92,37 @@ _ORDINAL = re.compile(r"^\s*(\d{1,2})[.)]\s+")
 
 #: Какой блок IR отвечает заказу плана (`SlidePlan.suggested_visual`). Словарь заказов
 #: собирает слой планирования; здесь — только соответствие заказа типу блока.
+#: Цитата, callout и список — заказы элементов дизайн-системы (`plan-by-the-design-system`):
+#: вид после двоеточия — `tone` у callout и `style` у списка (`_fulfils`).
 _ORDERED_BLOCK: dict[str, type[Block]] = {
     "kpi": KpiBlock,
     "table": TableBlockIR,
     "image": ImageBlock,
     "chart": ChartBlock,
     "smartart": SmartArtBlock,
+    "quote": QuoteBlock,
+    "callout": CalloutBlock,
+    "bullets": BulletsBlock,
 }
+
+
+def _fulfils(order: str, block: Block) -> bool:
+    """Выполняет ли блок заказ плана.
+
+    У схемы и диаграммы вид после двоеточия — подсказка композитору, а не условие:
+    вид схемы выбирает он сам, тип диаграммы — правило по данным. У элементов
+    дизайн-системы вид и есть заказ: callout «риск» вместо заказанного «инсайта» —
+    другой элемент ДС, а маркированный список вместо иконочного — не тот список.
+    """
+    kind, _, detail = order.partition(":")
+    wanted = _ORDERED_BLOCK.get(kind)
+    if wanted is None or not isinstance(block, wanted):
+        return False
+    if isinstance(block, CalloutBlock) and detail:
+        return block.tone.value == detail
+    if isinstance(block, BulletsBlock) and detail:
+        return (block.style or ListStyle.BULLETED).value == detail
+    return True
 
 
 class CompositionError(RuntimeError):
@@ -459,10 +483,9 @@ class SlideComposer:
         тоже нельзя: план просил показать мысль, а слайд её пересказал абзацем.
         """
         ordered = slide.suggested_visual
-        if not ordered:
+        if not ordered or ordered.split(":")[0] not in _ORDERED_BLOCK:
             return
-        wanted = _ORDERED_BLOCK.get(ordered.split(":")[0])
-        if wanted is None or any(isinstance(block, wanted) for block in blocks):
+        if any(_fulfils(ordered, block) for block in blocks):
             return
         self._note(slide.slide_id, f"план заказал «{ordered}», модель такого блока не дала")
 

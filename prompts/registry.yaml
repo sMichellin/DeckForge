@@ -2,7 +2,7 @@
 # Прямое чтение файлов промптов из кода запрещено — только через deckforge.registry.
 skills:
   deck_planner:
-    active: "1.1.0"
+    active: "1.2.0"
     model_ref: llm_main
   slide_composer:
     active: "1.3.1"

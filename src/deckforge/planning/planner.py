@@ -5,6 +5,10 @@
 
 Планировщик не видит шаблон — только доступные **виды** макетов. Иначе решение
 окажется заточенным под знакомые шаблоны, а на защите шаблон будет незнакомый (C6).
+
+С change `plan-by-the-design-system` он видит и **меню дизайн-системы** шаблона:
+какие её элементы (цитата, callout, стили списка) можно заказать слайду и когда они
+уместны. Не координаты и не цвета — виды и назначения, как у композитора.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ import asyncio
 from functools import partial
 from typing import Any
 
+from deckforge.designsystem import DesignSystem
 from deckforge.domain.content import ContentPackage
 from deckforge.domain.plan import DeckPlan, SlidePlan
 from deckforge.domain.template import TemplateManifest
@@ -20,6 +25,7 @@ from deckforge.domain.variants import VariantProfile
 from deckforge.inference.client import InferenceClient
 from deckforge.inference.structured import generate_model
 from deckforge.planning.narrative import MANDATORY_FRAMES, check_narrative
+from deckforge.planning.visuals import design_menu
 from deckforge.planning.visuals import normalize as normalize_visual
 from deckforge.planning.visuals import vocabulary as visual_vocabulary
 from deckforge.registry import get_prompt_registry
@@ -92,8 +98,13 @@ class DeckPlanner:
         *,
         headline_limit: int | None = None,
         no_think: bool = False,
+        design_system: DesignSystem | None = None,
     ) -> DeckPlan:
         """Промпт получает только *доступные виды макетов* манифеста, не сам шаблон.
+
+        `design_system` — дизайн-система шаблона из состояния графа (DG2). По ней план
+        узнаёт, какие элементы ДС можно заказать слайду и когда они уместны; заказ
+        элемента, которого в ДС нет, снимается. Нет ДС — словарь прежний.
 
         `no_think` добавляет в запрос «/no_think» — команду семейства Qwen3 не размышлять.
         По умолчанию выключено: отключение размышлений понимают не все провайдеры,
@@ -112,7 +123,8 @@ class DeckPlanner:
             slides_target=slides_for(content, content.brief.purpose, content.brief.target_slides),
             facts_per_slide=FACTS_PER_SLIDE,
             headline_chars=headline_limit or headline_chars(manifest),
-            visual_vocabulary=visual_vocabulary(),
+            visual_vocabulary=visual_vocabulary(design_system),
+            design_menu=design_menu(design_system),
             no_think=no_think,
         )
 
@@ -138,7 +150,7 @@ class DeckPlanner:
             },
         )
         raw_plan, _completion = await asyncio.to_thread(call)
-        return self._ground(raw_plan, content, variant, seed)
+        return self._ground(raw_plan, content, variant, seed, design_system=design_system)
 
     def _ground(
         self,
@@ -148,6 +160,7 @@ class DeckPlanner:
         seed: int,
         *,
         no_think: bool = False,
+        design_system: DesignSystem | None = None,
     ) -> DeckPlan:
         """Привязывает план к реальности: ссылки, вариант, seed, отчёт по нарративу.
 
@@ -166,7 +179,7 @@ class DeckPlanner:
             # Заказ визуализации — единственный канал «здесь нужны показатели, здесь схема».
             # Незнакомое значение снимается: прогон 693d464d54fb, `visual: section` —
             # это вид макета, а не визуализация, и композитор печатал его в свой промпт.
-            visual = normalize_visual(slide.suggested_visual)
+            visual = normalize_visual(slide.suggested_visual, design_system)
             if visual != slide.suggested_visual:
                 if slide.suggested_visual:
                     bad_visuals.append(f"{slide.slide_id}: {slide.suggested_visual}")
