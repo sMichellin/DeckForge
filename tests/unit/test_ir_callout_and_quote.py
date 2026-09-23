@@ -8,6 +8,11 @@
 * модель не может заказать блок, который рендер ещё не рисует, — его нет в схеме
   ответа композитора; а если такой блок всё же оказался в IR, конвейер не падает
   и не теряет его молча.
+
+С `compose-by-the-design-system` (DG3) рендер цитату и callout рисует, и исключение
+из схемы ответа снято: проверки «вида нет в схеме ответа» заменены обратными
+в `tests/unit/test_compose_by_the_design_system.py`. Здесь остался механизм исключения
+(`test_the_exclusion_would_catch_a_leak`) — он ждёт следующего такого вида.
 """
 
 from __future__ import annotations
@@ -38,7 +43,7 @@ from deckforge.pipeline.nodes.audit import audit_node  # noqa: E402
 from deckforge.pipeline.nodes.export import export_node  # noqa: E402
 from deckforge.pipeline.nodes.fit import fit_node  # noqa: E402
 from deckforge.pipeline.nodes.render import render_node  # noqa: E402
-from gen_schemas import WITHHELD_BLOCK_TYPES, response_schema  # noqa: E402
+from gen_schemas import response_schema  # noqa: E402
 from tests.integration.test_native_objects import build_template  # noqa: E402
 from tests.integration.test_pipeline_end_to_end import run_pipeline  # noqa: E402
 
@@ -55,14 +60,6 @@ def block_kinds(schema: dict[str, Any]) -> set[str]:
     has_blocks = "blocks" in schema.get("properties", {})
     node = schema if has_blocks else schema["$defs"]["SlideIR"]
     return set(node["properties"]["blocks"]["items"]["discriminator"]["mapping"])
-
-
-def composer_schemas() -> list[tuple[str, dict[str, Any]]]:
-    base = PROMPTS_DIR / "slide_composer"
-    return [
-        (version.name, json.loads((version / "schema.json").read_text(encoding="utf-8")))
-        for version in sorted(p for p in base.iterdir() if p.is_dir())
-    ]
 
 
 # --- контракт: норма ---------------------------------------------------------
@@ -196,41 +193,15 @@ def test_new_blocks_are_in_the_golden_contract() -> None:
         assert {"QuoteBlock", "CalloutBlock", "CalloutTone"} <= set(schema["$defs"]), name
 
 
-def test_withholding_is_declared_with_a_reason() -> None:
-    """Исключение явное: вид и причина лежат в генераторе, а не в чьей-то памяти."""
-    assert set(WITHHELD_BLOCK_TYPES) == NEW_TYPES
-    assert all("DG3" in reason for reason in WITHHELD_BLOCK_TYPES.values())
-
-
-@pytest.mark.parametrize(("version", "schema"), composer_schemas(), ids=lambda v: str(v)[:8])
-def test_new_blocks_are_not_in_the_composer_response(version: str, schema: dict[str, Any]) -> None:
-    """Рендер цитаты и callout — DG3. До него модель не должна мочь их заказать."""
-    blocks = schema["properties"]["blocks"]["items"]
-    assert not NEW_TYPES & set(blocks["discriminator"]["mapping"]), version
-    assert not {"#/$defs/QuoteBlock", "#/$defs/CalloutBlock"} & {
-        branch["$ref"] for branch in blocks["oneOf"]
-    }, version
-    assert not {"QuoteBlock", "CalloutBlock", "CalloutTone"} & set(schema["$defs"]), version
-    text = json.dumps(schema, ensure_ascii=False)
-    assert '"quote"' not in text and '"callout"' not in text, version
-
-
-def test_composer_response_is_unchanged_by_the_new_contract() -> None:
-    """Сужение не задевает остальное: восемь прежних видов и прежние определения на месте."""
-    for version, schema in composer_schemas():
-        kinds = set(schema["properties"]["blocks"]["items"]["discriminator"]["mapping"])
-        assert kinds == {"text", "bullets", "chart", "table", "smartart", "icon", "image", "kpi"}
-        assert "ColorRef" in schema["$defs"], version
-
-
 def test_the_exclusion_would_catch_a_leak() -> None:
     """Страховка от теста, который зелен потому, что ничего не проверяет: без
-    исключения генератор выдал бы новые виды модели."""
+    исключения генератор выдал бы новые виды модели. С DG3 список исключений пуст —
+    механизм проверяется на тех же двух видах, переданных явно."""
     omit = frozenset(load_yaml(PROMPTS_DIR / "slide_composer" / "1.2.0" / "meta.yaml")[
         "response_omit"
     ])
     leaked, dropped = response_schema(SlideIR, omit, withheld=frozenset())
-    kept, dropped_kept = response_schema(SlideIR, omit)
+    kept, dropped_kept = response_schema(SlideIR, omit, withheld=frozenset(NEW_TYPES))
     assert block_kinds(json.loads(leaked)) >= NEW_TYPES
     assert not NEW_TYPES & block_kinds(json.loads(kept))
     assert {"блок quote", "блок callout"} <= dropped_kept
@@ -321,8 +292,9 @@ async def test_deck_without_new_blocks_gets_no_such_note(tmp_path: Path) -> None
 async def test_model_that_sends_a_quote_anyway_is_not_fatal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Провайдер без строгого режима схему не соблюдает. Композитор не падает на блоке,
-    которого нет в схеме ответа, и называет, что его отбросил."""
+    """Модель прислала цитату и callout. До DG3 их не было в схеме ответа, и композитор
+    отбрасывал их с заметкой; с `compose-by-the-design-system` они — свободные блоки:
+    ставятся решателем, не теряются и не роняют прогон."""
     import tests.integration.test_pipeline_end_to_end as e2e
 
     original = e2e.FakeInference._slide
@@ -342,4 +314,6 @@ async def test_model_that_sends_a_quote_anyway_is_not_fatal(
     assert result.exports["pptx"].is_file()
     notes = result.state.get("notes") or []
     for block_id, kind in (("q", "quote"), ("c", "callout")):
-        assert any(f"блок {block_id} ({kind}) отброшен" in note for note in notes), notes
+        assert not any(f"блок {block_id} ({kind}) отброшен" in note for note in notes), notes
+    for slide in result.state["deck"].slides:
+        assert {"q", "c"} <= {block.block_id for block in slide.blocks}

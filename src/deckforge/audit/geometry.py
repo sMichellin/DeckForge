@@ -14,8 +14,10 @@ from deckforge.domain.base import BBox
 from deckforge.domain.slide import (
     Block,
     BulletsBlock,
+    CalloutBlock,
     ImageBlock,
     KpiBlock,
+    QuoteBlock,
     SlideIR,
     TableBlock,
     TextBlock,
@@ -23,7 +25,9 @@ from deckforge.domain.slide import (
 from deckforge.domain.template import LayoutSpec, PlaceholderSpec, TemplateManifest
 
 #: Блоки, которые несут текст: для них осмысленны переполнение, обрезка и контраст.
-TEXT_BLOCKS = (TextBlock, BulletsBlock, TableBlock, KpiBlock)
+#: Цитата и callout (DG4, рисуются с DG3) — тоже текст: их числа сверяются с материалами,
+#: как любые (решение тимлида по `compose-by-the-design-system`).
+TEXT_BLOCKS = (TextBlock, BulletsBlock, TableBlock, KpiBlock, QuoteBlock, CalloutBlock)
 
 #: Доля стороны слайда, начиная с которой блок или фигура — подложка, а не контент.
 #: Величина безразмерная и от шаблона не зависит: это про приём, а не про бренд.
@@ -133,6 +137,8 @@ def block_text(block: Block) -> str:
         return " ".join(f"{item.value} {item.label}" for item in block.items)
     if isinstance(block, ImageBlock):
         return block.alt_text or ""
+    if isinstance(block, QuoteBlock | CalloutBlock):
+        return block.text
     return ""
 
 

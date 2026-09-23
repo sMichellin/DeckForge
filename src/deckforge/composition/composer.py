@@ -23,17 +23,21 @@ from deckforge.composition.free_space import (
 )
 from deckforge.composition.layout_picker import pick_layout
 from deckforge.composition.visual_selector import select_chart
+from deckforge.designsystem import DesignSystem
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage
-from deckforge.domain.enums import TextRole
+from deckforge.domain.enums import ColorRef, ListStyle, TextRole
 from deckforge.domain.plan import SlidePlan
 from deckforge.domain.slide import (
     Block,
     BulletsBlock,
+    CalloutBlock,
     ChartBlock,
+    IconBlock,
     ImageBlock,
     KpiBlock,
     Provenance,
+    QuoteBlock,
     SlideIR,
     SmartArtBlock,
     TextBlock,
@@ -43,6 +47,7 @@ from deckforge.domain.template import LayoutSpec, TemplateManifest
 from deckforge.domain.variants import VariantProfile
 from deckforge.inference.client import InferenceClient
 from deckforge.inference.structured import generate_model
+from deckforge.layout.by_design import ACCENT_SLOTS, DesignRules
 from deckforge.layout.constraints import solve_positions
 from deckforge.layout.diagram import SUPPORTED_PATTERNS
 from deckforge.layout.errors import LayoutFitError
@@ -80,6 +85,11 @@ _ARROW = re.compile(r"\s*(?:[→⟶➔➜➝⇒]|[-–—=]{1,2}>)\s*")
 #: двумя значениями («10 → 20 %») — это изменение показателя, а не порядок работ.
 _PROCESS_ARROWS = 2
 
+#: Номер пункта, который модель вписала в текст: «1. », «2) ». Нумерует список сам (DG3),
+#: и номер в тексте рядом с автонумерацией вышел бы дважды — а аудит чисел звал бы его
+#: выдуманным («Числа «2» нет в исходных материалах»).
+_ORDINAL = re.compile(r"^\s*(\d{1,2})[.)]\s+")
+
 #: Какой блок IR отвечает заказу плана (`SlidePlan.suggested_visual`). Словарь заказов
 #: собирает слой планирования; здесь — только соответствие заказа типу блока.
 _ORDERED_BLOCK: dict[str, type[Block]] = {
@@ -102,7 +112,37 @@ class CompositionError(RuntimeError):
 #: Схема и показатели здесь по той же причине, что и текст: это содержание слайда,
 #: а не оформление. Диаграммы и таблицы в набор не входят — им нужен не просто
 #: прямоугольник, а макет, который их допускает (`capacity.supports_*`).
-_PLACEABLE_FREELY = (TextBlock, BulletsBlock, SmartArtBlock, KpiBlock)
+#:
+#: Цитата и callout (DG3) — тоже содержание, и плейсхолдера под них в шаблонах нет:
+#: полосу и отбивку им рисует вёрстка по дизайн-системе в рамке от решателя.
+_PLACEABLE_FREELY = (TextBlock, BulletsBlock, SmartArtBlock, KpiBlock, QuoteBlock, CalloutBlock)
+
+
+def _why_not_free(block: Block, layout: LayoutSpec) -> str:
+    """Почему блок этого вида нельзя поставить свободным — своими словами для каждого.
+
+    Прежде заметка была одна на всех («ставить его свободно нельзя»), и по ней нельзя
+    было понять, чего не хватило: макета, плейсхолдера или смысла."""
+    capacity = layout.capacity
+    if isinstance(block, IconBlock):
+        return (
+            "одиночная иконка свободным блоком заняла бы всю свободную часть слайда; "
+            "знак у пунктов — иконочный список (bullets, style=icon)"
+        )
+    wants = {
+        ChartBlock: ("диаграмме", capacity.supports_chart, "supports_chart"),
+        TableBlockIR: ("таблице", capacity.supports_table, "supports_table"),
+        ImageBlock: ("картинке", capacity.supports_image, "supports_image"),
+    }.get(type(block))
+    if wants is None:
+        return "свободно этот вид не ставится"
+    whom, supported, flag = wants
+    return (
+        f"{whom} нужен плейсхолдер макета, а модель его не назвала"
+        if supported
+        else f"{whom} нужен макет, который её допускает, а макет {layout.layout_id} — нет "
+        f"(capacity.{flag})"
+    )
 
 
 def _slot_lines(layout: LayoutSpec, manifest: TemplateManifest) -> dict[int, int]:
@@ -156,6 +196,10 @@ def _text_of(block: Block) -> str:
         return " ".join(f"{item.value} {item.label}" for item in block.items)
     if isinstance(block, TableBlockIR):
         return " ".join([*block.header, *(cell for row in block.rows for cell in row)])
+    if isinstance(block, QuoteBlock):
+        return " ".join(part for part in (block.text, block.author) if part)
+    if isinstance(block, CalloutBlock):
+        return block.text
     return ""
 
 
@@ -180,12 +224,41 @@ def _headline_text(words: list[str], whole: int) -> str:
     return text if len(words) == whole else text.rstrip(" ,;:—-") + _ELLIPSIS
 
 
+def _design_context(rules: DesignRules) -> dict[str, Any]:
+    """Что промпт композитора знает о дизайн-системе: роли и виды, без координат и кеглей.
+
+    Назначения стилей списка и видов callout берутся у дизайн-системы (`synthesized`) —
+    тем же текстом, что на её странице: один ответ на вопрос «когда какой».
+    """
+    elements = {item.kind: item for item in rules.ds.synthesized}
+    list_styles = [
+        {"style": style.value, "purpose": elements[style.value].purpose}
+        for style in ListStyle
+        if style.value in elements
+    ]
+    callouts = [
+        {"tone": kind.removeprefix("callout_"), "label": elements[kind].text,
+         "purpose": elements[kind].purpose}
+        for kind in ("callout_insight", "callout_risk")
+        if kind in elements
+    ]
+    icon_examples = [item.text for item in rules.ds.synthesized if item.kind == "icon"]
+    return {
+        "accent_roles": [ref.value for ref in rules.role_accents()],
+        "list_styles": list_styles,
+        "callouts": callouts,
+        "icon_examples": icon_examples,
+    }
+
+
 class SlideComposer:
     def __init__(self, llm_client: InferenceClient, profile: str | None = None) -> None:
         self.llm = llm_client
         self.profile = profile
         #: Что композиция изменила или выбросила. Забирает узел графа в отчёт прогона.
         self.notes: list[str] = []
+        #: Заметка «роли цветов не измерены» — одна на прогон, а не на слайд (правило 10).
+        self._cold_noted = False
 
     async def compose(
         self,
@@ -197,6 +270,7 @@ class SlideComposer:
         *,
         preserve_wording: bool = False,
         no_think: bool = False,
+        design_system: DesignSystem | None = None,
     ) -> SlideIR:
         """Наполняет макет содержимым слайда.
 
@@ -208,8 +282,14 @@ class SlideComposer:
 
         `no_think` добавляет в запрос «/no_think» — команду семейства Qwen3 не размышлять.
         Нужна для замера, сколько из 389 с композиции приходится на размышление.
+
+        `design_system` — дизайн-система шаблона из состояния графа (DG2). По ней
+        композиция называет модели роли цветов и виды списков и callout (не координаты),
+        проверяет названный моделью цвет и разводит свободные блоки шагом `grid.spacing`.
+        Нет — считается из манифеста (`DesignRules`).
         """
         layout = pick_layout(slide, manifest, variant)
+        rules = DesignRules(manifest, design_system)
         facts = [fact for ref in slide.fact_refs if (fact := content.fact(ref)) is not None]
         dataset = content.dataset(slide.dataset_ref) if slide.dataset_ref else None
         chart_type = select_chart(dataset) if dataset is not None else None
@@ -250,6 +330,9 @@ class SlideComposer:
             preserve_wording=preserve_wording,
             chart_type=chart_type.value if chart_type else None,
             no_think=no_think,
+            # DG3. Модель не видит координат (PPTBench): ей уходят роли и виды из
+            # дизайн-системы, а не EMU и не кегли.
+            **_design_context(rules),
         )
 
         call = partial(
@@ -273,7 +356,7 @@ class SlideComposer:
         )
         raw, _completion = await asyncio.to_thread(call)
         return self._bind(
-            raw, slide, layout, manifest, variant, seed, content, chart_type, bundle.ref
+            raw, slide, layout, manifest, variant, seed, content, chart_type, bundle.ref, rules
         )
 
     def _trim_headline(
@@ -418,6 +501,134 @@ class SlideComposer:
                     )
                     break
 
+    def _accent_by_role(self, block: Block, rules: DesignRules, slide_id: str) -> Block:
+        """Цвет, названный моделью, — только акцент шаблона по роли дизайн-системы (DG3).
+
+        Модель пишет `accent1` по привычке, а шаблон ставит акцентом третий слот (VK Tech,
+        VK WorkSpace — `accent3` по площади примеров). Акцентный слот, которого нет среди
+        акцентов по роли, снимается: цвет возьмёт вёрстка — акцент по роли, видимый на фоне
+        макета (`DesignRules.block_accent`, полоса цитаты — `callout_accent`). Не акцентные
+        слоты (`dk*`, `lt*`) не трогаются: это решение о тексте, а не об акценте.
+
+        Роли не измерены (холодный шаблон, правило 10) — цвет модели остаётся как есть,
+        и это называет одна заметка на прогон.
+        """
+        allowed = rules.role_accents()
+
+        def foreign(ref: ColorRef | None) -> bool:
+            return ref is not None and ref in ACCENT_SLOTS and ref not in allowed
+
+        named: list[ColorRef | None] = []
+        if isinstance(block, KpiBlock):
+            named = [item.color_ref for item in block.items]
+        elif isinstance(block, SmartArtBlock):
+            named = list(block.color_refs)
+        elif isinstance(block, IconBlock):
+            named = [block.color_ref]
+        elif isinstance(block, QuoteBlock | CalloutBlock):
+            named = [block.accent_ref]
+        if not any(ref is not None for ref in named):
+            return block
+        if not allowed:
+            if not self._cold_noted:
+                self._cold_noted = True
+                self.notes.append(
+                    "дизайн-система: роли цветов не измерены — цвета блоков, названные "
+                    "моделью, оставлены как есть"
+                )
+            return block
+        dropped = sorted({ref.value for ref in named if ref is not None and foreign(ref)})
+        if not dropped:
+            return block
+
+        if isinstance(block, KpiBlock):
+            block = block.model_copy(update={"items": [
+                item.model_copy(update={"color_ref": None}) if foreign(item.color_ref) else item
+                for item in block.items
+            ]})
+        elif isinstance(block, SmartArtBlock):
+            block = block.model_copy(
+                update={"color_refs": [ref for ref in block.color_refs if not foreign(ref)]}
+            )
+        elif isinstance(block, IconBlock):
+            block = block.model_copy(update={"color_ref": None})
+        elif isinstance(block, QuoteBlock | CalloutBlock):
+            block = block.model_copy(update={"accent_ref": None})
+        self._note(
+            slide_id,
+            f"блок {block.block_id}: {', '.join(dropped)} шаблон акцентом не ставит — "
+            f"цвет по роли дизайн-системы ({', '.join(ref.value for ref in allowed)})",
+        )
+        return block
+
+    def _list_style(self, block: BulletsBlock, slide_id: str) -> BulletsBlock:
+        """Стиль списка, который действительно выйдет на слайде (DG3).
+
+        Модель выбирает стиль по смыслу пунктов, композиция сводит выбор с тем, что
+        вёрстка может нарисовать, и называет каждое расхождение:
+
+        * номера в тексте пунктов («1. », «2. » подряд) — это нумерованный список,
+          записанный вручную: номера снимаются, стиль — `numbered`. У списка, который
+          модель и так назвала нумерованным, номера снимаются всегда — иначе рядом
+          с автонумерацией вышло бы «1. 1. »;
+        * иконочный список в плейсхолдере или с пунктом без иконки — маркированный:
+          иконку к строке плейсхолдера не привязать, а список с дырой выглядит сломанным;
+        * у всех пунктов свободного списка без стиля есть иконки — это иконочный список;
+        * иконки у списка другого стиля не рисуются — снимаются.
+        """
+        style = block.style
+        items = block.items
+
+        numbers = [_ORDINAL.match(item.text) for item in items]
+        # Один пункт с «1. » — нумерация, только если модель сама назвала список
+        # нумерованным (хвост мог срезать предел пунктов); иначе это просто число.
+        counted = len(items) > 1 or style is ListStyle.NUMBERED
+        if counted and all(numbers) and [
+            int(match.group(1)) for match in numbers if match
+        ] == list(range(1, len(items) + 1)):
+            items = [
+                item.model_copy(update={"text": item.text[match.end():]})
+                for item, match in zip(items, numbers, strict=True)
+                if match
+            ]
+            self._note(
+                slide_id,
+                f"буллеты {block.block_id}: номера пунктов в тексте сняты — "
+                + ("нумерует список" if style is ListStyle.NUMBERED
+                   else "список нумерованный"),
+            )
+            style = ListStyle.NUMBERED
+
+        icons = [item.icon for item in items]
+        if style is ListStyle.ICON:
+            why = (
+                f"в плейсхолдере {block.placeholder_idx} иконку к строке не привязать"
+                if block.placeholder_idx is not None
+                else f"иконки нет у {sum(1 for icon in icons if not icon)} пунктов "
+                f"из {len(items)}"
+                if not all(icons)
+                else None
+            )
+            if why is not None:
+                self._note(slide_id, f"иконочный список {block.block_id}: {why} — маркированный")
+                style = ListStyle.BULLETED
+        elif style is None and all(icons) and block.placeholder_idx is None:
+            self._note(
+                slide_id, f"буллеты {block.block_id}: иконки у всех пунктов — иконочный список"
+            )
+            style = ListStyle.ICON
+        if style is not ListStyle.ICON and any(icons):
+            items = [item.model_copy(update={"icon": None}) for item in items]
+            self._note(
+                slide_id,
+                f"буллеты {block.block_id}: иконки пунктов сняты — стиль списка "
+                f"{(style or ListStyle.BULLETED).value}",
+            )
+
+        if style is block.style and items == block.items:
+            return block
+        return block.model_copy(update={"style": style, "items": items})
+
     def _note(self, slide_id: str, text: str) -> None:
         """Отчёт о том, что композиция изменила или выбросила.
 
@@ -433,6 +644,7 @@ class SlideComposer:
         layout: LayoutSpec,
         manifest: TemplateManifest,
         slide_id: str,
+        rules: DesignRules | None = None,
     ) -> list[Block]:
         """Даёт координаты блокам, оставшимся без плейсхолдера.
 
@@ -440,8 +652,12 @@ class SlideComposer:
         и не даёт залезть на занятые плейсхолдеры. Плейсхолдер, выходящий за поля шаблона,
         учитывается своей видимой частью: решателю нельзя отдать рамку шире области,
         но и забыть про неё нельзя — текст встанет поверх заголовка.
+
+        Промежуток между свободными блоками — шаг шкалы отступов дизайн-системы (DG3):
+        чему кратен отступ, решает она, а не решатель.
         """
         content = manifest.content_bbox
+        rules = rules if rules is not None else DesignRules(manifest)
         fixed: list[tuple[str, BBox | None]] = []
         for block in blocks:
             if block.block_id in freed:
@@ -459,7 +675,11 @@ class SlideComposer:
                 fixed.append((block.block_id, box))
 
         try:
-            boxes = solve_positions([*fixed, *((block_id, None) for block_id in freed)], manifest)
+            boxes = solve_positions(
+                [*fixed, *((block_id, None) for block_id in freed)],
+                manifest,
+                gap_emu=rules.block_gap_emu(),
+            )
         except LayoutFitError as error:
             self._note(slide_id, f"свободные блоки размещать некуда ({error}), они отброшены")
             return [block for block in blocks if block.block_id not in freed]
@@ -482,7 +702,9 @@ class SlideComposer:
         content: ContentPackage,
         chart_type: Any,
         prompt_ref: str,
+        rules: DesignRules | None = None,
     ) -> SlideIR:
+        rules = rules if rules is not None else DesignRules(manifest)
         known_placeholders = {ph.idx for ph in layout.placeholders}
         known_datasets = {d.dataset_id for d in content.datasets}
         known_assets = {a.asset_id for a in content.assets}
@@ -520,7 +742,8 @@ class SlideComposer:
                 else:
                     self._note(
                         slide.slide_id,
-                        f"блок {block.block_id} ({block.type}) отброшен: {why}",
+                        f"блок {block.block_id} ({block.type}) отброшен: {why}; "
+                        + _why_not_free(block, layout),
                     )
                     continue
             elif idx is not None:
@@ -589,19 +812,21 @@ class SlideComposer:
                         slide.slide_id,
                         f"блок {block.block_id} ({block.type}) отброшен: "
                         + (
-                            f"в макете {layout.layout_id} нет места под него, "
-                            "а координаты от модели не берём"
+                            "координаты от модели не берём, а "
                             if block.bbox is not None
-                            else "ни плейсхолдера, ни координат, "
-                            "а ставить его свободно нельзя"
-                        ),
+                            else "ни плейсхолдера, ни координат, а "
+                        )
+                        + _why_not_free(block, layout),
                     )
                     continue
 
+            block = self._accent_by_role(block, rules, slide.slide_id)
+            if isinstance(block, BulletsBlock):
+                block = self._list_style(block, slide.slide_id)
             blocks.append(block)
 
         if freed:
-            blocks = self._place_free(blocks, freed, layout, manifest, slide.slide_id)
+            blocks = self._place_free(blocks, freed, layout, manifest, slide.slide_id, rules)
 
         if not blocks:
             raise CompositionError(

@@ -19,6 +19,7 @@ from pptx.oxml.ns import nsdecls, qn
 from pptx.util import Emu
 
 from deckforge.config import ASSETS_DIR
+from deckforge.domain.base import BBox
 from deckforge.domain.enums import ColorRef
 from deckforge.domain.slide import IconBlock
 from deckforge.rendering.theme_binding import apply_theme_color
@@ -367,18 +368,31 @@ def add_icon(slide: object, block: IconBlock, default: ColorRef = ColorRef.ACCEN
     """Квадратная иконка по центру рамки блока, линия и заливка — ссылкой на цвет темы.
 
     `default` — цвет, когда IR его не назвал: акцент по роли дизайн-системы (DG3)."""
-    nodes = icon_nodes(block.query)
-    if nodes is None:
+    if icon_nodes(block.query) is None:
         raise KeyError(f"иконки {block.query} нет в Lucide")
     box = block.bbox
     if box is None:
         raise ValueError(f"иконка {block.block_id} без координат")
     side = min(box.cx, box.cy)
-    shape = slide.shapes.add_shape(  # type: ignore[attr-defined]
-        MSO_SHAPE.RECTANGLE,
-        Emu(box.x + (box.cx - side) // 2), Emu(box.y + (box.cy - side) // 2), Emu(side), Emu(side),
+    square = BBox(x=box.x + (box.cx - side) // 2, y=box.y + (box.cy - side) // 2, cx=side, cy=side)
+    return draw_icon(
+        slide.shapes, block.query, square, block.color_ref or default  # type: ignore[attr-defined]
     )
-    shape.name = f"Иконка {icon_name(block.query)}"
+
+
+def draw_icon(shapes: object, query: str, box: BBox, color: ColorRef) -> object:
+    """Иконка Lucide нативной фигурой в рамке `box` (квадрат) на полотне `shapes`.
+
+    Полотно — слайд или группа: иконочный список (DG3) собирает иконки в группу вместе
+    с текстом пунктов."""
+    nodes = icon_nodes(query)
+    if nodes is None:
+        raise KeyError(f"иконки {query} нет в Lucide")
+    side = min(box.cx, box.cy)
+    shape = shapes.add_shape(  # type: ignore[attr-defined]
+        MSO_SHAPE.RECTANGLE, Emu(box.x), Emu(box.y), Emu(side), Emu(side)
+    )
+    shape.name = f"Иконка {icon_name(query)}"
     element = shape._element
     # Стиль автофигуры ссылается на эффекты темы — у иконки их быть не должно.
     style = element.find(qn("p:style"))
@@ -398,7 +412,6 @@ def add_icon(slide: object, block: IconBlock, default: ColorRef = ColorRef.ACCEN
     preset.addprevious(geometry)
     element.spPr.remove(preset)
 
-    color = block.color_ref or default
     if any(filled):
         apply_theme_color(shape.fill, color)
     else:

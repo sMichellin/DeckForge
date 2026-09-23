@@ -62,8 +62,11 @@ async def compose_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
 
     async def one(slide: SlidePlan) -> SlideIR:
         async with slots:
+            # Дизайн-система — та же, что увидят `fit` и `render` (DG2, DG3): по ней
+            # композиция называет модели роли цветов и разводит свободные блоки.
             return await composer.compose(
-                slide, state["content"], state["manifest"], state["variant"], state["seed"]
+                slide, state["content"], state["manifest"], state["variant"], state["seed"],
+                design_system=state.get("design_system"),
             )
 
     async with timed(deps, "compose") as timings:

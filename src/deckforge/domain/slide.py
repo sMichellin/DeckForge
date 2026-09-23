@@ -16,6 +16,7 @@ from deckforge.domain.enums import (
     ColorRef,
     ImageFit,
     ImageSource,
+    ListStyle,
     SmartArtPattern,
     TextRole,
 )
@@ -53,9 +54,21 @@ class TextBlock(_Positioned):
     size_pt: float | None = Field(default=None, gt=0, description="Только из шкалы шаблона")
 
 
+#: Имя иконки набора проекта (Lucide, `assets/icons/`): слова латиницей через дефис.
+#: Форма имени, а не список: набор живёт в слое рендера, домен файлов не читает. Путь,
+#: расширение и цвет (`#RRGGBB`) этой формой отвергаются; неизвестное имя снимает рендер.
+ICON_NAME = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
+
+
 class BulletItem(DomainModel):
     text: str
     level: int = Field(default=0, ge=0, le=4)
+    #: Новое поле идёт последним и необязательно: старые колоды и чекпойнты валидны.
+    icon: str | None = Field(
+        default=None,
+        pattern=ICON_NAME,
+        description="Иконка пункта иконочного списка: имя Lucide (shield-check), не путь и не цвет",
+    )
 
 
 class BulletsBlock(_Positioned):
@@ -66,6 +79,14 @@ class BulletsBlock(_Positioned):
     items: list[BulletItem] = Field(min_length=1)
     max_level: int = Field(default=1, ge=0, le=4)
     size_pt: float | None = Field(default=None, gt=0)
+    #: Новое поле идёт последним и необязательно: старые колоды и чекпойнты валидны.
+    style: ListStyle | None = Field(
+        default=None,
+        description=(
+            "Стиль списка: bulleted, numbered или icon; не задан — маркированный. "
+            "Знак, цвет и отступ рисует вёрстка по дизайн-системе шаблона"
+        ),
+    )
 
 
 class ChartBlock(_Positioned):

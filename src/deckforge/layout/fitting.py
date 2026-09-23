@@ -42,6 +42,7 @@ from deckforge.layout.by_design import DesignRules, KpiSizes
 from deckforge.layout.diagram import SUPPORTED_PATTERNS, diagram_geometry
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fonts import FontLibrary
+from deckforge.layout.lists import draws_icons, icon_column, icon_text_frame
 from deckforge.layout.metrics import (
     line_height_emu,
     measure_text,
@@ -54,6 +55,7 @@ __all__ = [
     "LayoutFitError",
     "fit_block",
     "fit_boxed",
+    "fit_icon_list",
     "fit_kpi",
     "fit_slide",
     "fit_smartart",
@@ -487,6 +489,64 @@ def fit_boxed(
     return _overflow(size, lines, required, available, splittable=False)
 
 
+def fit_icon_list(
+    block: BulletsBlock,
+    box: BBox,
+    manifest: TemplateManifest,
+    design: DesignRules,
+    *,
+    fonts: FontLibrary | None = None,
+) -> FitResult:
+    """Иконочный список: кегль по шкале, текст меряется в рамке без колонки иконок.
+
+    Колонка зависит от кегля (сторона иконки — один em), поэтому рамка считается заново
+    на каждой ступени. Правила те же, что у свободного списка (`fit_block`): вниз по шкале,
+    пока не влезет, и вверх до ступени под заголовком, пока занята меньше половины рамки.
+    """
+    step = _step_for(block.role, manifest)
+    font = _font_of(step, manifest)
+    spacing = step.line_spacing or 1.0
+    available = usable_height_emu(box)
+    text = "\n".join(item.text for item in block.items)
+
+    def measured(size_pt: float) -> tuple[int, int]:
+        frame = icon_text_frame(box, icon_column(box, size_pt, design))
+        m = measure_text(
+            text, font_family=font, size_pt=size_pt, box=frame, line_spacing=spacing,
+            bold=step.bold, italic=step.italic, fonts=fonts,
+        )
+        return m.lines, m.height_emu
+
+    start = block.size_pt or step.size_pt
+    size, lines, required = start, 0, 0
+    for size in _sizes(manifest, start, allow_shrink=True):
+        lines, required = measured(size)
+        if required <= available:
+            break
+    else:
+        return _overflow(size, lines, required, available, len(block.items) > 1)
+
+    best = _fits(size, start, lines, required)
+    if block.size_pt is not None:
+        return best
+    title_pt = _step_for(TextRole.TITLE, manifest).size_pt
+    cap = next_size_down(manifest, title_pt) or title_pt
+    grow = next_size_up(manifest, size)
+    while (
+        grow is not None and grow <= cap
+        and (best.required_cy_emu or 0) < FREE_BLOCK_FILL_SHARE * available
+    ):
+        lines, required = measured(grow)
+        if required > available:
+            break
+        best = FitResult(
+            final_size_pt=grow, overflow=False, lines=lines,
+            required_cy_emu=required, strategy=GROW,
+        )
+        grow = next_size_up(manifest, grow)
+    return best
+
+
 def _box_for(block: TextBlock | BulletsBlock, layout: LayoutSpec) -> BBox:
     if block.bbox is not None:
         return block.bbox
@@ -540,8 +600,17 @@ def fit_block(
     manifest: TemplateManifest,
     *,
     fonts: FontLibrary | None = None,
+    design: DesignRules | None = None,
 ) -> FitResult:
-    """Вписывает текстовый блок: кегль и гарнитура — из типошкалы его роли."""
+    """Вписывает текстовый блок: кегль и гарнитура — из типошкалы его роли.
+
+    Иконочный список (свободный) меряется по рамке без колонки иконок: `fit_icon_list`.
+    `design` нужен только ему; не передан — ДС считается из манифеста."""
+    if isinstance(block, BulletsBlock) and draws_icons(block):
+        return fit_icon_list(
+            block, block.bbox, manifest,  # type: ignore[arg-type]
+            design if design is not None else DesignRules(manifest), fonts=fonts,
+        )
     step = _step_for(block.role, manifest)
     text = block.text if isinstance(block, TextBlock) else "\n".join(i.text for i in block.items)
     box = _box_for(block, layout)
@@ -668,7 +737,9 @@ def fit_slide(
     report: dict[str, FitResult] = {}
     for block in slide.blocks:
         if isinstance(block, TextBlock | BulletsBlock):
-            report[block.block_id] = fit_block(block, layout, manifest, fonts=fonts)
+            report[block.block_id] = fit_block(
+                block, layout, manifest, fonts=fonts, design=rules
+            )
         elif isinstance(block, SmartArtBlock):
             if block.pattern not in SUPPORTED_PATTERNS:
                 continue

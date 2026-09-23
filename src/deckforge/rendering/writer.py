@@ -28,7 +28,7 @@ from deckforge.designsystem import DesignSystem
 from deckforge.designsystem.contrast import TextClass, readable_ref
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage, Dataset
-from deckforge.domain.enums import ColorRef, ImageSource, TextRole
+from deckforge.domain.enums import ColorRef, ImageSource, ListStyle, TextRole
 from deckforge.domain.rules import TEXT_SLOTS, readable_text_ref
 from deckforge.domain.slide import (
     Block,
@@ -59,12 +59,13 @@ from deckforge.layout.diagram import SUPPORTED_PATTERNS
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fitting import fit_block, fit_table, table_row_heights
 from deckforge.layout.fonts import FontLibrary
+from deckforge.layout.lists import draws_icons, icon_list_geometry, list_style
 from deckforge.layout.tabular import dataset_bullets, table_cells, table_has_header
 from deckforge.parsing.ooxml.layouts import resolve_placeholders
 from deckforge.parsing.package import TemplatePackage
 from deckforge.rendering.boxed import add_boxed
 from deckforge.rendering.charts import add_chart, chart_problem
-from deckforge.rendering.icons import add_icon, icon_nodes
+from deckforge.rendering.icons import add_icon, draw_icon, icon_nodes
 from deckforge.rendering.images import add_image
 from deckforge.rendering.smartart import add_smartart
 from deckforge.rendering.tables import add_table, template_table_style
@@ -377,6 +378,21 @@ class SlideDegrader:
                     self.degradations.append(
                         f"{where}: smartart {block.pattern.value} → буллеты ({reason})"
                     )
+            elif isinstance(block, BulletsBlock) and draws_icons(block):
+                missing = [item.icon or "—" for item in block.items
+                           if not item.icon or icon_nodes(item.icon) is None]
+                if missing:
+                    # Иконочный список с дырой выглядит сломанным: у одних пунктов знак,
+                    # у других пустота. Весь список — маркером шаблона, и это названо.
+                    plain = block.model_copy(update={
+                        "style": ListStyle.BULLETED,
+                        "items": [item.model_copy(update={"icon": None}) for item in block.items],
+                    })
+                    replaced = (plain, fit_block(plain, layout, self.manifest, fonts=self.fonts))
+                    self.degradations.append(
+                        f"{where}: иконочный список → маркированный "
+                        f"(иконок нет в наборе: {', '.join(missing)})"
+                    )
             elif isinstance(block, IconBlock) and icon_nodes(block.query) is None:
                 # Иконка — украшение: без неё слайд цел, а ошибка записи потеряла бы колоду.
                 self.degradations.append(
@@ -503,10 +519,12 @@ class PptxWriter:
             if isinstance(block, TextBlock | BulletsBlock):
                 size_pt = slide_ir.fit_report[block.block_id].final_size_pt
                 if block.placeholder_idx is not None:
-                    self._fill_placeholder(slide, layout, block, size_pt)
+                    self._fill_placeholder(slide, layout, block, size_pt, background)
                     used.add(block.placeholder_idx)
+                elif isinstance(block, BulletsBlock) and draws_icons(block):
+                    self._add_icon_list(slide, block, size_pt, text_color, background)
                 else:
-                    self._add_textbox(slide, block, size_pt, text_color)
+                    self._add_textbox(slide, block, size_pt, text_color, background)
             elif isinstance(block, ImageBlock) and content is not None:
                 asset = content.asset(block.asset_ref or "")
                 if asset is not None:
@@ -592,7 +610,12 @@ class PptxWriter:
         return chosen or readable_text_ref(self.manifest, background.color_hex)
 
     def _fill_placeholder(
-        self, slide: object, layout: object, block: TextBlock | BulletsBlock, size_pt: float
+        self,
+        slide: object,
+        layout: object,
+        block: TextBlock | BulletsBlock,
+        size_pt: float,
+        background: str | None = None,
     ) -> None:
         idx = block.placeholder_idx
         try:
@@ -621,8 +644,8 @@ class PptxWriter:
         # (`buNone`) и маркируют список со второго, поэтому пункты в плейсхолдере выходили
         # абзацами (прогон VK Education 6b1d9e82b612). Манифест знает, каким знаком и с каким
         # выносом шаблон рисует список, — ставим его явно, как и в свободном блоке.
-        if isinstance(block, BulletsBlock) and self.manifest.bullet_levels:
-            _apply_bullets(shape.text_frame, self.manifest, size_pt)
+        if isinstance(block, BulletsBlock):
+            self._mark_list(shape.text_frame, block, size_pt, background)
 
     def _add_textbox(
         self,
@@ -630,6 +653,7 @@ class PptxWriter:
         block: TextBlock | BulletsBlock,
         size_pt: float,
         text_color: ColorRef | None,
+        background: str | None = None,
     ) -> None:
         box: BBox = block.bbox  # type: ignore[assignment]
         step = self.manifest.typography(block.role)
@@ -654,8 +678,62 @@ class PptxWriter:
         )
         # Маркер списка текстбокс тоже не наследует: без него тезисы читаются абзацами
         # (прогон 2ac85990b2f2). Знак, гарнитура, цвет и вынос — из мастера шаблона.
-        if isinstance(block, BulletsBlock) and self.manifest.bullet_levels:
-            _apply_bullets(shape.text_frame, self.manifest, size_pt)
+        if isinstance(block, BulletsBlock):
+            self._mark_list(shape.text_frame, block, size_pt, background)
+
+    def _mark_list(
+        self, text_frame: object, block: BulletsBlock, size_pt: float, background: str | None
+    ) -> None:
+        """Знак пунктов по стилю списка (DG3): номер — автонумерация цветом акцента по роли
+        ДС, иначе маркер шаблона. Иконочный список сюда попадает только в плейсхолдере —
+        там иконку к строке не привязать, и он рисуется маркером шаблона."""
+        if list_style(block) is ListStyle.NUMBERED:
+            _apply_numbering(
+                text_frame, self.manifest, size_pt,
+                self.design.number_ink(background, size_pt=size_pt),
+            )
+        elif self.manifest.bullet_levels:
+            _apply_bullets(text_frame, self.manifest, size_pt)
+
+    def _add_icon_list(
+        self,
+        slide: object,
+        block: BulletsBlock,
+        size_pt: float,
+        text_color: ColorRef | None,
+        background: str | None,
+    ) -> None:
+        """Иконочный список (DG3): иконка набора проекта у каждого пункта, текст — одна
+        рамка справа от колонки иконок. Иконки и текст — в одной группе, как цитата:
+        блок двигается целиком. Цвет иконок — акцент по роли ДС (порог графики)."""
+        box: BBox = block.bbox  # type: ignore[assignment]
+        parts = icon_list_geometry(
+            block, box, size_pt, self.manifest, self.design, fonts=self.fonts
+        )
+        step = self.manifest.typography(block.role)
+        accent = self.design.block_accent(background)
+        group = slide.shapes.add_group_shape()  # type: ignore[attr-defined]
+        group.name = "Иконочный список"
+        for item, icon_box in zip(block.items, parts.icons, strict=True):
+            draw_icon(group.shapes, item.icon or "", icon_box, accent)
+        frame_box = parts.frame
+        shape = group.shapes.add_textbox(
+            Emu(frame_box.x), Emu(frame_box.y), Emu(frame_box.cx), Emu(frame_box.cy)
+        )
+        shape.text_frame.word_wrap = True
+        shape.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+        # Уровни не переносятся: иконка стоит у левого края колонки, и сдвиг пункта
+        # оторвал бы его от своей иконки.
+        self._write_paragraphs(
+            shape.text_frame,
+            [(item.text, 0) for item in block.items],
+            size_pt,
+            text_color or (step.color_ref if step else None),
+            theme_font_token(step.font_ref) if step else None,
+            step.bold if step else None,
+        )
+        for paragraph in shape.text_frame.paragraphs:
+            _clear_marker(paragraph)
 
     def _add_kpi(
         self,
@@ -784,6 +862,65 @@ def _write_bullet(
     if bullet.font:
         props.append(props.makeelement(qn("a:buFont"), {"typeface": bullet.font}))
     props.append(props.makeelement(qn("a:buChar"), {"char": bullet.char}))
+
+
+def _apply_numbering(
+    text_frame: object, manifest: TemplateManifest, size_pt: float, color: ColorRef | None
+) -> None:
+    """Нумерованный список: автонумерация PowerPoint (`a:buAutoNum`), вынос — маркера
+    шаблона этого уровня, цвет номера — слот темы (`number_ink`). Номер — свойство абзаца,
+    а не текст: пункт остаётся тем, что написала композиция, а нумерация — живой."""
+    declared = len(manifest.bullet_levels)
+    for paragraph in text_frame.paragraphs:  # type: ignore[attr-defined]
+        level = int(getattr(paragraph, "level", 0) or 0)
+        bullet = manifest.bullet_for(level)
+        extra = max(0, level - (declared - 1)) if declared else level
+        indent = (bullet.indent_emu if bullet else 0) or -round(size_pt * EMU_PER_PT)
+        margin = (bullet.margin_left_emu if bullet else 0) or -indent
+        props = _clear_marker(paragraph)
+        props.set("marL", str(margin + extra * -indent))  # type: ignore[attr-defined]
+        props.set("indent", str(indent))  # type: ignore[attr-defined]
+        nodes = []
+        if color is not None:
+            clr = props.makeelement(qn("a:buClr"), {})  # type: ignore[attr-defined]
+            clr.append(clr.makeelement(qn("a:schemeClr"), {"val": scheme_token(color)}))
+            nodes.append(clr)
+        nodes.append(
+            props.makeelement(qn("a:buAutoNum"), {"type": "arabicPeriod"})  # type: ignore[attr-defined]
+        )
+        _insert_marker(props, nodes)
+
+
+def _clear_marker(paragraph: object) -> object:
+    """Свойства абзаца без знака пункта: прежний маркер, номер и их цвет убираются."""
+    props = (
+        paragraph._pPr  # type: ignore[attr-defined]
+        if paragraph._pPr is not None  # type: ignore[attr-defined]
+        else paragraph._p.get_or_add_pPr()  # type: ignore[attr-defined]
+    )
+    for tag in ("a:buClr", "a:buFont", "a:buChar", "a:buNone", "a:buAutoNum"):
+        for node in props.findall(qn(tag)):
+            props.remove(node)
+    return props
+
+
+#: Узлы, перед которыми по схеме `a:pPr` стоят знак пункта и его цвет.
+_AFTER_MARKER = ("a:tabLst", "a:defRPr", "a:extLst")
+
+
+def _insert_marker(props: object, nodes: list[object]) -> None:
+    """Знак пункта на своё место в `a:pPr`: до `tabLst`, `defRPr` и `extLst` — таков
+    порядок схемы, и PowerPoint иначе считает файл повреждённым."""
+    anchor = None
+    for tag in _AFTER_MARKER:
+        anchor = props.find(qn(tag))  # type: ignore[attr-defined]
+        if anchor is not None:
+            break
+    for node in nodes:
+        if anchor is not None:
+            anchor.addprevious(node)
+        else:
+            props.append(node)  # type: ignore[attr-defined]
 
 
 def _label_size_pt(

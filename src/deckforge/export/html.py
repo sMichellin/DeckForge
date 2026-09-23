@@ -23,7 +23,7 @@ from pathlib import Path
 from deckforge.designsystem import DesignSystem
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage, Dataset
-from deckforge.domain.enums import ChartType, ColorRef, ImageFit, TextRole
+from deckforge.domain.enums import ChartType, ColorRef, ImageFit, ListStyle, TextRole
 from deckforge.domain.rules import contrast_ratio
 from deckforge.domain.slide import (
     Block,
@@ -47,6 +47,7 @@ from deckforge.layout.boxed import BoxedBlock, geometry, paragraphs, style_of
 from deckforge.layout.by_design import DesignRules
 from deckforge.layout.diagram import ROUND_RECT_RADIUS, diagram_geometry
 from deckforge.layout.fonts import FontLibrary
+from deckforge.layout.lists import draws_icons, icon_list_geometry, list_style
 from deckforge.layout.metrics import LINE_HEIGHT_RATIO
 from deckforge.layout.tabular import format_number, table_cells, table_has_header
 from deckforge.rendering.boxed import boxed_accent
@@ -97,9 +98,12 @@ class _HtmlDeck:
         manifest: TemplateManifest,
         content: ContentPackage | None,
         design: DesignRules | None = None,
+        fonts: FontLibrary | None = None,
     ) -> None:
         self.manifest = manifest
         self.content = content
+        #: Шрифты вписывания: иконочный список меряет пункты тем же, чем pptx.
+        self.fonts = fonts
         #: Ответы дизайн-системы — те же, что у вписывания и pptx (DG3).
         self.design = design if design is not None else DesignRules(manifest)
         #: Фон html-слайда — `lt1` (см. `css`): по нему и выбирается видимый акцент.
@@ -162,6 +166,14 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
 .block p {{ margin: 0; white-space: pre-wrap; }}
 .block ul {{ margin: 0; padding: 0; list-style: none; }}
 .block li::before {{ content: "•"; display: inline-block; width: 1em; margin-left: -1em; }}
+.block ul.numbered {{ counter-reset: item; }}
+.block ul.numbered li {{ counter-increment: item; }}
+.block ul.numbered li::before {{ content: counter(item) "."; color: var(--marker, currentColor); }}
+.icon-list {{ padding: 0; }}
+.icon-list > div {{ position: absolute; box-sizing: border-box; }}
+.icon-list .frame {{ display: flex; flex-direction: column; justify-content: center;
+  padding: {self.cqw(TEXT_FRAME_INSET_Y_EMU)} {self.cqw(TEXT_FRAME_INSET_X_EMU)}; }}
+.icon-list .frame p {{ margin: 0; white-space: pre-wrap; }}
 .level-0 {{ padding-left: 1em; }} .level-1 {{ padding-left: 2em; }}
 .level-2 {{ padding-left: 3em; }}
 .level-3 {{ padding-left: 4em; }} .level-4 {{ padding-left: 5em; }}
@@ -228,10 +240,26 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
             if isinstance(block, TextBlock):
                 paragraphs = "".join(f"<p>{escape(p)}</p>" for p in block.text.split("\n"))
                 return f'<div class="block text" {head} style="{style}">{paragraphs}</div>'
+            if draws_icons(block):
+                return (
+                    f'<div class="block bullets icon-list" {head} style="{style}">'
+                    f"{self.icon_list(block, box, size or 0)}</div>"
+                )
             items = "".join(
                 f'<li class="level-{item.level}">{escape(item.text)}</li>' for item in block.items
             )
-            return f'<div class="block bullets" {head} style="{style}"><ul>{items}</ul></div>'
+            # Номер — цветом акцента по роли ДС, как в pptx (`number_ink`). Иконочный
+            # список в плейсхолдере рисуется маркером — как в pptx.
+            numbered = list_style(block) is ListStyle.NUMBERED
+            marker = (
+                self.design.number_ink(self.background, size_pt=size or 0) if numbered else None
+            )
+            kind = ' class="numbered"' if numbered else ""
+            if marker is not None:
+                kind += f' style="--marker: {_var(marker)}"'
+            return (
+                f'<div class="block bullets" {head} style="{style}"><ul{kind}>{items}</ul></div>'
+            )
 
         if isinstance(block, ImageBlock):
             image = self.image(block)
@@ -411,11 +439,36 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
     def icon(self, block: IconBlock) -> str:
         """Элементы Lucide как есть: линия `currentColor`, цвет — переменная темы."""
         color = block.color_ref or self.design.block_accent(self.background)
+        return self.svg_icon(block.query, color)
+
+    def icon_list(self, block: BulletsBlock, box: BBox, size_pt: float) -> str:
+        """Иконочный список — та же раскладка, что в pptx (`layout.lists`): иконки
+        по первой строке пунктов и рамка текста справа, в процентах от рамки блока."""
+        parts = icon_list_geometry(
+            block, box, size_pt, self.manifest, self.design, fonts=self.fonts
+        )
+        color = self.design.block_accent(self.background)
+
+        def inside(part: BBox) -> str:
+            return (
+                f"left: {_pct(part.x - box.x, box.cx)}; top: {_pct(part.y - box.y, box.cy)}; "
+                f"width: {_pct(part.cx, box.cx)}; height: {_pct(part.cy, box.cy)}"
+            )
+
+        glyphs = "".join(
+            f'<div class="glyph" style="{inside(icon)}">{self.svg_icon(item.icon or "", color)}'
+            "</div>"
+            for item, icon in zip(block.items, parts.icons, strict=True)
+        )
+        lines = "".join(f"<p>{escape(item.text)}</p>" for item in block.items)
+        return f'{glyphs}<div class="frame" style="{inside(parts.frame)}">{lines}</div>'
+
+    def svg_icon(self, query: str, color: ColorRef) -> str:
         nodes = "".join(
             f"<{tag} "
             + " ".join(f'{name}="{escape(value, quote=True)}"' for name, value in attrs.items())
             + "/>"
-            for tag, attrs in icon_nodes(block.query) or []
+            for tag, attrs in icon_nodes(query) or []
         )
         return (
             f'<svg viewBox="0 0 {ICON_VIEWBOX} {ICON_VIEWBOX}" xmlns="http://www.w3.org/2000/svg" '
@@ -753,7 +806,7 @@ def export_html(
     if problems:
         raise WriterError("\n".join(problems))
     design = DesignRules(manifest, design_system)
-    document = _HtmlDeck(manifest, content, design).document(
+    document = _HtmlDeck(manifest, content, design, fonts).document(
         deck.model_copy(update={"slides": slides})
     )
     out.parent.mkdir(parents=True, exist_ok=True)

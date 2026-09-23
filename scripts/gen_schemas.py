@@ -51,10 +51,11 @@ EXPORTED: dict[str, str] = {
 # Виды блоков, которые есть в контракте (`schemas/`), но которых нет в схемах ответа
 # моделей (`prompts/*/schema.json`), — с причиной. Вид отсюда убирает тот change, который
 # учит рендер его рисовать, вместе с новой версией промпта, где этот вид описан.
-WITHHELD_BLOCK_TYPES: dict[str, str] = {
-    "quote": "рендера цитаты ещё нет — compose-by-the-design-system (DG3)",
-    "callout": "рендера callout ещё нет — compose-by-the-design-system (DG3)",
-}
+#
+# Пусто с `compose-by-the-design-system` (DG3): цитату и callout рендер рисует (#149),
+# а `slide_composer@1.3.0` объясняет, когда они уместны. Механизм остаётся для следующего
+# вида, который контракт узнает раньше рендера.
+WITHHELD_BLOCK_TYPES: dict[str, str] = {}
 
 
 def resolve(dotted: str) -> type:

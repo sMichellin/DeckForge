@@ -13,6 +13,20 @@
           "minimum": 0,
           "title": "Level",
           "type": "integer"
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Иконка пункта иконочного списка: имя Lucide (shield-check), не путь и не цвет",
+          "title": "Icon"
         }
       },
       "required": [
@@ -78,6 +92,18 @@
           ],
           "default": null,
           "title": "Size Pt"
+        },
+        "style": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ListStyle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Стиль списка: bulleted, numbered или icon; не задан — маркированный. Знак, цвет и отступ рисует вёрстка по дизайн-системе шаблона"
         }
       },
       "required": [
@@ -86,6 +112,58 @@
       ],
       "title": "BulletsBlock",
       "type": "object"
+    },
+    "CalloutBlock": {
+      "additionalProperties": false,
+      "description": "Callout «инсайт» или «риск» (DG4, страница дизайн-системы #142).\n\n`tone` — закрытое перечисление: вид callout входит в контракт. Плашку, подпись вида\nи отступы рисует вёрстка; кегля здесь нет (правило 6).",
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "callout",
+          "default": "callout",
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "tone": {
+          "$ref": "#/$defs/CalloutTone"
+        },
+        "accent_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ColorRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Слот темы для акцента; не задан — акцент берёт вёрстка по дизайн-системе"
+        }
+      },
+      "required": [
+        "block_id",
+        "text",
+        "tone"
+      ],
+      "title": "CalloutBlock",
+      "type": "object"
+    },
+    "CalloutTone": {
+      "description": "Вид callout. Набор закрыт: это часть контракта, а не вкус композитора (DG4).\n\nЦвет и подпись вида решает вёрстка по дизайн-системе, а не модель.",
+      "enum": [
+        "insight",
+        "risk"
+      ],
+      "title": "CalloutTone",
+      "type": "string"
     },
     "ChartBlock": {
       "additionalProperties": false,
@@ -404,6 +482,16 @@
       "title": "KpiItem",
       "type": "object"
     },
+    "ListStyle": {
+      "description": "Стиль списка (DG3, `compose-by-the-design-system`). Набор закрыт, как у callout.\n\nКомпозиция выбирает стиль по смыслу пунктов, а знак, цвет и отступ рисует вёрстка\nпо дизайн-системе шаблона. Не задан — маркированный, как было до этого поля.",
+      "enum": [
+        "bulleted",
+        "numbered",
+        "icon"
+      ],
+      "title": "ListStyle",
+      "type": "string"
+    },
     "Provenance": {
       "additionalProperties": false,
       "properties": {
@@ -453,6 +541,57 @@
         }
       },
       "title": "Provenance",
+      "type": "object"
+    },
+    "QuoteBlock": {
+      "additionalProperties": false,
+      "description": "Цитата с акцентной полосой (DG4, страница дизайн-системы #142).\n\nМодель задаёт только содержание и слот цвета. Ширину полосы, отбивку и кегль\nрешает вёрстка по дизайн-системе шаблона: кегля здесь нет (правило 6).",
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "quote",
+          "default": "quote",
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "author": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Author"
+        },
+        "accent_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ColorRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Слот темы для полосы; не задан — акцент берёт вёрстка по дизайн-системе"
+        }
+      },
+      "required": [
+        "block_id",
+        "text"
+      ],
+      "title": "QuoteBlock",
       "type": "object"
     },
     "SmartArtBlock": {
@@ -653,10 +792,12 @@
         "discriminator": {
           "mapping": {
             "bullets": "#/$defs/BulletsBlock",
+            "callout": "#/$defs/CalloutBlock",
             "chart": "#/$defs/ChartBlock",
             "icon": "#/$defs/IconBlock",
             "image": "#/$defs/ImageBlock",
             "kpi": "#/$defs/KpiBlock",
+            "quote": "#/$defs/QuoteBlock",
             "smartart": "#/$defs/SmartArtBlock",
             "table": "#/$defs/TableBlock",
             "text": "#/$defs/TextBlock"
@@ -687,6 +828,12 @@
           },
           {
             "$ref": "#/$defs/KpiBlock"
+          },
+          {
+            "$ref": "#/$defs/QuoteBlock"
+          },
+          {
+            "$ref": "#/$defs/CalloutBlock"
           }
         ]
       },

@@ -13,6 +13,20 @@
           "minimum": 0,
           "title": "Level",
           "type": "integer"
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Иконка пункта иконочного списка: имя Lucide (shield-check), не путь и не цвет",
+          "title": "Icon"
         }
       },
       "required": [
@@ -130,6 +144,18 @@
           ],
           "default": null,
           "title": "Size Pt"
+        },
+        "style": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ListStyle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Стиль списка: bulleted, numbered или icon; не задан — маркированный. Знак, цвет и отступ рисует вёрстка по дизайн-системе шаблона"
         }
       },
       "required": [
@@ -774,6 +800,16 @@
       ],
       "title": "KpiItem",
       "type": "object"
+    },
+    "ListStyle": {
+      "description": "Стиль списка (DG3, `compose-by-the-design-system`). Набор закрыт, как у callout.\n\nКомпозиция выбирает стиль по смыслу пунктов, а знак, цвет и отступ рисует вёрстка\nпо дизайн-системе шаблона. Не задан — маркированный, как было до этого поля.",
+      "enum": [
+        "bulleted",
+        "numbered",
+        "icon"
+      ],
+      "title": "ListStyle",
+      "type": "string"
     },
     "Provenance": {
       "additionalProperties": false,

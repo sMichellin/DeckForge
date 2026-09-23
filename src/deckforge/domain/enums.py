@@ -79,6 +79,18 @@ class CalloutTone(StrEnum):
     RISK = "risk"
 
 
+class ListStyle(StrEnum):
+    """Стиль списка (DG3, `compose-by-the-design-system`). Набор закрыт, как у callout.
+
+    Композиция выбирает стиль по смыслу пунктов, а знак, цвет и отступ рисует вёрстка
+    по дизайн-системе шаблона. Не задан — маркированный, как было до этого поля.
+    """
+
+    BULLETED = "bulleted"
+    NUMBERED = "numbered"
+    ICON = "icon"
+
+
 class ChartType(StrEnum):
     CLUSTERED_BAR = "clustered_bar"
     STACKED_BAR = "stacked_bar"

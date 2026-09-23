@@ -9,7 +9,10 @@
 * **кегль числа** — `number_sizes`: крупный кегль, которым шаблон сам набрал показатель,
   приведённый к ступени шкалы шаблона (правило 6);
 * **пропорции плитки** — `components` дизайн-системы;
-* **полоса и отбивка цитаты и callout** — `synthesized`: шаг сетки дизайн-системы.
+* **полоса и отбивка цитаты и callout** — `synthesized`: шаг сетки дизайн-системы;
+* **знак списка** (`compose-by-the-design-system`) — номер и иконка акцентом по роли,
+  отбивка иконки — шаг элемента `icon` из `synthesized`;
+* **промежуток между свободными блоками** — базовый шаг `grid.spacing`.
 
 Холодный шаблон (правило 10): слайдов-примеров нет — ролей и кеглей дизайн-система
 не измерила. Тогда поведение прежнее, а `cold_notes` называет это в заметках прогона:
@@ -111,12 +114,19 @@ class BoxedStyle:
         Отношение полосы к отбивке берётся у дизайн-системы (полоса — доля шага),
         поэтому при делении шага пополам полоса тоньшает вместе с ним.
         """
-        limit = box_cx * MAX_INSET_SHARE
-        pad = max(1, self.spacing_emu)
-        while pad > limit and pad > 1:
-            pad //= 2
+        pad = capped_step(self.spacing_emu, box_cx)
         bar = max(1, round(pad * self.line_emu / self.spacing_emu)) if self.spacing_emu else 1
         return Inset(bar_emu=bar, pad_emu=pad)
+
+
+def capped_step(step_emu: int, box_cx: int) -> int:
+    """Шаг дизайн-системы внутри блока: сам шаг, а шире `MAX_INSET_SHARE` рамки — пополам,
+    пока не встанет. Одно правило на отбивку цитаты и на колонку иконочного списка."""
+    limit = box_cx * MAX_INSET_SHARE
+    pad = max(1, step_emu)
+    while pad > limit and pad > 1:
+        pad //= 2
+    return pad
 
 
 class DesignRules:
@@ -157,14 +167,25 @@ class DesignRules:
 
         Повторы по цвету выбрасываются: шесть слотов одного цвета — это один акцент.
         """
-        colors = self.manifest.theme.colors
+        return self._unique([*self.role_accents(), *ACCENT_SLOTS])
+
+    def role_accents(self) -> list[ColorRef]:
+        """Только измеренные акценты — слоты, которые шаблон действительно ставит акцентом,
+        по убыванию доли площади. Пусто — роли не измерены (холодный шаблон).
+
+        Этим списком композиция проверяет цвет, названный моделью: слот не из него —
+        не акцент этого шаблона, а привычка модели писать `accent1`."""
         measured = sorted(
             (role for role in self.ds.palette_roles if role.role is ColorRoleKind.ACCENT),
             key=lambda role: -role.share,
         )
+        return self._unique([self._slot_of(role.color_hex) for role in measured])
+
+    def _unique(self, refs: list[ColorRef]) -> list[ColorRef]:
+        colors = self.manifest.theme.colors
         out: list[ColorRef] = []
         seen: set[str] = set()
-        for ref in [*(self._slot_of(role.color_hex) for role in measured), *ACCENT_SLOTS]:
+        for ref in refs:
             color = colors.get(ref).upper()
             if color not in seen:
                 seen.add(color)
@@ -317,6 +338,34 @@ class DesignRules:
 
     def callout_accent(self, tone: CalloutTone, background_hex: str | None) -> ColorRef:
         return self.accent(background_hex, index=_CALLOUT_ACCENT[tone])
+
+    # --- списки и отступы ---------------------------------------------------------
+
+    def number_ink(self, background_hex: str | None, *, size_pt: float) -> ColorRef | None:
+        """Цвет номера нумерованного списка: акцент блока, читаемый как текст этого кегля.
+
+        Номер — знак текста, а не заливка: ему нужен порог текста, а не графики. Акцент
+        не читается — тот же цвет глубже; нет и такого — `None`, номер цветом пункта.
+        Роли не измерены — `accent1`, как у остальных блоков (правило 10)."""
+        return self.accent_ink(
+            self.block_accent(background_hex), background_hex, size_pt=size_pt, bold=False
+        )
+
+    def icon_pad_emu(self, box_cx: int) -> int:
+        """Отбивка текста от иконки в иконочном списке — шаг элемента `icon` ДС, а нет
+        его — базовый шаг сетки; шире `MAX_INSET_SHARE` рамки делится пополам."""
+        element = self._synth("icon")
+        step = (element.spacing_emu if element is not None else None) or (
+            self.ds.grid.spacing.base_emu
+        )
+        return capped_step(step, box_cx)
+
+    def block_gap_emu(self) -> int:
+        """Промежуток между свободными блоками — базовый шаг шкалы отступов ДС.
+
+        Шаг объявлен в сетке — он же `grid.gutter_emu` манифеста, как было; не объявлен —
+        ДС выводит его из полей или колонок, и блоки больше не встают вплотную."""
+        return self.ds.grid.spacing.base_emu
 
     # --- заметки прогона ----------------------------------------------------------
 

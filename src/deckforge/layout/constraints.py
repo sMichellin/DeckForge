@@ -2,7 +2,9 @@
 
 Блоки с координатами остаются на месте. Свободные делят поровну наибольший свободный
 прямоугольник области контента: колонками, если он шире своей высоты, иначе строками.
-Промежуток — `grid.gutter_emu` шаблона; своих чисел геометрии здесь нет.
+Промежуток — шаг шкалы отступов дизайн-системы, который передаёт композиция
+(`DesignRules.block_gap_emu`, DG3); не передан — `grid.gutter_emu` шаблона, как было.
+Своих чисел геометрии здесь нет.
 
 Перекрытие закреплённых блоков между собой здесь не проверяется: координаты задал
 композитор, а перекрытия ловит аудит (`layout.*`).
@@ -76,9 +78,15 @@ def _split(band: BBox, count: int, gutter: int) -> list[BBox]:
 
 
 def solve_positions(
-    blocks: list[tuple[str, BBox | None]], manifest: TemplateManifest
+    blocks: list[tuple[str, BBox | None]],
+    manifest: TemplateManifest,
+    *,
+    gap_emu: int | None = None,
 ) -> dict[str, BBox]:
-    """Раскладывает блоки по сетке, не выходя за поля и не перекрываясь."""
+    """Раскладывает блоки по сетке, не выходя за поля и не перекрываясь.
+
+    `gap_emu` — промежуток между свободными блоками. Решает, чему он кратен, дизайн-система
+    (`grid.spacing`), а не решатель: он только делит полосу."""
     content = manifest.content_bbox
     fixed = {block_id: box for block_id, box in blocks if box is not None}
     free = [block_id for block_id, box in blocks if box is None]
@@ -92,5 +100,6 @@ def solve_positions(
     band = _free_rect(content, list(fixed.values()))
     if band is None:
         raise LayoutFitError("закреплённые блоки заняли всю область контента")
-    placed = _split(band, len(free), manifest.grid.gutter_emu)
+    gap = manifest.grid.gutter_emu if gap_emu is None else gap_emu
+    placed = _split(band, len(free), gap)
     return {**fixed, **dict(zip(free, placed, strict=True))}
