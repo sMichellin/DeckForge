@@ -81,6 +81,8 @@ def metrics(run_dir: Path) -> dict[str, float]:
     if usage:
         # Доля слайдов, собранных с элементом дизайн-системы (`design-system-usage-in-the-run`).
         out["слайдов с элементом ДС, %"] = round(100 * float(usage.get("share") or 0), 1)
+        # Доля слайдов, собранных по рецепту шаблона (slide-recipes, таск 06a).
+        out["слайдов по рецепту, %"] = round(100 * float(usage.get("recipe_share") or 0), 1)
     return out
 
 

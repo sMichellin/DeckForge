@@ -159,6 +159,10 @@ class RunResult:
                 "дизайн-система: ни на одном слайде нет её элементов — колода собрана "
                 "только плейсхолдерами макетов"
             )
+        if usage is not None and usage["slides_total"] and not usage["slides_by_recipe"]:
+            notes.append(
+                "рецептов нет — слайды собраны из макетов"
+            )
         return {
             "run_id": self.run_id,
             "variant": self.variant,
