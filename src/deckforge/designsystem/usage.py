@@ -87,20 +87,29 @@ def usage(deck: DeckIR, ds: DesignSystem | None) -> dict[str, object]:
     сравниваются между собой (`scripts/run_metrics.py`). `unused` — что ДС умеет,
     а колода не взяла ни разу: это список вопросов к плану, а не ошибка — не каждой
     колоде нужна цитата.
+
+    `recipe` — рецепт (слайд-пример шаблона), по которому собран слайд, или `None`
+    с причиной. `recipe_share` — доля слайдов по рецепту: мерило slide-recipes
+    («слайдов по рецепту, %» в `run_metrics.py`).
     """
     by_slide = {slide.slide_id: slide_elements(slide) for slide in deck.slides}
+    recipe_by_slide = {slide.slide_id: slide.recipe_id for slide in deck.slides}
     counts: dict[str, int] = {}
     for names in by_slide.values():
         for name in names:
             counts[name] = counts.get(name, 0) + 1
     total = len(deck.slides)
     with_elements = sum(1 for names in by_slide.values() if names)
+    by_recipe = sum(1 for rid in recipe_by_slide.values() if rid)
     can = available(ds) if ds is not None else []
     return {
         "slides": by_slide,
+        "recipe": recipe_by_slide,
         "slides_total": total,
         "slides_with_elements": with_elements,
         "share": round(with_elements / total, 3) if total else 0.0,
+        "slides_by_recipe": by_recipe,
+        "recipe_share": round(by_recipe / total, 3) if total else 0.0,
         "elements": {name: counts[name] for name in sorted(counts)},
         "unused": [name for name in can if name not in counts],
     }

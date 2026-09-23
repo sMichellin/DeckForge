@@ -32,6 +32,7 @@ from deckforge.domain.slide import (
     CalloutBlock,
     DeckIR,
     QuoteBlock,
+    SlideIR,
     SmartArtBlock,
 )
 from deckforge.domain.template import TemplateManifest
@@ -145,6 +146,37 @@ def test_the_summary_names_elements_by_slide_and_the_share(design: DesignSystem)
     assert summary["elements"] == {"bullets:numbered": 1, "callout:insight": 1, "kpi": 1}
 
 
+def test_recipe_is_reported_per_slide_and_the_share(design: DesignSystem) -> None:
+    """slide-recipes: слайд по рецепту назван в `recipe`, доля — в `recipe_share`."""
+    by_recipe = deck(
+        SlideIR(
+            slide_id="s01", layout_id="L07", variant="A", recipe_id="ex003",
+            blocks=[title()],
+        ),
+        SlideIR(
+            slide_id="s02", layout_id="L07", variant="A", recipe_id="ex007",
+            blocks=[title(), body()],
+        ),
+        SlideIR(
+            slide_id="s03", layout_id="L07", variant="A",
+            blocks=[title(), body()],
+        ),
+    )
+    summary = usage(by_recipe, design)
+
+    assert summary["recipe"] == {"s01": "ex003", "s02": "ex007", "s03": None}
+    assert summary["slides_by_recipe"] == 2
+    assert summary["recipe_share"] == pytest.approx(0.667)
+
+
+def test_a_deck_without_recipes_has_zero_recipe_share(design: DesignSystem) -> None:
+    summary = usage(mixed_deck(), design)
+
+    assert summary["recipe"] == {"s01": None, "s02": None, "s03": None}
+    assert summary["slides_by_recipe"] == 0
+    assert summary["recipe_share"] == 0.0
+
+
 def test_what_the_design_system_can_draw_but_the_deck_did_not_take(
     design: DesignSystem,
 ) -> None:
@@ -191,6 +223,27 @@ def test_a_deck_without_design_system_elements_is_named(
     assert any("ни на одном слайде нет её элементов" in note for note in notes)  # type: ignore[union-attr]
 
 
+def test_a_deck_without_recipes_is_named(tmp_path: Path, design: DesignSystem) -> None:
+    """slide-recipes: колода без рецептов названа в заметках — «рецептов нет»."""
+    report = report_for(tmp_path, mixed_deck(), design)
+
+    assert report["design_system_usage"]["slides_by_recipe"] == 0  # type: ignore[index]
+    assert any("рецептов нет" in note for note in report["notes"])  # type: ignore[union-attr]
+
+
+def test_a_deck_with_recipes_is_not_named(tmp_path: Path, design: DesignSystem) -> None:
+    by_recipe = deck(
+        SlideIR(
+            slide_id="s01", layout_id="L07", variant="A", recipe_id="ex003",
+            blocks=[title()],
+        ),
+    )
+    report = report_for(tmp_path, by_recipe, design)
+
+    assert report["design_system_usage"]["slides_by_recipe"] == 1  # type: ignore[index]
+    assert not any("рецептов нет" in note for note in report["notes"])  # type: ignore[union-attr]
+
+
 def test_a_deck_with_design_system_elements_is_not_named(
     tmp_path: Path, design: DesignSystem
 ) -> None:
@@ -225,6 +278,36 @@ def test_run_metrics_shows_the_share_of_slides_with_an_element(
         encoding="utf-8",
     )
     assert run_metrics.metrics(run_dir)["слайдов с элементом ДС, %"] == pytest.approx(66.7)
+
+
+def test_run_metrics_shows_the_share_of_slides_by_recipe(
+    tmp_path: Path, design: DesignSystem
+) -> None:
+    """slide-recipes: `run_metrics.py` выводит долю слайдов по рецепту."""
+    scripts = Path(__file__).resolve().parents[2] / "scripts"
+    sys.path.insert(0, str(scripts))
+    try:
+        import run_metrics
+    finally:
+        sys.path.remove(str(scripts))
+
+    by_recipe = deck(
+        SlideIR(
+            slide_id="s01", layout_id="L07", variant="A", recipe_id="ex003",
+            blocks=[title()],
+        ),
+        SlideIR(
+            slide_id="s02", layout_id="L07", variant="A",
+            blocks=[title(), body()],
+        ),
+    )
+    run_dir = tmp_path / "run2"
+    (run_dir / "out").mkdir(parents=True)
+    (run_dir / "out" / "run.json").write_text(
+        json.dumps(report_for(tmp_path, by_recipe, design), ensure_ascii=False),
+        encoding="utf-8",
+    )
+    assert run_metrics.metrics(run_dir)["слайдов по рецепту, %"] == pytest.approx(50.0)
 
 
 # --- сквозной прогон -------------------------------------------------------------------
