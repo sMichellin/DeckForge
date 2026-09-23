@@ -281,7 +281,7 @@ def test_an_icon_list_draws_an_icon_by_every_item(
     tmp_path: Path, real: tuple[Path, TemplateManifest]
 ) -> None:
     """Иконка — нативная фигура (C3) у каждого пункта, по первой строке, слева от текста;
-    цвет — акцент по роли ДС; текст — одна рамка, уже рамки блока."""
+    цвет — первый акцент темы; текст — одна рамка, уже рамки блока."""
     template, manifest = real
     design = with_roles(manifest, accent_role(manifest, ColorRef.ACCENT4, 0.3))
     path, fitted, _ = written(tmp_path, template, manifest,
@@ -298,7 +298,8 @@ def test_an_icon_list_draws_an_icon_by_every_item(
     assert tops == sorted(tops) and len(set(tops)) == 3
     assert all(shape.left + shape.width <= texts[0].left for shape in icons)
     assert all("custGeom" in shape._element.xml for shape in icons)
-    assert "accent4" in group._element.xml and "srgbClr" not in group._element.xml
+    assert "accent1" in group._element.xml and "accent4" not in group._element.xml
+    assert "srgbClr" not in group._element.xml
     block = fitted.block("b")
     assert block is not None and block.bbox is not None
     assert texts[0].width < block.bbox.cx
@@ -396,15 +397,11 @@ def test_html_draws_the_same_list_styles(
 def test_a_cold_template_draws_list_markers_in_accent1(
     tmp_path: Path, real: tuple[Path, TemplateManifest]
 ) -> None:
-    """Правило 10: ролей нет — номер и иконки акцентом по порядку слотов, как у
-    остальных блоков; заметку об этом пишет узел `fit` (`cold_notes`)."""
+    """Правило 10: ролей нет — номер и иконки `accent1`, как у остальных блоков."""
     template, manifest = real
     cold = DesignRules(manifest).ds.model_copy(update={"palette_roles": []})
     rules = DesignRules(manifest, cold)
-    assert not rules.roles_measured
-    assert rules.role_accents() == []
     assert rules.block_accent(None) is ColorRef.ACCENT1
-    assert any("роли цветов" in note for note in rules.cold_notes())
 
     path, _, _ = written(tmp_path, template, manifest,
                          slide_with(manifest, listing(ListStyle.ICON)), cold)
@@ -560,19 +557,18 @@ KPI = {"block_id": "k", "type": "kpi",
        "items": [{"value": "37,5 %", "label": "рост выручки", "color_ref": "accent1"}]}
 
 
-async def test_a_model_accent_the_template_does_not_use_is_dropped(
+async def test_a_model_accent_is_kept_whatever_the_area(
     manifest: TemplateManifest, content: ContentPackage, variant_a: VariantProfile
 ) -> None:
-    """Нарушитель: модель пишет `accent1` по привычке, шаблон ставит акцентом `accent3`.
-    Слот снимается — цвет возьмёт вёрстка по роли, — и это названо."""
+    """Решение тимлида 23.09: цвет, названный моделью, композитор больше не снимает,
+    даже если по площади примеров шаблон ставит акцентом другой слот."""
     design = with_roles(manifest, accent_role(manifest, ColorRef.ACCENT3, 0.2))
     ir, composer, _ = await composed([KPI], manifest, content, variant_a, design)
 
     block = ir.block("k")
     assert isinstance(block, KpiBlock)
-    assert block.items[0].color_ref is None
-    assert any("accent1 шаблон акцентом не ставит" in note and "accent3" in note
-               for note in composer.notes), composer.notes
+    assert block.items[0].color_ref is ColorRef.ACCENT1
+    assert not [note for note in composer.notes if "акцентом не ставит" in note]
 
 
 async def test_a_model_accent_of_the_template_is_kept(
@@ -588,18 +584,16 @@ async def test_a_model_accent_of_the_template_is_kept(
 
 
 @pytest.mark.cold
-async def test_a_cold_template_keeps_the_model_colors_and_says_so_once(
+async def test_a_cold_template_keeps_the_model_colors(
     manifest: TemplateManifest, content: ContentPackage, variant_a: VariantProfile
 ) -> None:
-    """Правило 10: примеров нет — ролей нет, цвет модели остаётся, заметка одна на прогон."""
-    assert DesignRules(manifest).role_accents() == []
+    """Правило 10: примеров нет — цвет модели остаётся, заметок о ролях цвета нет."""
     ir, composer, _ = await composed([KPI], manifest, content, variant_a)
     await composed([KPI], manifest, content, variant_a, composer=composer)
 
     block = ir.block("k")
     assert isinstance(block, KpiBlock) and block.items[0].color_ref is ColorRef.ACCENT1
-    about = [note for note in composer.notes if "роли цветов не измерены" in note]
-    assert len(about) == 1
+    assert not [note for note in composer.notes if "роли цветов" in note]
 
 
 # --- композиция: стиль списка ----------------------------------------------------
@@ -747,7 +741,8 @@ async def test_the_prompt_gets_roles_and_kinds_not_coordinates(
     _, _, llm = await composed([], manifest, content, variant_a, design)
 
     prompt = llm.prompt
-    assert "Акценты этого шаблона по роли: accent3" in prompt
+    assert "первый акцентный слот темы (`accent1`)" in prompt
+    assert "Акценты этого шаблона по роли" not in prompt
     for style in ("bulleted", "numbered", "icon"):
         assert f"`{style}` —" in prompt
     assert "`quote`" in prompt and "tone: insight" in prompt and "tone: risk" in prompt
@@ -756,16 +751,18 @@ async def test_the_prompt_gets_roles_and_kinds_not_coordinates(
 
 
 @pytest.mark.cold
-async def test_a_cold_prompt_asks_for_no_colors(
+async def test_a_cold_prompt_names_accent1_as_on_any_template(
     manifest: TemplateManifest, content: ContentPackage, variant_a: VariantProfile
 ) -> None:
+    """Акцент от ролей цвета больше не зависит: у шаблона без примеров промпт тот же."""
     _, _, llm = await composed([], manifest, content, variant_a)
-    assert "Роли цветов у этого шаблона не измерены" in llm.prompt
+    assert "первый акцентный слот темы (`accent1`)" in llm.prompt
+    assert "Роли цветов" not in llm.prompt
 
 
 def test_the_active_composer_prompt_is_the_design_system_one() -> None:
     bundle = get_prompt_registry().load("slide_composer")
-    assert bundle.version == "1.3.0"
+    assert bundle.version == "1.3.1"
     assert "Цитата и callout" in bundle.system_template
     assert "Стиль списка" in bundle.system_template
 

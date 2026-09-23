@@ -3,9 +3,9 @@
 Композиция и вёрстка перестают решать сами то, на что дизайн-система уже ответила
 по слайдам-примерам шаблона (`designsystem`, #142):
 
-* **акцент блока** — роль `accent` из `palette_roles`: цвет, который автор шаблона
-  действительно ставил акцентом, а не `accent1` по порядку. В IR и в файле это
-  по-прежнему имя слота темы (правило 5);
+* **акцент блока** — слоты темы по порядку, `accent1` первым, как до DG3 (порядок
+  по доле площади `palette_roles` снят решением тимлида 23.09); уступает следующему
+  слоту, только если не виден на фоне макета. В IR и в файле это имя слота (правило 5);
 * **кегль числа** — `number_sizes`: крупный кегль, которым шаблон сам набрал показатель,
   приведённый к ступени шкалы шаблона (правило 6);
 * **пропорции плитки** — `components` дизайн-системы;
@@ -30,7 +30,7 @@ from deckforge.designsystem import DesignSystem, Origin, derive
 from deckforge.designsystem.contrast import TextClass, readability, readable_ref, text_class
 from deckforge.designsystem.models import ColorRoleKind, ComponentCard, SynthElement
 from deckforge.domain.enums import CalloutTone, ColorRef, TextRole
-from deckforge.domain.rules import delta_e_rgb, next_size_down
+from deckforge.domain.rules import next_size_down
 from deckforge.domain.template import ComponentKind, TemplateManifest
 
 #: Акцентные слоты темы по порядку. Запасной ряд: роли не измерены или все измеренные
@@ -144,42 +144,15 @@ class DesignRules:
 
     # --- цвет ---------------------------------------------------------------------
 
-    @property
-    def roles_measured(self) -> bool:
-        """Нашла ли дизайн-система по примерам хоть один акцент."""
-        return any(role.role is ColorRoleKind.ACCENT for role in self.ds.palette_roles)
-
-    def _slot_of(self, color_hex: str) -> ColorRef:
-        """Слот темы, которым записать измеренный цвет.
-
-        Ближайший по цвету, а среди равно близких — акцентный: у шаблонов кейса один
-        и тот же синий лежит и в `dk2`, и в `accent1`, и называть акцент слотом тёмного
-        текста значит спутать роль, хотя цвет тот же.
-        """
-        colors = self.manifest.theme.colors
-        distance = {ref: delta_e_rgb(colors.get(ref), color_hex) for ref in ColorRef}
-        best = min(distance.values())
-        nearest = [ref for ref in ColorRef if distance[ref] == best]
-        return next((ref for ref in nearest if ref in ACCENT_SLOTS), nearest[0])
-
     def accents(self) -> list[ColorRef]:
-        """Акценты по убыванию роли: сначала измеренные по площади, затем слоты темы.
+        """Акценты в порядке слотов темы: `accent1` первым, как до DG3.
 
-        Повторы по цвету выбрасываются: шесть слотов одного цвета — это один акцент.
+        Порядок по доле площади на слайдах-примерах (#149) снят решением тимлида 23.09:
+        на VK Tech первым выходил розовый `accent3`, на VK WorkSpace — светло-голубой,
+        а показатели шаблоны набирают фирменным `accent1`. Повторы по цвету выбрасываются:
+        шесть слотов одного цвета — это один акцент.
         """
-        return self._unique([*self.role_accents(), *ACCENT_SLOTS])
-
-    def role_accents(self) -> list[ColorRef]:
-        """Только измеренные акценты — слоты, которые шаблон действительно ставит акцентом,
-        по убыванию доли площади. Пусто — роли не измерены (холодный шаблон).
-
-        Этим списком композиция проверяет цвет, названный моделью: слот не из него —
-        не акцент этого шаблона, а привычка модели писать `accent1`."""
-        measured = sorted(
-            (role for role in self.ds.palette_roles if role.role is ColorRoleKind.ACCENT),
-            key=lambda role: -role.share,
-        )
-        return self._unique([self._slot_of(role.color_hex) for role in measured])
+        return self._unique(list(ACCENT_SLOTS))
 
     def _unique(self, refs: list[ColorRef]) -> list[ColorRef]:
         colors = self.manifest.theme.colors
@@ -244,12 +217,10 @@ class DesignRules:
     def block_accent(self, background_hex: str | None, *, size_pt: float | None = None) -> ColorRef:
         """Цвет по умолчанию у показателя, схемы и иконки, когда IR слота не назвал.
 
-        Роли не измерены — `accent1`, как было до этого change (правило 10). Измерены —
-        акцент по роли: у текста показателя свой порог крупного текста, у заливки узла
-        и линии иконки — порог графики.
+        `accent1`, как до DG3. Уступает следующему слоту темы, только если на фоне макета
+        не берёт свой порог (`designsystem.contrast`): у текста показателя — порог
+        крупного текста, у заливки узла и линии иконки — порог графики.
         """
-        if not self.roles_measured:
-            return ColorRef.ACCENT1
         kind = TextClass.GRAPHICS if size_pt is None else TextClass.LARGE
         return self.accent(background_hex, kind=kind, size_pt=size_pt)
 
@@ -345,8 +316,7 @@ class DesignRules:
         """Цвет номера нумерованного списка: акцент блока, читаемый как текст этого кегля.
 
         Номер — знак текста, а не заливка: ему нужен порог текста, а не графики. Акцент
-        не читается — тот же цвет глубже; нет и такого — `None`, номер цветом пункта.
-        Роли не измерены — `accent1`, как у остальных блоков (правило 10)."""
+        не читается — тот же цвет глубже; нет и такого — `None`, номер цветом пункта."""
         return self.accent_ink(
             self.block_accent(background_hex), background_hex, size_pt=size_pt, bold=False
         )
@@ -372,12 +342,6 @@ class DesignRules:
     def cold_notes(self) -> list[str]:
         """Что дизайн-система не измерила и где поэтому осталось прежнее правило."""
         notes: list[str] = []
-        if not self.roles_measured:
-            notes.append(
-                "дизайн-система: роли цветов по слайдам-примерам не измерены "
-                f"(примеров в шаблоне: {len(self.manifest.examples)}) — акцент блоков "
-                "по порядку слотов темы, как прежде"
-            )
         sizes = self.ds.number_sizes
         if sizes.origin is not Origin.MEASURED or sizes.large_pt is None:
             notes.append(

@@ -91,8 +91,9 @@ def with_numbers(manifest: TemplateManifest, large: float) -> DesignSystem:
 # --- акцент по роли -------------------------------------------------------------
 
 
-def test_the_accent_is_the_one_the_template_uses(manifest: TemplateManifest) -> None:
-    """Нарушитель прежнего правила: шаблон ставит акцентом третий слот, а не первый."""
+def test_the_accent_follows_the_theme_slots_not_the_area(manifest: TemplateManifest) -> None:
+    """Решение тимлида 23.09 (`accent-by-slot-order`): акцент — по порядку слотов темы,
+    `accent1` первым, даже если по площади примеров шаблон чаще ставит другой слот."""
     rules = DesignRules(
         manifest,
         with_roles(
@@ -102,55 +103,35 @@ def test_the_accent_is_the_one_the_template_uses(manifest: TemplateManifest) -> 
         ),
     )
 
-    assert rules.roles_measured
-    assert rules.accents()[:2] == [ColorRef.ACCENT3, ColorRef.ACCENT1]
-    assert rules.block_accent(None) is ColorRef.ACCENT3
-    assert rules.callout_accent(CalloutTone.INSIGHT, None) is ColorRef.ACCENT3
-    assert rules.callout_accent(CalloutTone.RISK, None) is ColorRef.ACCENT1
-
-
-def test_a_color_shared_by_text_and_accent_slots_is_named_as_accent(
-    manifest: TemplateManifest,
-) -> None:
-    """Один синий в `dk2` и `accent1` — акцентом он записывается слотом акцента."""
-    blue = manifest.theme.colors.get(ColorRef.ACCENT1)
-    colors = manifest.theme.colors.model_copy(update={"dk2": blue})
-    same_blue = manifest.model_copy(
-        update={"theme": manifest.theme.model_copy(update={"colors": colors})}
-    )
-    role = PaletteRole(role=ColorRoleKind.ACCENT, color_hex=blue, nearest_ref=ColorRef.DK2,
-                       share=0.2)
-
-    rules = DesignRules(same_blue, with_roles(same_blue, role))
-
     assert rules.accents()[0] is ColorRef.ACCENT1
+    assert rules.block_accent(None) is ColorRef.ACCENT1
+    assert rules.callout_accent(CalloutTone.INSIGHT, None) is ColorRef.ACCENT1
+    assert rules.callout_accent(CalloutTone.RISK, None) is rules.accents()[1]
 
 
 def test_an_accent_invisible_on_the_background_yields(manifest: TemplateManifest) -> None:
-    """Акцент, неразличимый на фоне слайда (жёлтый на белом — ниже 3:1), уступает
-    следующему, а не рисуется невидимым."""
-    rules = DesignRules(
-        manifest,
-        with_roles(
-            manifest,
-            accent_role(manifest, ColorRef.ACCENT3, 0.2),
-            accent_role(manifest, ColorRef.ACCENT5, 0.1),
-        ),
+    """`accent1`, неразличимый на фоне слайда (светло-жёлтый на белом — ниже 3:1),
+    уступает следующему слоту темы, а не рисуется невидимым."""
+    colors = manifest.theme.colors.model_copy(
+        update={"accent1": "#FFFF99", "accent2": "#2E6BE6", "lt1": "#FFFFFF"}
     )
-    background = manifest.theme.colors.get(ColorRef.LT1)
+    pale = manifest.model_copy(
+        update={"theme": manifest.theme.model_copy(update={"colors": colors})}
+    )
+    rules = DesignRules(pale)
 
-    assert rules.accent(None) is ColorRef.ACCENT3, "без фона выбирать не по чему"
-    assert rules.accent(background) is ColorRef.ACCENT5
+    assert rules.accent(None) is ColorRef.ACCENT1, "без фона выбирать не по чему"
+    assert rules.accent("#FFFFFF") is ColorRef.ACCENT2
 
 
-def test_a_cold_template_keeps_accent1_and_says_so(manifest: TemplateManifest) -> None:
-    """Правило 10: примеров нет — роли не измерены, акцент прежний, заметка есть."""
+def test_a_cold_template_keeps_accent1(manifest: TemplateManifest) -> None:
+    """Правило 10: примеров нет — акцент тот же `accent1`: от ролей он больше не зависит,
+    и заметки о неизмеренных ролях цвета нет."""
     rules = DesignRules(manifest)
 
     assert manifest.examples == []
-    assert not rules.roles_measured
     assert rules.block_accent(None) is ColorRef.ACCENT1
-    assert any("роли цветов" in note for note in rules.cold_notes())
+    assert not any("роли цветов" in note for note in rules.cold_notes())
 
 
 # --- кегль числа ----------------------------------------------------------------
@@ -411,11 +392,13 @@ def test_quote_and_callout_are_native_shapes(
 def test_the_bar_takes_the_role_accent_when_ir_names_none(
     tmp_path: Path, real: tuple[Path, TemplateManifest]
 ) -> None:
-    """`accent_ref` не задан — полоса акцентом по роли ДС; задан — им."""
+    """`accent_ref` не задан — полоса первым слотом темы, а не акцентом по площади;
+    задан — им."""
     template, manifest = real
     design = with_roles(manifest, accent_role(manifest, ColorRef.ACCENT4, 0.3))
     path, _ = written(tmp_path, template, manifest, slide_with(manifest, quote()), design)
-    assert "accent4" in scheme_colors(groups(path)["Цитата"])
+    bar = scheme_colors(groups(path)["Цитата"])
+    assert "accent1" in bar and "accent4" not in bar
 
     named = quote().model_copy(update={"accent_ref": ColorRef.ACCENT2})
     path, _ = written(tmp_path, template, manifest, slide_with(manifest, named), design)
@@ -426,7 +409,8 @@ def test_the_bar_takes_the_role_accent_when_ir_names_none(
 def test_the_kpi_value_takes_the_role_accent(
     tmp_path: Path, real: tuple[Path, TemplateManifest]
 ) -> None:
-    """Значение показателя без слота в IR — акцент по роли, а не `accent1`."""
+    """Значение показателя без слота в IR — `accent1`, даже когда по площади шаблон
+    ставит акцентом другой слот."""
     template, manifest = real
     design = with_roles(manifest, accent_role(manifest, ColorRef.ACCENT4, 0.3))
     block = kpi("37 %")
@@ -438,7 +422,7 @@ def test_the_kpi_value_takes_the_role_accent(
         for node in shape._element.iter() if node.tag.endswith("}schemeClr")
         and "37 %" in shape.text_frame.text
     ]
-    assert "accent4" in values
+    assert "accent1" in values and "accent4" not in values
 
 
 def test_html_draws_the_same_quote(
@@ -457,7 +441,7 @@ def test_html_draws_the_same_quote(
 
     assert 'class="block boxed quote"' in html and 'class="block boxed callout"' in html
     assert "Шаблон задаёт язык колоды" in html and "— Бриф" in html
-    assert "background: var(--accent4)" in html
+    assert "background: var(--accent1)" in html
     assert "#" not in html.split("</style>")[1].split("data:")[0].replace("#arrow", ""), (
         "литеральный цвет в разметке слайда"
     )

@@ -26,7 +26,7 @@ from deckforge.composition.visual_selector import select_chart
 from deckforge.designsystem import DesignSystem
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage
-from deckforge.domain.enums import ColorRef, ListStyle, TextRole
+from deckforge.domain.enums import ListStyle, TextRole
 from deckforge.domain.plan import SlidePlan
 from deckforge.domain.slide import (
     Block,
@@ -47,7 +47,7 @@ from deckforge.domain.template import LayoutSpec, TemplateManifest
 from deckforge.domain.variants import VariantProfile
 from deckforge.inference.client import InferenceClient
 from deckforge.inference.structured import generate_model
-from deckforge.layout.by_design import ACCENT_SLOTS, DesignRules
+from deckforge.layout.by_design import DesignRules
 from deckforge.layout.constraints import solve_positions
 from deckforge.layout.diagram import SUPPORTED_PATTERNS
 from deckforge.layout.errors import LayoutFitError
@@ -244,7 +244,6 @@ def _design_context(rules: DesignRules) -> dict[str, Any]:
     ]
     icon_examples = [item.text for item in rules.ds.synthesized if item.kind == "icon"]
     return {
-        "accent_roles": [ref.value for ref in rules.role_accents()],
         "list_styles": list_styles,
         "callouts": callouts,
         "icon_examples": icon_examples,
@@ -257,8 +256,6 @@ class SlideComposer:
         self.profile = profile
         #: Что композиция изменила или выбросила. Забирает узел графа в отчёт прогона.
         self.notes: list[str] = []
-        #: Заметка «роли цветов не измерены» — одна на прогон, а не на слайд (правило 10).
-        self._cold_noted = False
 
     async def compose(
         self,
@@ -500,66 +497,6 @@ class SlideComposer:
                         f"{len(steps)}): стрелки просят схему process, а не строку",
                     )
                     break
-
-    def _accent_by_role(self, block: Block, rules: DesignRules, slide_id: str) -> Block:
-        """Цвет, названный моделью, — только акцент шаблона по роли дизайн-системы (DG3).
-
-        Модель пишет `accent1` по привычке, а шаблон ставит акцентом третий слот (VK Tech,
-        VK WorkSpace — `accent3` по площади примеров). Акцентный слот, которого нет среди
-        акцентов по роли, снимается: цвет возьмёт вёрстка — акцент по роли, видимый на фоне
-        макета (`DesignRules.block_accent`, полоса цитаты — `callout_accent`). Не акцентные
-        слоты (`dk*`, `lt*`) не трогаются: это решение о тексте, а не об акценте.
-
-        Роли не измерены (холодный шаблон, правило 10) — цвет модели остаётся как есть,
-        и это называет одна заметка на прогон.
-        """
-        allowed = rules.role_accents()
-
-        def foreign(ref: ColorRef | None) -> bool:
-            return ref is not None and ref in ACCENT_SLOTS and ref not in allowed
-
-        named: list[ColorRef | None] = []
-        if isinstance(block, KpiBlock):
-            named = [item.color_ref for item in block.items]
-        elif isinstance(block, SmartArtBlock):
-            named = list(block.color_refs)
-        elif isinstance(block, IconBlock):
-            named = [block.color_ref]
-        elif isinstance(block, QuoteBlock | CalloutBlock):
-            named = [block.accent_ref]
-        if not any(ref is not None for ref in named):
-            return block
-        if not allowed:
-            if not self._cold_noted:
-                self._cold_noted = True
-                self.notes.append(
-                    "дизайн-система: роли цветов не измерены — цвета блоков, названные "
-                    "моделью, оставлены как есть"
-                )
-            return block
-        dropped = sorted({ref.value for ref in named if ref is not None and foreign(ref)})
-        if not dropped:
-            return block
-
-        if isinstance(block, KpiBlock):
-            block = block.model_copy(update={"items": [
-                item.model_copy(update={"color_ref": None}) if foreign(item.color_ref) else item
-                for item in block.items
-            ]})
-        elif isinstance(block, SmartArtBlock):
-            block = block.model_copy(
-                update={"color_refs": [ref for ref in block.color_refs if not foreign(ref)]}
-            )
-        elif isinstance(block, IconBlock):
-            block = block.model_copy(update={"color_ref": None})
-        elif isinstance(block, QuoteBlock | CalloutBlock):
-            block = block.model_copy(update={"accent_ref": None})
-        self._note(
-            slide_id,
-            f"блок {block.block_id}: {', '.join(dropped)} шаблон акцентом не ставит — "
-            f"цвет по роли дизайн-системы ({', '.join(ref.value for ref in allowed)})",
-        )
-        return block
 
     def _list_style(self, block: BulletsBlock, slide_id: str) -> BulletsBlock:
         """Стиль списка, который действительно выйдет на слайде (DG3).
@@ -820,7 +757,6 @@ class SlideComposer:
                     )
                     continue
 
-            block = self._accent_by_role(block, rules, slide.slide_id)
             if isinstance(block, BulletsBlock):
                 block = self._list_style(block, slide.slide_id)
             blocks.append(block)
