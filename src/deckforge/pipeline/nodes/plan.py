@@ -177,6 +177,9 @@ async def plan_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
             state["variant"],
             state["seed"],
             headline_limit=limit,
+            # Меню дизайн-системы шаблона (`plan-by-the-design-system`): план заказывает
+            # её элементы, а не только схемы и показатели. ДС — из узла `parse` (DG2).
+            design_system=state.get("design_system"),
         )
         # Предел модели назван, но она его не держит (прогон ea732e59510c: 9 заголовков
         # из 10 длиннее места). Не уместившийся заголовок переписывается моделью, а не
