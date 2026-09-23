@@ -82,9 +82,7 @@ def test_the_size_of_a_role_is_kept_as_a_share_of_the_slide_width(
     by_level = {step.level: step for step in ds.typography.steps}
 
     assert by_level[TypeLevel.SLIDE_TITLE].width_share == 0.039856, "508 000 EMU на 12 746 000"
-    assert (
-        by_level[TypeLevel.LABEL].width_share < by_level[TypeLevel.SLIDE_TITLE].width_share
-    )
+    assert by_level[TypeLevel.LABEL].width_share < by_level[TypeLevel.SLIDE_TITLE].width_share
 
 
 def test_the_grid_repeats_the_numbers_of_the_manifest(manifest: TemplateManifest) -> None:
@@ -221,6 +219,8 @@ def test_one_structure_carries_the_fields_of_all_three_tasks(
         "fonts_in_use",
         "number_sizes",
         "components",
+        #: Change `a-minimum-is-not-a-norm`: места, где шаблон не даёт читаемой пары.
+        "contrast_defects",
         "synthesized",
         "assembly_rules",
     }
@@ -280,9 +280,7 @@ def test_the_case_templates_give_a_design_system(name: str) -> None:
 
     assert [step.level for step in ds.typography.steps] == EIGHT_LEVELS
     measured = {
-        step.role: step.size_pt
-        for step in ds.typography.steps
-        if step.origin is Origin.MEASURED
+        step.role: step.size_pt for step in ds.typography.steps if step.origin is Origin.MEASURED
     }
     assert measured == {step.role: step.size_pt for step in parsed.typography_scale}
     assert all(step.size_pt in parsed.size_ladder_pt for step in ds.typography.steps), (
@@ -319,9 +317,7 @@ def test_the_ladder_carries_all_eight_levels_of_the_brief(manifest: TemplateMani
 
     assert [step.level for step in ds.typography.steps] == EIGHT_LEVELS
     measured = {
-        step.level: step.size_pt
-        for step in ds.typography.steps
-        if step.origin is Origin.MEASURED
+        step.level: step.size_pt for step in ds.typography.steps if step.origin is Origin.MEASURED
     }
     assert measured == {
         TypeLevel.SLIDE_TITLE: 40.0,

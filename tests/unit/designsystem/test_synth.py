@@ -130,9 +130,7 @@ def test_the_bulleted_style_carries_the_marker_the_template_really_declares(
             ]
         }
     )
-    with_marker = next(
-        element for element in group(marked, "списки") if element.kind == "bulleted"
-    )
+    with_marker = next(element for element in group(marked, "списки") if element.kind == "bulleted")
 
     assert with_marker.text == "—"
     assert with_marker.color_ref is ColorRef.ACCENT2, "цвет маркера — слотом шаблона"
@@ -275,10 +273,16 @@ def test_the_table_the_quote_and_two_callouts_are_built_in_the_colours_of_the_te
 def test_the_rule_that_meaning_is_not_only_colour_is_written_and_marked_derived(
     manifest: TemplateManifest,
 ) -> None:
-    """R28, история 10b: правило доступности — строкой в разделе, помечено достроенным."""
-    accessibility = group(manifest, "доступность")
+    """R28, история 10b: правило доступности — строкой в разделе, помечено достроенным.
 
-    assert [element.kind for element in accessibility] == ["meaning_beyond_colour"]
+    Change `a-minimum-is-not-a-norm` добавил рядом ещё три правила заказчика; проверка
+    здесь по-прежнему про это одно, но раздел больше не единственный его житель.
+    """
+    accessibility = group(manifest, "доступность")
+    kinds = [element.kind for element in accessibility]
+
+    assert kinds[0] == "meaning_beyond_colour", "правило про цвет — первым в разделе"
+    assert {"minimum_is_not_a_norm", "ink_follows_the_plate", "the_real_background"} <= set(kinds)
     rule = accessibility[0]
     assert "цвет" in rule.text.lower(), "правило названо словами, а не подразумевается"
     assert rule.purpose

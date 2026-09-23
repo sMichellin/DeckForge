@@ -25,6 +25,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from html import escape
 
+from deckforge.designsystem.contrast import TextClass, readability, readable_from
 from deckforge.designsystem.models import (
     AssemblyRule,
     ColorRoleKind,
@@ -184,15 +185,23 @@ class _Palette:
     def hex_of(self, ref: ColorRef) -> str:
         return self._theme.get(ref, "")
 
-    def readable_on(self, background_hex: str) -> ColorRef:
-        """Слот темы, который виден на этом фоне лучше прочих.
+    def readable_on(self, background_hex: str, kind: TextClass = TextClass.BODY) -> ColorRef:
+        """Слот темы, которым по этому фону можно писать текст этого класса.
 
-        Меряется тем же способом, что `domain.rules.readable_text_ref`: его слоты и его
-        формула контраста. Сама функция берёт `TemplateManifest`, а странице отдан только
-        `DesignSystem` — поэтому здесь вызов по цветам темы, а не по манифесту.
+        Берётся не «лучшее из имеющегося», а то, что действительно берёт порог:
+        подписи нужно 7, рабочему тексту 4,5, крупному 3 (change `a-minimum-is-not-a-norm`).
+        Порога не берёт ни один слот — тогда лучший, иначе страница нарисует пустое место;
+        такие случаи слой называет отдельно, в разделе доступности.
         """
         if not background_hex or not self._theme:
             return self.ink_ref
+        text_palette = {ref: self._theme[ref] for ref in TEXT_SLOTS if ref in self._theme}
+        chosen = readable_from(text_palette, background_hex, kind)
+        if chosen is not None:
+            return chosen
+        whole = readable_from(self._theme, background_hex, kind)
+        if chosen is None and whole is not None:
+            return whole
         return max(TEXT_SLOTS, key=lambda ref: contrast_ratio(self._theme[ref], background_hex))
 
     def var(self, name: str) -> str:
@@ -251,9 +260,16 @@ def _slides(seen_on: Iterable[int]) -> str:
 
 def _origin_tag(origin: Origin) -> str:
     """Метка блока. Берётся из признака в данных — руками нигде не проставляется."""
-    return (
-        f'<span class="origin origin--{origin.value}">{_ORIGIN_NAMES[origin]}</span>'
-    )
+    return f'<span class="origin origin--{origin.value}">{_ORIGIN_NAMES[origin]}</span>'
+
+
+def _sentence(text: str) -> str:
+    """Фраза, законченная точкой: иначе назначение элемента и оговорка про контраст
+    склеиваются в одну строку без границы между ними."""
+    stripped = text.strip()
+    if not stripped or stripped[-1] in ".!?:;":
+        return stripped
+    return f"{stripped}."
 
 
 def _empty(reason: str) -> str:
@@ -449,8 +465,10 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
                 "Цвета показаны только как слоты темы — в разделах ниже."
             )
         inner += "<h3>Сочетания, встреченные на примерах</h3>"
-        inner += self.combination_cards(combos) if combos else _empty(
-            "Сочетания собираются со слайдов-примеров, а их в шаблоне нет."
+        inner += (
+            self.combination_cards(combos)
+            if combos
+            else _empty("Сочетания собираются со слайдов-примеров, а их в шаблоне нет.")
         )
         return self.section(
             "02 — Семантика и сочетания",
@@ -464,11 +482,11 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
         total = sum(role.share for role in roles) or 1.0
         segments = "".join(
             f'<i style="width: {_pct(role.share, total)}; '
-            f"background: {self.p.literal(role.color_hex)}\"></i>"
+            f'background: {self.p.literal(role.color_hex)}"></i>'
             for role in roles
         )
         legend = "".join(
-            f"<span><i style=\"background: {self.p.literal(role.color_hex)}\"></i>"
+            f'<span><i style="background: {self.p.literal(role.color_hex)}"></i>'
             f"<b>{_esc(_ROLE_NAMES[role.role])}</b> {_esc(_share(role.share))}"
             f"{self.slot_suffix(role)}</span>"
             for role in roles
@@ -502,12 +520,25 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
         #: и без акцента — это свёрнутые слайды, а не сочетание.
         tail = last and combo.text_hex is None and combo.accent_hex is None
         background = self.p.literal(combo.background_hex)
-        text = self.p.literal(combo.text_hex) if combo.text_hex else self.p.ref(
-            self.p.readable_on(combo.background_hex)
-        )
+        #: Пара шаблона показывается как есть, пока она читается. Не читается — надпись
+        #: рисуется слотом, который берёт порог, а под карточкой встаёт оговорка: иначе
+        #: страница показывает пустой прямоугольник и сама нарушает правило, которое учит
+        #: соблюдать (change `a-minimum-is-not-a-norm`).
+        unreadable = ""
+        text = self.p.ref(self.p.readable_on(combo.background_hex))
+        if combo.text_hex:
+            verdict = readability(combo.text_hex, combo.background_hex, TextClass.BODY)
+            if verdict.passes:
+                text = self.p.literal(combo.text_hex)
+            else:
+                unreadable = (
+                    f"текст шаблона на этом фоне даёт {_num(verdict.ratio, 2)} "
+                    f"при нужных {_num(verdict.required, 1)} — показан читаемым слотом"
+                )
         accent = (
             f'<em style="background: {self.p.literal(combo.accent_hex)}; '
-            f"color: {self.p.ref(self.p.readable_on(combo.accent_hex))}\">акцент</em>"
+            f'color: {self.p.ref(self.p.readable_on(combo.accent_hex, TextClass.CAPTION))}">'
+            "акцент</em>"
             if combo.accent_hex
             else ""
         )
@@ -526,7 +557,9 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
             f'style="background: {background}; color: {text}">'
             f"<b>Заголовок на этом фоне</b>"
             f"<span>Основной текст, набранный тем же цветом.</span>{accent}</div>"
-            f'<div class="meta">{_esc(title)} · {_esc(note)}</div></div>'
+            f'<div class="meta">{_esc(title)} · {_esc(note)}'
+            + (f" · {_esc(unreadable)}" if unreadable else "")
+            + "</div></div>"
         )
 
     # --- 03: доступность ------------------------------------------------------------
@@ -537,28 +570,63 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
         theme_pairs = [pair for pair in pairs if pair.from_theme]
         seen_pairs = [pair for pair in pairs if not pair.from_theme]
         inner = "<h3>Пары слотов темы</h3>"
-        inner += self.contrast_table(theme_pairs) if theme_pairs else _empty(
-            "Пары темы не посчитаны: в шаблоне нет цветовой схемы."
+        inner += (
+            self.contrast_table(theme_pairs)
+            if theme_pairs
+            else _empty("Пары темы не посчитаны: в шаблоне нет цветовой схемы.")
         )
         inner += "<h3>Пары, встреченные на примерах</h3>"
-        inner += self.contrast_table(seen_pairs) if seen_pairs else _empty(
-            "Слайдов-примеров в шаблоне нет — мерить пары не на чем."
+        inner += (
+            self.contrast_table(seen_pairs)
+            if seen_pairs
+            else _empty("Слайдов-примеров в шаблоне нет — мерить пары не на чем.")
         )
+        inner += self.contrast_defects()
         inner += self.accessibility_rules()
         return self.section(
             "03 — Доступность",
-            "Коэффициент контраста посчитан по WCAG 2.1. «Риск» — это пара из самой темы "
-            "шаблона, которая не проходит AA: шаблон противоречит сам себе, и прятать это "
-            "нельзя.",
+            "Коэффициент контраста посчитан по WCAG 2.1. Порог зависит от роли текста: "
+            "крупный — 3, рабочий — 4,5, подпись — с запасом 7. «Риск» — это пара из самой "
+            "темы шаблона, которая не проходит AA: шаблон противоречит сам себе, и прятать "
+            "это нельзя.",
             origin,
             inner,
+        )
+
+    def contrast_defects(self) -> str:
+        """Где шаблон не даёт читаемой пары ни одним слотом своей темы.
+
+        Смысл раздела — увидеть это на разборе шаблона, а не на готовой презентации
+        (change `a-minimum-is-not-a-norm`).
+        """
+        defects = self.ds.contrast_defects
+        if not defects:
+            return "<h3>Места без читаемой пары</h3>" + _empty(
+                "Таких мест нет: для каждого элемента в теме нашёлся слот, берущий свой порог."
+            )
+        rows = "".join(
+            f"<tr><td>{_esc(defect.where)}</td><td>{_esc(defect.text_class)}</td>"
+            f'<td class="mono">{_esc(defect.background_label or defect.background_hex)}</td>'
+            f'<td class="num">{_esc(_num(defect.required, 1))}</td>'
+            f'<td class="num">{_esc(_num(defect.best_ratio, 2))}</td>'
+            f'<td class="mono">{_esc(defect.best_ref.value if defect.best_ref else "—")}</td>'
+            "</tr>"
+            for defect in defects
+        )
+        return (
+            "<h3>Места без читаемой пары</h3>"
+            "<table><thead><tr><th>Где</th><th>Класс текста</th><th>Фон</th>"
+            '<th class="num">Нужно</th><th class="num">Лучшее в теме</th>'
+            "<th>Слот</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table>"
         )
 
     def contrast_table(self, pairs: list[ContrastPair]) -> str:
         rows = "".join(self.contrast_row(pair) for pair in pairs)
         return (
             "<table><thead><tr><th>Пара</th><th>Текст на фоне</th>"
-            "<th class=\"num\">Контраст</th><th>Оценка</th><th>Примечание</th>"
+            '<th class="num">Контраст</th><th class="num">Нужно</th>'
+            "<th>Оценка</th><th>Примечание</th>"
             f"</tr></thead><tbody>{rows}</tbody></table>"
         )
 
@@ -568,6 +636,13 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
             notes.append("риск: пара темы не проходит AA")
         if pair.display_only:
             notes.append("только для графики и крупных меток")
+        if pair.tight:
+            notes.append(
+                f"впритык: минимум взят, до запаса {_num(pair.comfort, 1)} не хватает — "
+                "для подписи и сноски не брать"
+            )
+        if pair.approximate:
+            notes.append("фон подложкой: цвет усреднён, оценка приблизительна")
         sample = (
             f'<span class="pairbox" style="background: {self.p.literal(pair.background_hex)}; '
             f'color: {self.p.literal(pair.foreground_hex)}">Пример текста</span>'
@@ -577,6 +652,7 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
             f"{_esc(pair.background_label or pair.background_hex)}</td>"
             f"<td>{sample}</td>"
             f'<td class="num">{_esc(_num(pair.ratio, 2))}</td>'
+            f'<td class="num">{_esc(_num(pair.required, 1))}</td>'
             f'<td><span class="chip">{_esc(_CONTRAST_NAMES[pair.level])}</span></td>'
             f"<td>{_esc('; '.join(notes) or '—')}</td></tr>"
         )
@@ -634,7 +710,7 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
             f"{self.family(step.font_family)}; font-weight: {weight}; font-style: {style}; "
             f'color: {self.p.ref(step.color_ref)}">{_esc(_SAMPLE)}</span>'
             f'<div class="meta"><b>{_esc(_LEVEL_NAMES[step.level])}</b>'
-            f"<span>{_esc(step.purpose)}</span><span class=\"mono\">{_esc(meta)}</span>"
+            f'<span>{_esc(step.purpose)}</span><span class="mono">{_esc(meta)}</span>'
             f"{_origin_tag(step.origin)}</div></div>"
         )
 
@@ -646,8 +722,10 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
             f"<b>{_esc(theme.minor_font or '—')}</b> для текста.</p>"
         )
         if not fonts:
-            return "<h3>Чем шаблон набран на самом деле</h3>" + declared + _empty(
-                "Слайдов-примеров нет: фактический набор измерить не на чем."
+            return (
+                "<h3>Чем шаблон набран на самом деле</h3>"
+                + declared
+                + _empty("Слайдов-примеров нет: фактический набор измерить не на чем.")
             )
         rows = "".join(
             f'<tr><td style="font-family: {self.family(font.family)}">{_esc(font.family)}</td>'
@@ -658,8 +736,9 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
             for font in fonts
         )
         return (
-            "<h3>Чем шаблон набран на самом деле</h3>" + declared
-            + "<table><thead><tr><th>Гарнитура</th><th class=\"num\">Доля знаков</th>"
+            "<h3>Чем шаблон набран на самом деле</h3>"
+            + declared
+            + '<table><thead><tr><th>Гарнитура</th><th class="num">Доля знаков</th>'
             f"<th>Где встречена</th><th></th></tr></thead><tbody>{rows}</tbody></table>"
         )
 
@@ -674,7 +753,7 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
         cells = []
         for size_pt, name in sizes:
             if size_pt is None:
-                cells.append(f'<div><b>—</b><span>{_esc(name)}: в шаблоне нет</span></div>')
+                cells.append(f"<div><b>—</b><span>{_esc(name)}: в шаблоне нет</span></div>")
                 continue
             share = size_pt * 100 / emu_to_pt(width)
             cells.append(
@@ -682,7 +761,7 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
                 f"<span>{_esc(name)}, {_esc(_num(size_pt, 1))} pt</span></div>"
             )
         return (
-            f'<h3>Шкала для чисел {_origin_tag(scale.origin)}</h3>'
+            f"<h3>Шкала для чисел {_origin_tag(scale.origin)}</h3>"
             f'<div class="numbers">{"".join(cells)}</div>'
         )
 
@@ -693,8 +772,10 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
 
     def section_labels(self) -> str:
         items = self.group("плашки")
-        inner = self.demo_cells(items) if items else _empty(
-            "Плашки достраиваются из акцентов темы — их в шаблоне не нашлось."
+        inner = (
+            self.demo_cells(items)
+            if items
+            else _empty("Плашки достраиваются из акцентов темы — их в шаблоне не нашлось.")
         )
         return self.section(
             "05 — Плашки и метки",
@@ -713,8 +794,10 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
             f"отступ списка {_esc(_cm(bullets.margin_left_emu))}, "
             f"выступ маркера {_esc(_cm(-bullets.indent_emu))}. {_origin_tag(bullets.origin)}</p>"
         )
-        inner += self.demo_cells(items) if items else _empty(
-            "Списков достроить не удалось: в шаблоне нет ни маркера, ни шкалы кеглей."
+        inner += (
+            self.demo_cells(items)
+            if items
+            else _empty("Списков достроить не удалось: в шаблоне нет ни маркера, ни шкалы кеглей.")
         )
         return self.section(
             "06 — Буллеты и списки",
@@ -727,12 +810,18 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
     def section_elements(self) -> str:
         items = self.group("элементы")
         inner = "<h3>Повторяющиеся элементы шаблона</h3>"
-        inner += self.component_cards() if self.ds.components else _empty(
-            "Повторяющихся элементов на слайдах-примерах не нашлось."
+        inner += (
+            self.component_cards()
+            if self.ds.components
+            else _empty("Повторяющихся элементов на слайдах-примерах не нашлось.")
         )
         inner += "<h3>Достроенные элементы</h3>"
-        inner += self.demo_cells(items) if items else _empty(
-            "Элементы достраиваются из цвета, кегля и шага шаблона — данных не хватило."
+        inner += (
+            self.demo_cells(items)
+            if items
+            else _empty(
+                "Элементы достраиваются из цвета, кегля и шага шаблона — данных не хватило."
+            )
         )
         return self.section(
             "07 — Базовые элементы слайда",
@@ -743,23 +832,23 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
         )
 
     def component_cards(self) -> str:
-        return f'<div class="grid grid--wide">{"".join(
-            self.component_card(card) for card in self.ds.components
-        )}</div>'
+        return f'<div class="grid grid--wide">{
+            "".join(self.component_card(card) for card in self.ds.components)
+        }</div>'
 
     def component_card(self, card: ComponentCard) -> str:
         name = _COMPONENT_NAMES.get(card.kind.value, card.kind.value)
         axis = "в ряд" if card.axis == "row" else "в столбец"
-        fill = self.p.ref(card.fill_ref) if card.fill_ref else (
-            self.p.literal(card.fill_hex) if card.fill_hex else self.p.var("ds-chip")
+        fill = (
+            self.p.ref(card.fill_ref)
+            if card.fill_ref
+            else (self.p.literal(card.fill_hex) if card.fill_hex else self.p.var("ds-chip"))
         )
         sizes = ", ".join(f"{_num(size, 1)} pt" for size in card.text_sizes_pt) or "нет текста"
-        preview = (
-            f'<div class="swatch" style="background: {fill}; display: flex; '
-            f"align-items: center; justify-content: center; "
-            f"color: {self.p.ref(self.card_text_ref(card))}\">"
-            f'<span style="font-size: .85rem">{_esc(name)}</span></div>'
-        )
+        #: Имя элемента стоит под образцом, а не по его заливке: на заливке шаблона
+        #: подписи может не хватить контраста, а менять заливку нельзя — она измерена
+        #: (change `a-minimum-is-not-a-norm`).
+        preview = f'<div class="swatch" style="background: {fill}"></div>'
         return (
             f'<div class="card">{preview}<div class="body">'
             f"<b>{_esc(name)} × {card.repeats} {_esc(axis)}</b>"
@@ -773,9 +862,9 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
     def card_text_ref(self, card: ComponentCard) -> ColorRef:
         """Цвет надписи на заливке карточки — замером, а не на глаз."""
         if card.fill_ref is not None:
-            return self.p.readable_on(self.p.hex_of(card.fill_ref))
+            return self.p.readable_on(self.p.hex_of(card.fill_ref), TextClass.CAPTION)
         if card.fill_hex is not None:
-            return self.p.readable_on(card.fill_hex)
+            return self.p.readable_on(card.fill_hex, TextClass.CAPTION)
         return self.p.ink_ref
 
     # --- демонстрации достроенных элементов -----------------------------------------
@@ -785,14 +874,20 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
 
     def demo_cell(self, item: SynthElement) -> str:
         background = self.p.ref(item.on_color_ref)
-        ink, note = self.visible_ink(item)
+        ink, fallback = self.visible_ink(item)
+        note = self.layer_note(item) or fallback
         return (
             f'<div class="demo-cell" style="background: {background}; '
-            f"color: {self.p.ref(self.on_background(item))}\">"
+            f'color: {self.p.ref(self.on_background(item))}">'
             f"{self.demo(item, ink)}"
-            f'<div class="caption"><b>{_esc(item.title)}</b>{_esc(item.purpose)} '
-            f"{_esc(note)} {self.demo_numbers(item)} {_origin_tag(item.origin)}</div></div>"
+            f'<div class="caption"><b>{_esc(item.title)}</b>{_esc(_sentence(item.purpose))} '
+            f"{_esc(_sentence(note))} {self.demo_numbers(item)} {_origin_tag(item.origin)}"
+            "</div></div>"
         )
+
+    def layer_note(self, item: SynthElement) -> str:
+        """Оговорку про подменённый знак пишет слой — рендер её только показывает."""
+        return item.note
 
     def visible_ink(self, item: SynthElement) -> tuple[str, str]:
         """Цвет знака или линии элемента и оговорка, если этим слотом на этом фоне не видно.
@@ -801,7 +896,7 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
         и блок выглядит пустым вместо того, чтобы что-то показать: заливку так подменять
         нельзя (белая плашка на светлом фоне — это правда шаблона), а знак — нужно.
         """
-        ref, on = item.color_ref, item.on_color_ref
+        ref, on = item.shown_ref or item.color_ref, item.on_color_ref
         fore, back = self.p.hex_of(ref) if ref else "", self.p.hex_of(on) if on else ""
         if not _paints_with_ink(item.kind):
             return self.p.ref(ref), ""
@@ -839,9 +934,17 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
         return f"{share:.4f}cqw"
 
     def demo(self, item: SynthElement, ink: str) -> str:
-        kind, fill = item.kind, self.p.ref(item.color_ref)
+        #: Заливка и надпись — те, что выбрал слой: он знает правило, рендер только рисует.
+        kind = item.kind
+        fill = self.p.ref(item.plate_ref or item.color_ref)
+        #: Надпись на плашке — подпись, а не абзац: порог у неё свой, с запасом.
+        #: Без этого цифра бейджа и слово тега получали цвет «по остаточному принципу»
+        #: (change `a-minimum-is-not-a-norm`).
+        plate = item.plate_ref or item.color_ref
         on_fill = self.p.ref(
-            self.p.readable_on(self.p.hex_of(item.color_ref)) if item.color_ref else None
+            item.shown_ref
+            if item.shown_ref is not None
+            else (self.p.readable_on(self.p.hex_of(plate), TextClass.CAPTION) if plate else None)
         )
         text = _esc(item.text)
         if kind == "section_label":
@@ -851,14 +954,26 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
             )
         if kind == "tag":
             radius = self.rem(item.radius_emu)
+            #: Акцент без запаса под подпись остаётся границей: заливка с надписью
+            #: на минимуме читается плохо при любой палитре (change `a-minimum-is-not-a-norm`).
+            paint = (
+                f"background: transparent; color: {fill}; box-shadow: inset 0 0 0 2px {fill}"
+                if item.outlined
+                else f"background: {fill}; color: {on_fill}"
+            )
             return (
-                f'<span class="tag-demo" style="background: {fill}; color: {on_fill}; '
+                f'<span class="tag-demo" style="{paint}; '
                 f'border-radius: {radius}; font-size: .85rem">{text}</span>'
             )
         if kind == "badge":
             size = self.rem(item.spacing_emu)
+            paint = (
+                f"background: transparent; color: {fill}; box-shadow: inset 0 0 0 2px {fill}"
+                if item.outlined
+                else f"background: {fill}; color: {on_fill}"
+            )
             return (
-                f'<span class="badge-demo" style="background: {fill}; color: {on_fill}; '
+                f'<span class="badge-demo" style="{paint}; '
                 f'width: {size}; height: {size}; font-size: .85rem">{text}</span>'
             )
         if kind in {"bulleted", "numbered", "icon"}:
@@ -999,8 +1114,10 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
         inner += f"<h3>Анатомия слайда {_origin_tag(grid.guides_origin)}</h3>"
         inner += self.anatomy()
         inner += "<h3>Правила сборки</h3>"
-        inner += self.rules() if self.ds.assembly_rules else _empty(
-            "Правило без числа из шаблона на страницу не попадает — чисел не нашлось."
+        inner += (
+            self.rules()
+            if self.ds.assembly_rules
+            else _empty("Правило без числа из шаблона на страницу не попадает — чисел не нашлось.")
         )
         return self.section(
             "08 — Сетка и модуль слайда",
@@ -1045,7 +1162,7 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
         widest = max(spacing.steps_emu)
         bars = "".join(
             f'<div><b><i style="width: {_pct(step, widest)}; '
-            f"background: {self.p.ref(ColorRef.ACCENT1)}\"></i></b>"
+            f'background: {self.p.ref(ColorRef.ACCENT1)}"></i></b>'
             f"<span>×{_num(step / spacing.base_emu, 1)} — {_esc(_cm(step))}</span></div>"
             for step in spacing.steps_emu
         )
@@ -1058,7 +1175,7 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
         columns = "".join(
             f'<i style="width: {_pct(grid.column_width_emu, grid.content_width_emu)}; '
             f"background: {self.p.ref(ColorRef.ACCENT1)}; opacity: .18; "
-            f"margin-right: {_pct(grid.gutter_emu, grid.content_width_emu)}\"></i>"
+            f'margin-right: {_pct(grid.gutter_emu, grid.content_width_emu)}"></i>'
             for _ in range(grid.columns)
         )
         #: Поля рисуются заливкой, а не подписью внутри: верхнее поле бывает в 2 % высоты
@@ -1100,9 +1217,9 @@ ul.rules span {{ color: var(--ds-soft); font-size: .8rem; }}
         return " ".join(notes)
 
     def rules(self) -> str:
-        return f'<ul class="rules">{"".join(
-            self.rule(rule) for rule in self.ds.assembly_rules
-        )}</ul>'
+        return (
+            f'<ul class="rules">{"".join(self.rule(rule) for rule in self.ds.assembly_rules)}</ul>'
+        )
 
     def rule(self, rule: AssemblyRule) -> str:
         value = _cm(int(rule.value)) if rule.unit == "emu" else f"{_num(rule.value, 1)} {rule.unit}"

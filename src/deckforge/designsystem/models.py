@@ -232,6 +232,39 @@ class ContrastPair(DomainModel):
     display_only: bool = Field(
         default=False, description="Годен для графики и крупных меток, не для абзаца"
     )
+    #: Change `a-minimum-is-not-a-norm`: порог зависит от роли текста, а «прошло впритык»
+    #: перестаёт выглядеть как «прошло».
+    required: float = Field(
+        default=4.5, gt=0, description="Порог, который этой паре нужно было взять"
+    )
+    comfort: float = Field(
+        default=4.5, gt=0, description="Порог с запасом: ниже него подпись не ставят"
+    )
+    tight: bool = Field(
+        default=False, description="Минимум взят, запаса нет — для мелкого текста не годится"
+    )
+    approximate: bool = Field(
+        default=False, description="Фон картинкой: цвет усреднён, оценка приблизительна"
+    )
+    origin: Origin = Origin.MEASURED
+
+
+class ContrastDefect(DomainModel):
+    """Место, где шаблон не даёт читаемой пары ни одним слотом своей темы.
+
+    Дефект называется на разборе шаблона, а не всплывает на готовой презентации:
+    в этом весь смысл разбора.
+    """
+
+    where: str = Field(min_length=1, description="Что именно нечитаемо, словами")
+    text_class: str = Field(min_length=1, description="Класс текста: крупный, основной, подпись")
+    background_label: str = Field(default="", description="Фон, на котором это стоит")
+    background_hex: str = Field(pattern=HEX_COLOR)
+    required: float = Field(gt=0, description="Сколько требовалось")
+    best_ratio: float = Field(ge=0, description="Лучшее, что даёт тема на этом фоне")
+    best_ref: ColorRef | None = Field(
+        default=None, description="Слот, давший этот лучший результат"
+    )
     origin: Origin = Origin.MEASURED
 
 
@@ -286,6 +319,31 @@ class SynthElement(DomainModel):
     title: str = Field(min_length=1)
     purpose: str = Field(default="", description="Для чего элемент нужен, словами")
     text: str = Field(default="", description="Образец текста или знак маркера")
+    shown_ref: ColorRef | None = Field(
+        default=None,
+        description=(
+            "Слот, которым знак нарисован, если объявленный не берёт свой порог. "
+            "Объявление шаблона при этом остаётся в `color_ref` (a-minimum-is-not-a-norm)"
+        ),
+    )
+    plate_ref: ColorRef | None = Field(
+        default=None,
+        description=(
+            "Слот, которым залита плашка, если объявленный не даёт читаемой надписи: "
+            "тот же цвет глубже (a-minimum-is-not-a-norm)"
+        ),
+    )
+    outlined: bool = Field(
+        default=False,
+        description=(
+            "Акцент оставлен границей, а не заливкой: подписи на этой заливке не хватает "
+            "запаса контраста (a-minimum-is-not-a-norm)"
+        ),
+    )
+    note: str = Field(
+        default="",
+        description="Оговорка слоя: почему нарисовано не объявленным слотом",
+    )
     color_ref: ColorRef | None = None
     on_color_ref: ColorRef | None = Field(default=None, description="Слот фона под элементом")
     size_pt: float | None = Field(default=None, gt=0)
@@ -325,5 +383,9 @@ class DesignSystem(DomainModel):
     components: list[ComponentCard] = Field(default_factory=list)
 
     #: Заполняет таск 03 — достроенное из примитивов шаблона.
+    contrast_defects: list[ContrastDefect] = Field(
+        default_factory=list,
+        description="Где шаблон не даёт читаемой пары — change `a-minimum-is-not-a-norm`",
+    )
     synthesized: list[SynthElement] = Field(default_factory=list)
     assembly_rules: list[AssemblyRule] = Field(default_factory=list)

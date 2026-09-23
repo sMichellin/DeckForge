@@ -24,7 +24,26 @@ from __future__ import annotations
 
 from collections import Counter
 
-from deckforge.designsystem.models import AssemblyRule, DesignSystem, SynthElement
+from deckforge.designsystem.contrast import (
+    COMFORT_CAPTION,
+    MIN_BODY,
+    MIN_LARGE,
+    TextClass,
+    best_available,
+    deeper_plate,
+    ink_on_plate,
+    readability,
+    readable_ref,
+    required_ratio,
+    text_class,
+)
+from deckforge.designsystem.models import (
+    AssemblyRule,
+    ContrastDefect,
+    DesignSystem,
+    Origin,
+    SynthElement,
+)
 from deckforge.domain.enums import ColorRef, TextRole
 from deckforge.domain.rules import readable_text_ref
 from deckforge.domain.template import LayoutSpec, TemplateManifest
@@ -478,7 +497,12 @@ def _quote_and_callouts(manifest: TemplateManifest, ds: DesignSystem) -> list[Sy
 
 
 def _accessibility(ds: DesignSystem) -> list[SynthElement]:
-    """Правило «смысл не только цветом». Правило, а не измерение, — отсюда `derived`."""
+    """Правила доступности. Правила, а не измерения, — отсюда `derived`.
+
+    Change `a-minimum-is-not-a-norm`: рядом с числами встают три правила заказчика,
+    по которым эти числа и трактуются.
+    """
+    page = _page_background(ds)
     return [
         SynthElement(
             group=GROUP_ACCESSIBILITY,
@@ -489,8 +513,45 @@ def _accessibility(ds: DesignSystem) -> list[SynthElement]:
                 "Рядом с цветом — подпись, узор или форма: цвет остаётся вторым "
                 "носителем смысла, а не единственным"
             ),
-            on_color_ref=_page_background(ds),
-        )
+            on_color_ref=page,
+        ),
+        SynthElement(
+            group=GROUP_ACCESSIBILITY,
+            kind="minimum_is_not_a_norm",
+            title="Минимум — не норма",
+            purpose="Порог зависит от роли текста, а не от того, что это текст",
+            text=(
+                f"Крупный текст — от {MIN_LARGE:.0f}:1, рабочий — от {MIN_BODY:.1f}:1, "
+                f"подпись и сноска — с запасом от {COMFORT_CAPTION:.0f}:1. Пара, взявшая "
+                "минимум без запаса, годится для заголовка и не годится для мелкого"
+            ),
+            on_color_ref=page,
+        ),
+        SynthElement(
+            group=GROUP_ACCESSIBILITY,
+            kind="ink_follows_the_plate",
+            title="Цвет текста выбирает плашка",
+            purpose="Яркий цвет не значит тёмный: решает светлота, а не насыщенность",
+            text=(
+                "Светлая плашка — графитовый текст, тёмная — белый, средняя по светлоте "
+                "считается. Если тон нужно сохранить, берётся не чёрный, а тот же цвет "
+                "глубже: акцент для крупного, его тёмный сосед — для мелкого"
+            ),
+            on_color_ref=page,
+        ),
+        SynthElement(
+            group=GROUP_ACCESSIBILITY,
+            kind="the_real_background",
+            title="Фон считается настоящий",
+            purpose="Под текстом не HEX плашки, а то, что получилось на слайде",
+            text=(
+                "Прозрачность плашки, цвет под ней, градиент и картинка меняют фон: "
+                "цвет с прозрачностью на светлом фоне становится светлее, и светлый текст "
+                "на нём теряет читаемость. Пары, посчитанные по усреднённому цвету подложки, "
+                "помечены как приблизительные"
+            ),
+            on_color_ref=page,
+        ),
     ]
 
 
@@ -512,8 +573,7 @@ def _body_layout(manifest: TemplateManifest) -> LayoutSpec | None:
         layout
         for layout in manifest.layouts
         if any(
-            place.ph_type == "BODY" or place.role is TextRole.BODY
-            for place in layout.placeholders
+            place.ph_type == "BODY" or place.role is TextRole.BODY for place in layout.placeholders
         )
     ]
     if not with_body:
@@ -528,9 +588,7 @@ def _assembly_rules(manifest: TemplateManifest, ds: DesignSystem) -> list[Assemb
     совет, выданный за анализ."""
     rules: list[AssemblyRule] = []
     sides = ds.grid.margins
-    margins = [
-        side for side in (sides.left, sides.right, sides.top, sides.bottom) if side > 0
-    ]
+    margins = [side for side in (sides.left, sides.right, sides.top, sides.bottom) if side > 0]
     if margins:
         rules.append(
             AssemblyRule(
@@ -573,6 +631,161 @@ def _assembly_rules(manifest: TemplateManifest, ds: DesignSystem) -> list[Assemb
     return rules
 
 
+#: Виды, которые рисуют себя знаком или линией, а не заливкой. У них `color_ref` —
+#: цвет знака, и его подбирают под фон. У остальных `color_ref` — заливка самой плашки:
+#: подменять её нельзя, белая плашка на светлом фоне — это правда шаблона; там проверяется
+#: другое — найдётся ли слот, которым по этой заливке можно подписать.
+INK_KINDS = frozenset({"section_label", "bulleted", "icon", "pagination", "quote"})
+INK_PREFIXES = ("divider", "table_delta", "callout")
+
+
+def paints_with_ink(kind: str) -> bool:
+    return kind in INK_KINDS or kind.startswith(INK_PREFIXES)
+
+
+#: Как называется класс текста на странице. Словами, потому что дефект читает человек.
+_CLASS_WORDS = {
+    TextClass.LARGE: "крупный текст",
+    TextClass.BODY: "основной текст",
+    TextClass.CAPTION: "подпись",
+    TextClass.GRAPHICS: "графика",
+}
+
+
+def _class_of(item: SynthElement, caption_pt: float | None) -> TextClass:
+    """Класс текста элемента: по его кеглю, а у линии — по тому, что она линия.
+
+    Подпись определяется кеглем подписи самого шаблона, а не нашим представлением
+    о мелком: у VK WorkSpace «мелкое» начинается там, где у VK Education крупное.
+    """
+    if item.size_pt is None:
+        return TextClass.GRAPHICS
+    if caption_pt is not None and item.size_pt <= caption_pt:
+        return TextClass.CAPTION
+    return text_class(item.size_pt)
+
+
+def _readable_elements(
+    manifest: TemplateManifest, ds: DesignSystem, elements: list[SynthElement]
+) -> tuple[list[SynthElement], list[ContrastDefect]]:
+    """Подобрать знаку цвет под его собственный порог и назвать то, чего шаблон не даёт.
+
+    До этого change порог был один — графический, 3,0, — и подпись семь пунктов
+    кеглем проходила наравне с полосой во всю ширину. Теперь порог свой у каждого
+    класса, а если ни один слот темы его не берёт, это не «возьмём лучший из плохих»,
+    а дефект шаблона, названный числом (change `a-minimum-is-not-a-norm`).
+    """
+    theme = manifest.theme
+    caption_pt = _size(manifest, TextRole.CAPTION)
+    fixed: list[SynthElement] = []
+    defects: list[ContrastDefect] = []
+
+    for item in elements:
+        if item.color_ref is None or item.on_color_ref is None:
+            fixed.append(item)
+            continue
+        kind = _class_of(item, caption_pt)
+        if not paints_with_ink(item.kind):
+            #: Заливку не трогаем — спрашиваем другое: можно ли по ней подписать.
+            #: Спрашиваем про запас, а не про минимум: подпись на минимуме — это ровно
+            #: тот случай, когда надпись формально проходит, а глазами не читается.
+            fill = theme.colors.get(item.color_ref)
+            comfortable = ink_on_plate(theme, fill, kind)
+            if comfortable is not None:
+                fixed.append(item.model_copy(update={"shown_ref": comfortable}))
+                continue
+            deeper = deeper_plate(theme, fill, kind)
+            if deeper is not None and item.text:
+                plate, ink = deeper
+                fixed.append(
+                    item.model_copy(
+                        update={
+                            "plate_ref": plate,
+                            "shown_ref": ink,
+                            "note": (
+                                f"На заливке {item.color_ref.value} надпись не читается; "
+                                f"взят тот же цвет глубже — слот {plate.value}."
+                            ),
+                        }
+                    )
+                )
+                continue
+            if item.text:
+                best_ref, best_ratio = best_available(theme, fill)
+                fixed.append(
+                    item.model_copy(
+                        update={
+                            "outlined": True,
+                            "note": (
+                                f"Надписи на заливке {item.color_ref.value} не хватает "
+                                f"контраста нужной полярности: лучшее в теме — "
+                                f"{best_ratio:.2f}. Акцент оставлен границей."
+                            ),
+                        }
+                    )
+                )
+                continue
+            if readable_ref(theme, fill, kind) is None:
+                best_ref, best_ratio = best_available(theme, fill)
+                defects.append(
+                    ContrastDefect(
+                        where=item.title,
+                        text_class=_CLASS_WORDS[kind],
+                        background_label=item.color_ref.value,
+                        background_hex=fill,
+                        required=required_ratio(kind),
+                        best_ratio=best_ratio,
+                        best_ref=best_ref,
+                        origin=Origin.MEASURED,
+                    )
+                )
+            fixed.append(item)
+            continue
+
+        background = theme.colors.get(item.on_color_ref)
+        verdict = readability(theme.colors.get(item.color_ref), background, kind)
+        if verdict.passes and not verdict.tight:
+            fixed.append(item)
+            continue
+
+        chosen = readable_ref(theme, background, kind, prefer_hex=theme.colors.get(item.color_ref))
+        if chosen is None:
+            best_ref, best_ratio = best_available(theme, background)
+            defects.append(
+                ContrastDefect(
+                    where=item.title,
+                    text_class=_CLASS_WORDS[kind],
+                    background_label=item.on_color_ref.value,
+                    background_hex=background,
+                    required=required_ratio(kind),
+                    best_ratio=best_ratio,
+                    best_ref=best_ref,
+                    origin=Origin.MEASURED,
+                )
+            )
+            fixed.append(item)
+            continue
+        if chosen is item.color_ref:
+            fixed.append(item)
+            continue
+        taken = readability(theme.colors.get(chosen), background, kind)
+        fixed.append(
+            item.model_copy(
+                update={
+                    #: Объявление шаблона не стирается: страница обязана показать и то,
+                    #: что шаблон обещал, и то, чем пришлось рисовать.
+                    "shown_ref": chosen,
+                    "note": (
+                        f"Слот {item.color_ref.value} даёт здесь {verdict.ratio:.2f} "
+                        f"при нужных {verdict.required:.1f} для «{_CLASS_WORDS[kind]}»; "
+                        f"знак показан слотом {chosen.value} — {taken.ratio:.2f}."
+                    ),
+                }
+            )
+        )
+    return fixed, defects
+
+
 def synthesize(manifest: TemplateManifest, ds: DesignSystem) -> DesignSystem:
     """Дополнить структуру тем, что достраивается из примитивов шаблона."""
     elements = [
@@ -581,6 +794,11 @@ def synthesize(manifest: TemplateManifest, ds: DesignSystem) -> DesignSystem:
         *_slide_elements(manifest, ds),
         *_accessibility(ds),
     ]
+    elements, defects = _readable_elements(manifest, ds, elements)
     return ds.model_copy(
-        update={"synthesized": elements, "assembly_rules": _assembly_rules(manifest, ds)}
+        update={
+            "synthesized": elements,
+            "contrast_defects": defects,
+            "assembly_rules": _assembly_rules(manifest, ds),
+        }
     )

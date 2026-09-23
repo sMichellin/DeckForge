@@ -13,6 +13,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+from deckforge.designsystem.contrast import (
+    COMFORT_CAPTION,
+    MIN_BODY,
+    TextClass,
+    readability,
+)
 from deckforge.designsystem.models import (
     ColorRoleKind,
     Combination,
@@ -386,8 +392,13 @@ def _pair(
     foreground_label: str,
     background_label: str,
     from_theme: bool,
+    approximate: bool = False,
 ) -> ContrastPair:
     level = _level(foreground_hex, background_hex)
+    #: Порог пары — порог рабочего текста, запас — порог подписи: строкой таблицы
+    #: пользуются и для абзаца, и для сноски, и «прошло впритык» обязано быть видно
+    #: (change `a-minimum-is-not-a-norm`).
+    verdict = readability(foreground_hex, background_hex, TextClass.BODY)
     return ContrastPair(
         foreground_hex=foreground_hex,
         background_hex=background_hex,
@@ -396,6 +407,10 @@ def _pair(
         ratio=round(contrast_ratio(foreground_hex, background_hex), RATIO_DIGITS),
         level=level,
         from_theme=from_theme,
+        required=MIN_BODY,
+        comfort=COMFORT_CAPTION,
+        tight=verdict.passes and verdict.ratio < COMFORT_CAPTION,
+        approximate=approximate,
         origin=Origin.MEASURED,
     )
 
@@ -468,6 +483,15 @@ def _contrast_pairs(
             )
             add(pair.model_copy(update={"display_only": pair.level is not ContrastLevel.AA}))
 
+    #: Фон, собранный из подложки во весь слайд, — усреднённый цвет картинки. Пара
+    #: на нём считается, но честно помечается приблизительной: пункт 1 правил заказчика
+    #: (прозрачность, градиент, изображение) манифестом не хранится.
+    painted = {
+        layout.background.color_hex.upper()
+        for layout in manifest.layouts
+        if layout.background is not None and layout.background.is_image
+    }
+
     for combination in combinations:
         if combination.text_hex is None:
             continue
@@ -479,6 +503,7 @@ def _contrast_pairs(
                 foreground_label="текст примеров",
                 background_label="фон примеров",
                 from_theme=False,
+                approximate=combination.background_hex.upper() in painted,
             )
         )
 
@@ -531,9 +556,7 @@ def _number_sizes(manifest: TemplateManifest) -> NumberScale:
         large = max(kpi_sizes)
         medium = next_size_down(manifest, large)
         small = next_size_down(manifest, medium) if medium is not None else None
-        return NumberScale(
-            large_pt=large, medium_pt=medium, small_pt=small, origin=Origin.MEASURED
-        )
+        return NumberScale(large_pt=large, medium_pt=medium, small_pt=small, origin=Origin.MEASURED)
 
     #: Шкала короче трёх ступеней — недостающие размеры остаются пустыми: придумать
     #: кегль, которого в шаблоне нет, правило 6 не позволяет.

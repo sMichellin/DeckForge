@@ -121,8 +121,7 @@ def test_the_roles_follow_the_shares_and_the_grey_stays_out_of_the_accents(
     colors = manifest.theme.colors
 
     roles = {
-        role.color_hex: role.role
-        for role in derive(_with_one_example(manifest)).palette_roles
+        role.color_hex: role.role for role in derive(_with_one_example(manifest)).palette_roles
     }
 
     assert roles[colors.lt1] is ColorRoleKind.BACKGROUND
@@ -213,8 +212,7 @@ def test_equal_triples_add_up_and_remember_the_slides(manifest: TemplateManifest
 
 def _pairs_by_colors(manifest: TemplateManifest) -> dict[tuple[str, str], ContrastPair]:
     return {
-        (pair.foreground_hex, pair.background_hex): pair
-        for pair in derive(manifest).contrast_pairs
+        (pair.foreground_hex, pair.background_hex): pair for pair in derive(manifest).contrast_pairs
     }
 
 
@@ -299,9 +297,9 @@ def test_the_fonts_in_use_are_the_ones_the_examples_are_really_set_in(name: str)
     fonts = derive(parsed).fonts_in_use
 
     assert [(font.family, font.in_titles, font.in_body) for font in fonts] == FONTS_IN_USE[name]
-    assert [font.share for font in fonts] == sorted(
-        (font.share for font in fonts), reverse=True
-    ), "гарнитуры идут по убыванию доли знаков"
+    assert [font.share for font in fonts] == sorted((font.share for font in fonts), reverse=True), (
+        "гарнитуры идут по убыванию доли знаков"
+    )
     assert round(sum(font.share for font in fonts), 2) == 1.0
 
 

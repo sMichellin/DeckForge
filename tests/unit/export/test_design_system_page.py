@@ -149,3 +149,55 @@ def test_page_of_a_real_template_holds_the_same_contract(name: str) -> None:
     assert all(title in html for title in SECTIONS)
     assert EXTERNAL.search(html) is None
     assert LITERAL_COLOR.search(styling_of(html)) is None
+
+
+# --- change `a-minimum-is-not-a-norm` -------------------------------------------
+
+
+def test_the_contrast_table_names_the_threshold_of_every_pair(ds: DesignSystem) -> None:
+    """Порог на странице виден рядом с коэффициентом: иначе «4,6» ничего не говорит."""
+    html = render(ds)
+
+    assert '<th class="num">Нужно</th>' in html
+    assert "Порог зависит от роли текста" in html
+
+
+def test_a_pair_without_a_margin_is_called_tight(manifest: TemplateManifest) -> None:
+    """«Минимум — не норма»: пара, взявшая минимум без запаса, помечена словами."""
+    colors = manifest.theme.colors.model_copy(update={"dk1": "#767676", "lt1": "#FFFFFF"})
+    theme = manifest.theme.model_copy(update={"colors": colors})
+    html = render(derive(manifest.model_copy(update={"theme": theme})))
+
+    assert "впритык" in html
+    assert "для подписи и сноски не брать" in html
+
+
+def test_the_page_says_where_the_template_has_no_readable_pair(ds: DesignSystem) -> None:
+    """Раздел есть всегда: «таких мест нет» — это тоже ответ, и он честный."""
+    html = render(ds)
+
+    assert "Места без читаемой пары" in html
+    assert "Таких мест нет" in html
+
+
+def test_the_page_shows_the_defects_of_a_template_that_reads_nowhere(
+    manifest: TemplateManifest,
+) -> None:
+    """Нарушитель к предыдущему: шаблон из полутонов получает таблицу дефектов."""
+    from deckforge.domain.enums import ColorRef
+
+    colors = manifest.theme.colors.model_copy(update={ref.value: "#8A8A8A" for ref in ColorRef})
+    theme = manifest.theme.model_copy(update={"colors": colors})
+    html = render(derive(manifest.model_copy(update={"theme": theme})))
+
+    assert "Лучшее в теме" in html
+    assert "Таких мест нет" not in html
+
+
+def test_the_rules_of_the_customer_stand_next_to_the_numbers(ds: DesignSystem) -> None:
+    """Три правила из разбора заказчика — на странице, рядом с таблицами."""
+    html = render(ds)
+
+    assert "Минимум — не норма" in html
+    assert "Цвет текста выбирает плашка" in html
+    assert "Фон считается настоящий" in html
