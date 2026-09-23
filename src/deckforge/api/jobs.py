@@ -113,6 +113,7 @@ def _prepare(request: dict[str, Any], paths: Any) -> tuple[Any, Any]:
         cache_dir=Path(get_settings().artifacts_dir) / "template-cache",
         asset_dir=paths.out / "assets",
         interactive=bool(request.get("interactive", True)),
+        profile=get_settings().profile,
     )
     return deps, profile
 

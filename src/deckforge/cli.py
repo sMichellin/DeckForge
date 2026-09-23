@@ -127,6 +127,7 @@ def generate(
             target,
             cache_dir=cache_dir,
             asset_dir=target / "assets",
+            profile=get_settings().profile,
         )
         result = asyncio.run(
             generate_variant(
