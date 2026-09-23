@@ -36,8 +36,8 @@ from deckforge.domain.slide import (
 )
 from deckforge.domain.template import TemplateManifest
 from deckforge.pipeline.run import RUN_REPORT_NAME, RunResult
+from tests.integration.test_native_objects import build_template
 from tests.integration.test_pipeline_end_to_end import run_pipeline
-from tests.integration.test_pipeline_end_to_end import workspace as workspace
 from tests.unit._audit_builders import body, deck, kpi, slide, title
 
 ITEMS = [BulletItem(text="Разбор шаблона"), BulletItem(text="Сборка колоды")]
@@ -57,6 +57,32 @@ def callout(tone: CalloutTone, block_id: str = "c") -> CalloutBlock:
 @pytest.fixture
 def design(manifest: TemplateManifest) -> DesignSystem:
     return derive(manifest)
+
+
+@pytest.fixture
+def workspace(tmp_path: Path) -> dict[str, Path]:
+    """Шаблон, материалы и бриф сквозного прогона — те же, что в `test_pipeline_end_to_end`.
+
+    Своя фикстура, а не импорт чужой: импортированная фикстура в параметре теста —
+    это переопределение имени, и ruff CI на нём падает (F811).
+    """
+    content = tmp_path / "content"
+    content.mkdir()
+    (content / "факты.md").write_text(
+        "# Итоги года\n\nВыручка выросла на 37,5 % за год.\n\nКлиентов стало более 500.\n",
+        encoding="utf-8",
+    )
+    brief = tmp_path / "brief.yaml"
+    brief.write_text(
+        "purpose: product\naudience: правление\ntarget_slides: 6\nlanguage: ru\n",
+        encoding="utf-8",
+    )
+    return {
+        "template": build_template(tmp_path / "template.pptx"),
+        "content": content,
+        "brief": brief,
+        "root": tmp_path,
+    }
 
 
 def mixed_deck() -> DeckIR:
