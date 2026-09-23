@@ -43,8 +43,8 @@ from deckforge.pipeline.run import collect_content_paths, generate_variant, load
 from deckforge.planning.planner import DeckPlanner
 from deckforge.planning.visuals import DESIGN_ORDERS, design_menu, normalize, vocabulary
 from deckforge.registry import get_prompt_registry, load_variant_profiles
+from tests.integration.test_native_objects import build_template
 from tests.integration.test_pipeline_end_to_end import FakeInference, theme_fonts
-from tests.integration.test_pipeline_end_to_end import workspace as workspace
 from tests.unit.test_compose_by_the_design_system import TITLE
 from tests.unit.test_compose_by_the_design_system import FakeLlm as ComposerLlm
 from tests.unit.test_planning import PRODUCT_FRAME, FakeLlm, payload_for
@@ -69,6 +69,32 @@ def content() -> ContentPackage:
 @pytest.fixture
 def design(manifest: TemplateManifest) -> DesignSystem:
     return derive(manifest)
+
+
+@pytest.fixture
+def workspace(tmp_path: Path) -> dict[str, Path]:
+    """Шаблон, материалы и бриф сквозного прогона — те же, что в `test_pipeline_end_to_end`.
+
+    Своя фикстура, а не импорт чужой: импортированная фикстура в параметре теста —
+    это переопределение имени, и ruff CI на нём падает (F811).
+    """
+    content = tmp_path / "content"
+    content.mkdir()
+    (content / "факты.md").write_text(
+        "# Итоги года\n\nВыручка выросла на 37,5 % за год.\n\nКлиентов стало более 500.\n",
+        encoding="utf-8",
+    )
+    brief = tmp_path / "brief.yaml"
+    brief.write_text(
+        "purpose: product\naudience: правление\ntarget_slides: 6\nlanguage: ru\n",
+        encoding="utf-8",
+    )
+    return {
+        "template": build_template(tmp_path / "template.pptx"),
+        "content": content,
+        "brief": brief,
+        "root": tmp_path,
+    }
 
 
 def without(ds: DesignSystem, *kinds: str) -> DesignSystem:
