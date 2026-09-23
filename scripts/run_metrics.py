@@ -77,6 +77,10 @@ def metrics(run_dir: Path) -> dict[str, float]:
         )
         out["визуализаций"] = float(visuals)
     out.update(_design(report.get("design_metrics") or {}))
+    usage = report.get("design_system_usage")
+    if usage:
+        # Доля слайдов, собранных с элементом дизайн-системы (`design-system-usage-in-the-run`).
+        out["слайдов с элементом ДС, %"] = round(100 * float(usage.get("share") or 0), 1)
     return out
 
 

@@ -15,6 +15,7 @@ from typing import Any
 
 from deckforge.config import RunConfig, load_yaml
 from deckforge.designsystem import DesignSystem
+from deckforge.designsystem.usage import usage as design_system_usage
 from deckforge.domain.content import Brief
 from deckforge.domain.variants import VariantProfile
 from deckforge.layout.fonts import FontLibrary
@@ -148,6 +149,16 @@ class RunResult:
         audit = self.state.get("audit")
         plan = self.state.get("plan")
         timings = dict(self.state.get("stage_timings_s") or {})
+        design = self.state.get("design_system")
+        notes = list(self.state.get("notes") or [])
+        # Что из ДС стоит на колоде (`design-system-usage-in-the-run`). Без этого по отчёту
+        # видно, что ДС собрана, но не видно, собрана ли по ней колода.
+        usage = design_system_usage(self.state["deck"], design) if "deck" in self.state else None
+        if usage is not None and usage["slides_total"] and not usage["slides_with_elements"]:
+            notes.append(
+                "дизайн-система: ни на одном слайде нет её элементов — колода собрана "
+                "только плейсхолдерами макетов"
+            )
         return {
             "run_id": self.run_id,
             "variant": self.variant,
@@ -164,10 +175,11 @@ class RunResult:
             "design_metrics": dict(self.state.get("design_metrics") or {}),
             # Дизайн-система шаблона (DG2): числа разделов, а не сами значения.
             # `None` — узел `parse` до неё не дошёл, и это видно, а не замолчано.
-            "design_system": design_system_summary(self.state.get("design_system")),
+            "design_system": design_system_summary(design),
+            "design_system_usage": usage,
             "skipped_checks": list(self.state.get("skipped_checks") or []),
             "degradations": list(self.state.get("degradations") or []),
-            "notes": list(self.state.get("notes") or []),
+            "notes": notes,
             "errors": list(self.state.get("errors") or []),
         }
 
