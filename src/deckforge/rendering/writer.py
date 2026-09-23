@@ -67,6 +67,7 @@ from deckforge.rendering.boxed import add_boxed
 from deckforge.rendering.charts import add_chart, chart_problem
 from deckforge.rendering.icons import add_icon, draw_icon, icon_nodes
 from deckforge.rendering.images import add_image
+from deckforge.rendering.recipe_slide import clone_recipe
 from deckforge.rendering.smartart import add_smartart
 from deckforge.rendering.tables import add_table, template_table_style
 from deckforge.rendering.theme_binding import (
@@ -109,7 +110,7 @@ def _open_template(path: Path) -> object:
     return Presentation(buffer)
 
 
-def _drop_sample_slides(prs: object) -> None:
+def _drop_sample_slides(prs: object, keep: list[object] | None = None) -> None:
     """Слайды-примеры шаблона в колоду не попадают; части без связей python-pptx не пишет.
 
     Произвольные показы и разделы ссылаются на слайды-примеры: без них ссылки повисли бы,
@@ -122,10 +123,25 @@ def _drop_sample_slides(prs: object) -> None:
         if any(etree.QName(child).localname == "sectionLst" for child in ext):
             ext.getparent().remove(ext)
 
+    # Слайды колоды, собранные по рецепту, — это копии примеров, и удалять их нельзя
+    # (change `recipe-slide-in-the-writer`).
+    kept = {slide.part.partname for slide in (keep or [])}  # type: ignore[attr-defined]
     slide_ids = prs.slides._sldIdLst  # type: ignore[attr-defined]
     for slide_id in list(slide_ids):
+        part = prs.part.related_part(slide_id.rId)  # type: ignore[attr-defined]
+        if part.partname in kept:
+            continue
         prs.part.drop_rel(slide_id.rId)  # type: ignore[attr-defined]
         slide_ids.remove(slide_id)
+
+
+def _lines_in(block: object) -> bool:
+    """Есть ли что писать в зону рецепта: пустой блок оставил бы там текст шаблона."""
+    if isinstance(block, BulletsBlock):
+        return any(item.text.strip() for item in block.items)
+    if isinstance(block, TextBlock):
+        return bool(block.text.strip())
+    return False
 
 
 def _text_rank(placeholder: object) -> int:
@@ -185,6 +201,13 @@ class SlideValidator:
         taken: set[int] = set()
         for block in slide.blocks:
             where = f"{slide.slide_id}/{block.block_id}"
+            # Блок слайда по рецепту стоит в зоне шаблона: рамку ему дал автор, кегль —
+            # его же `rPr`. Ни координат, ни отчёта о вписывании у такого блока нет
+            # и быть не должно (change `recipe-slide-in-the-writer`).
+            if slide.recipe_id and getattr(block, "zone_id", None):
+                if not _lines_in(block):
+                    out.append(f"{where}: блок в зоне рецепта без текста")
+                continue
             idx = getattr(block, "placeholder_idx", None)
             if idx is not None:
                 if idx in taken:
@@ -429,6 +452,12 @@ class PptxWriter:
         #: Ответы дизайн-системы (DG3): акцент по роли, кегли числа, плитка, полоса
         #: цитаты. Те же, что видело вписывание, — иначе записанное разойдётся с вписанным.
         self.design = DesignRules(manifest, design_system)
+        #: Каталог композиций шаблона: по нему writer клонирует слайд-пример
+        #: (change `recipe-slide-in-the-writer`).
+        self.recipes = {
+            recipe.recipe_id: recipe
+            for recipe in (design_system.recipes if design_system else [])
+        }
         #: Что было подменено при последней записи и почему — для аудита и интерфейса.
         self.degradations: list[str] = []
         self.validator = SlideValidator(manifest)
@@ -454,10 +483,19 @@ class PptxWriter:
             raise WriterError("\n".join(problems))
 
         prs = _open_template(self.template_path)
-        _drop_sample_slides(prs)
+        # Рецепты клонируются раньше, чем примеры удаляются: копировать нечего, если
+        # источник уже выброшен (change `recipe-slide-in-the-writer`).
+        cloned = {
+            slide.slide_id: clone_recipe(prs, self.recipes[slide.recipe_id], slide)
+            for slide in slides
+            if slide.recipe_id and slide.recipe_id in self.recipes
+        }
+        _drop_sample_slides(prs, keep=list(cloned.values()))
         layouts = self._layouts_by_id(prs)
         table_style = template_table_style(prs)
         for slide in slides:
+            if slide.slide_id in cloned:
+                continue
             self._render_slide(prs, layouts[slide.layout_id], slide, content, table_style)
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
