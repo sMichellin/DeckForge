@@ -95,7 +95,7 @@ window.STATE =
         "openspec/changes/slide-recipes/proposal.md"
       ],
       "tests": null,
-      "commit": "pending"
+      "commit": "7677dbd"
     },
     {
       "id": "02",
