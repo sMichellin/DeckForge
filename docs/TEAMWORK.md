@@ -38,8 +38,10 @@ PR #3 и #4 смержены, в `main` есть:
 | `src/deckforge/parsing/content.py` | A | остальной `parsing/` — тимлид, changes 3–6 закрыты |
 | `src/deckforge/planning/**`, `composition/**` | A | |
 | `prompts/{deck_planner,slide_composer,headline_writer,visual_selector}/**` | A | |
+| `src/deckforge/designsystem/**` | A | каталог рецептов `recipes.py`, `usage.py` (slide-recipes) |
 | `src/deckforge/layout/**` | B | |
 | `src/deckforge/rendering/{writer,theme_binding,images,charts,tables,smartart,icons}.py` | B | `soffice.py`, `layout_deck.py`, `layout_preview.py` — **не трогать**, они из change 6 |
+| `src/deckforge/rendering/recipe_slide.py` | B | копирование слайда-примера (slide-recipes) |
 | `src/deckforge/export/**`, `assets/icons/**` | B | |
 | `src/deckforge/audit/**` | C | кроме `audit/preview.py` — он из change 6 |
 | `configs/audit_checks.yaml`, `AUDIT.md` | C | |
