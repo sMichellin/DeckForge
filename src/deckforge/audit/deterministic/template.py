@@ -21,18 +21,23 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from contextlib import suppress
+from typing import Any
+
+from pptx.oxml.ns import qn
 
 from deckforge.audit.findings import make_finding
 from deckforge.audit.geometry import (
     FULL_BLEED_SHARE,
     block_bbox,
+    block_text,
     carries_text,
     covers,
     layout_of,
     placeholder_of,
     self_positioned_blocks,
 )
-from deckforge.audit.registry import CheckContext, check
+from deckforge.audit.registry import CheckContext, CheckUnavailable, check
 from deckforge.designsystem.contrast import (
     TextClass,
     comfort_ratio,
@@ -41,10 +46,13 @@ from deckforge.designsystem.contrast import (
 )
 from deckforge.domain.audit import Finding
 from deckforge.domain.base import BBox
+from deckforge.domain.content import ContentPackage
 from deckforge.domain.enums import AutoFix, ColorRef, Severity, TextRole
 from deckforge.domain.rules import contrast_ratio
-from deckforge.domain.slide import ChartBlock, KpiBlock
+from deckforge.domain.slide import Block, BulletsBlock, ChartBlock, KpiBlock, TableBlock
 from deckforge.domain.template import LayoutSpec, TemplateManifest
+from deckforge.layout.errors import LayoutFitError
+from deckforge.layout.tabular import table_cells
 from deckforge.rendering.theme_binding import font_family_for_token
 
 #: Доля своей площади, начиная с которой фигура макета считается лежащей в области
@@ -555,3 +563,148 @@ def _background_of(layout: LayoutSpec | None, manifest: TemplateManifest) -> tup
             f"{background.source}: усреднённый цвет подложки, вердикт приблизителен",
         )
     return background.color_hex, background.source
+
+
+#: Сколько знаков чужой фразы показать в находке: достаточно, чтобы узнать её глазами.
+SAMPLE_SNIPPET_CHARS = 80
+
+
+def _block_pieces(block: Block, content: ContentPackage | None) -> list[str]:
+    """Куски текста блока так, как writer раскладывает их по абзацам и ячейкам.
+
+    Показатель — значение и подпись отдельными абзацами; таблица — по ячейке, числа
+    датасета — в том виде, в каком их пишет writer (`table_cells`, «2,5»).
+    """
+    pieces = [block_text(block)]
+    if isinstance(block, BulletsBlock):
+        pieces += [item.text for item in block.items]
+    elif isinstance(block, KpiBlock):
+        pieces += [part for item in block.items for part in (item.value, item.label)]
+    elif isinstance(block, TableBlock):
+        dataset = content.dataset(block.dataset_ref) if content and block.dataset_ref else None
+        # Таблицу нечем заполнить — writer её и не запишет.
+        with suppress(LayoutFitError):
+            pieces += [cell for row in table_cells(block, dataset) for cell in row]
+    return pieces
+
+
+def _our_lines(ctx: CheckContext) -> set[str]:
+    """Всё, что колода написала сама, построчно и без краевых пробелов.
+
+    Набор общий на колоду, а не на слайд, и от порядка слайдов не зависит только он.
+    Страницу выбирает `sample_text_left` — по номеру слайда в IR, и в смешанной колоде
+    она может оказаться чужой. Пока writer (поток B) не исправил порядок, на чужой
+    странице возможна ложная находка: её текст writer пишет не только из блоков,
+    разобранных в `_block_pieces` (SmartArt, callout, деградации диаграмм и таблиц).
+    """
+    lines: set[str] = set()
+    for slide in ctx.deck.slides:
+        for block in slide.blocks:
+            for piece in _block_pieces(block, ctx.content):
+                lines.add(piece.strip())
+                lines.update(line.strip() for line in piece.splitlines())
+    lines.discard("")
+    return lines
+
+
+def _written_paragraphs(shape: Any) -> list[str]:
+    """Строки фигуры, набранные прогонами `a:r`.
+
+    Мягкий перенос `a:br` делит абзац на строки — так же, как перевод строки делит
+    наш текст в `_our_lines`. Поля `a:fld` (номер слайда, дата) не в счёт: их текст
+    подставляет PowerPoint, а не автор примера.
+    """
+    lines: list[str] = []
+    for paragraph in shape.iter(qn("a:p")):
+        text = "".join(
+            "\n" if node.tag == qn("a:br") else node.findtext(qn("a:t")) or ""
+            for node in paragraph
+            if node.tag in (qn("a:r"), qn("a:br"))
+        )
+        lines.extend(line.strip() for line in text.splitlines() if line.strip())
+    return lines
+
+
+#: Типы плейсхолдеров колонтитулов (`p:ph/@type`): их текст — служебный, а не текст
+#: примера, даже набранный вручную («Конфиденциально»).
+FOOTER_PLACEHOLDERS = frozenset({"ftr", "dt", "sldNum", "hdr"})
+
+
+def _text_shapes(tree: Any) -> Iterable[tuple[int | None, str, Any]]:
+    """Фигуры слайда с текстом на любой глубине групп, кроме колонтитулов:
+    `cNvPr id`, имя, узел."""
+    for shape in tree.iter(qn("p:sp"), qn("p:graphicFrame")):
+        placeholder = shape.find(f"./*/{qn('p:nvPr')}/{qn('p:ph')}")
+        if placeholder is not None and placeholder.get("type") in FOOTER_PLACEHOLDERS:
+            continue
+        props = shape.find(f"./*/{qn('p:cNvPr')}")
+        raw = props.get("id") if props is not None else None
+        name = props.get("name", "") if props is not None else ""
+        yield (int(raw) if raw and raw.isdigit() else None), name, shape
+
+
+@check(id="template.sample_text_left", deterministic=True, severity=Severity.ERROR,
+       title="На слайде по рецепту остался текст слайда-примера шаблона")
+def sample_text_left(ctx: CheckContext) -> Iterable[Finding]:
+    """На слайде по рецепту остался текст слайда-примера шаблона.
+
+    Слайд по рецепту — копия примера целиком, с его текстом (change
+    `recipe-slide-in-the-writer`). Writer заменяет текст зон нашим, а лишние зоны
+    удаляет или стирает. Всё, что после этого осталось на слайде и чего колода
+    не писала, — фраза автора шаблона: «Имя Фамилия», «Описание преимущества».
+
+    Исходного текста примера в манифесте нет сознательно, и он не нужен: на копии
+    примера других источников текста, кроме примера и колоды, не бывает. Поэтому
+    эталон — строки `SlideIR` колоды, а не файл шаблона.
+
+    Страница файла для слайда по рецепту выбирается по номеру слайда в IR, как
+    у соседних проверок по готовому файлу. Writer кладёт слайды по рецепту в начало
+    файла (`rendering/writer.py`, `write()`: копии рецептов до остальных), поэтому
+    в смешанной колоде страница по номеру может оказаться чужой: проверка тогда
+    пропустит нарушителя, назовёт не тот `slide_id` или даст ложную находку на тексте
+    чужого слайда. Чинит порядок writer (поток B), а не аудит.
+    """
+    path = ctx.deck_path
+    if path is None:
+        raise CheckUnavailable("файла колоды ещё нет: текст примера виден только в .pptx")
+    if not ctx.manifest.examples:
+        raise CheckUnavailable("в шаблоне нет слайдов-примеров: рецептов не бывает")
+    recipe_slides = [
+        (number, slide) for number, slide in enumerate(ctx.deck.slides) if slide.recipe_id
+    ]
+    if not recipe_slides:
+        raise CheckUnavailable("ни одного слайда по рецепту: текста примера взяться неоткуда")
+    try:
+        from pptx import Presentation
+
+        pages = list(Presentation(str(path)).slides)
+    except Exception as error:
+        raise CheckUnavailable(f"файл колоды не открылся: {type(error).__name__}") from error
+    if len(pages) < len(ctx.deck.slides):
+        raise CheckUnavailable(
+            f"в файле {len(pages)} слайдов, а в IR {len(ctx.deck.slides)}: "
+            "страницу слайда по рецепту не найти"
+        )
+
+    ours = _our_lines(ctx)
+    for number, slide in recipe_slides:
+        for xml_id, name, shape in _text_shapes(pages[number].shapes._spTree):
+            foreign = [text for text in _written_paragraphs(shape) if text not in ours]
+            if not foreign:
+                continue
+            text = " / ".join(foreign)
+            yield make_finding(
+                check_id="template.sample_text_left",
+                slide_id=slide.slide_id,
+                reason=f"shape:{xml_id}",
+                message=(
+                    f"На слайде {slide.slide_id} (рецепт {slide.recipe_id}) в фигуре "
+                    f"«{name}» остался текст примера: «{text[:SAMPLE_SNIPPET_CHARS]}»"
+                ),
+                evidence={
+                    "recipe_id": slide.recipe_id or "",
+                    "xml_id": str(xml_id) if xml_id is not None else "нет",
+                    "shape": name,
+                    "text": text[:SAMPLE_SNIPPET_CHARS],
+                },
+            )
