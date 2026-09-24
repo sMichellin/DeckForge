@@ -98,7 +98,12 @@ return bind_to_recipe(composed, recipe) if recipe is not None else composed
 1. **`response_omit` пополняется** (`prompts/slide_composer/1.4.0/meta.yaml`, версия
    поднимается, `registry.yaml` → `active: 1.4.0`):
    `[x, y, cx, cy, slide_id, layout_id, variant, provenance, recipe_id, zone_id, fit_report]`.
-   `make schemas` перегенерирует `schema.json`. Промпт про зоны и рецепты не говорит
+   `make schemas` перегенерирует `schema.json`.
+
+   `fit_report` в схеме ответа и так нет: это открытая карта (`dict[str, X]`), которую
+   строгий режим провайдера не выражает, и `gen_schemas.py` выбрасывает её сам. В списке
+   он для полноты — модель не должна его заполнять ни при каком режиме провайдера.
+ Промпт про зоны и рецепты не говорит
    и не должен: ADR-003 — модель файла не видит.
 2. **Композитор снимает эти поля с ответа явно**, не только схемой: грамматика
    llama.cpp не гарантирует отсутствие лишнего ключа, а `pattern` из схемы вырезается

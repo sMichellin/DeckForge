@@ -110,6 +110,12 @@ RG14 (тимлид, openspec-дельты и CI)  ─── независимо
 
 ### RG3. `by-recipe-is-one-predicate` — один предикат на всё (P1, делать первым)
 
+> **Сделано 24.09**, PR #172, ветка `feat/by-recipe-is-one-predicate`.
+> Предложение — `openspec/changes/by-recipe-is-one-predicate/proposal.md`.
+> Тесты: 2 из 9 красные до правки, полный прогон 1765 passed / 95 skipped.
+> Заодно нашлась латентная дыра: `_split_slide` не переносит `recipe_id` в
+> слайд-продолжение — запрос потоку C, подробности в предложении.
+
 Ветка `feat/by-recipe-is-one-predicate`. Файлы: `src/deckforge/domain/slide.py`,
 `schemas/**` (регенерация), `src/deckforge/pipeline/nodes/fit.py`.
 
@@ -266,7 +272,9 @@ P0 живёт без него.
 
 * `1.4.0` копией `1.3.1`, `response_omit` пополняется:
   `[x, y, cx, cy, slide_id, layout_id, variant, provenance, recipe_id, zone_id, fit_report]`.
-  `changelog` — со ссылкой на пять упавших прогонов.
+  `changelog` — со ссылкой на пять упавших прогонов. Из троих в схеме ответа сейчас
+  реально стоят только `recipe_id` и `zone_id`: `fit_report` — открытая карта, строгий
+  режим её не выражает, и `gen_schemas.py` выбрасывает её сам. В списке он для полноты.
 * Промпт про зоны и рецепты **не говорит и не должен**: модель файла не видит (ADR-003),
   ей уходят вместимости зон теми же словами, что вместимости плейсхолдеров.
 * Снятие полей из RG1 остаётся: грамматика llama.cpp не гарантирует отсутствие лишнего
