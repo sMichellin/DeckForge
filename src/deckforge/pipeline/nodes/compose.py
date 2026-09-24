@@ -60,14 +60,22 @@ async def compose_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     slots = deps.slots()
     plan = state["plan"]
 
+    # Какой рецепт стоял на прошлом слайде: два одинаковых подряд читаются как один
+    # перелистнутый назад (таск 05b). Порядок слайдов в плане и есть порядок колоды.
+    order = {slide.slide_id: index for index, slide in enumerate(plan.slides)}
+    picked: dict[int, str | None] = {}
+
     async def one(slide: SlidePlan) -> SlideIR:
         async with slots:
             # Дизайн-система — та же, что увидят `fit` и `render` (DG2, DG3): по ней
             # композиция называет модели роли цветов и разводит свободные блоки.
-            return await composer.compose(
+            composed = await composer.compose(
                 slide, state["content"], state["manifest"], state["variant"], state["seed"],
                 design_system=state.get("design_system"),
+                previous_recipe=picked.get(order[slide.slide_id] - 1),
             )
+            picked[order[slide.slide_id]] = composed.recipe_id
+            return composed
 
     async with timed(deps, "compose") as timings:
         # A11. Предел планировщику назван по медиане полос шаблона, а макет слайду

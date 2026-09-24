@@ -168,6 +168,11 @@ def _repeat_map(manifest: TemplateManifest, example: TemplateExample) -> tuple[d
     Начало ряда не хранится в компоненте, поэтому берётся из самого примера: рамки
     размером с ячейку выстраиваются вдоль оси, первая и задаёт отсчёт. Дальше в повтор N
     попадает всё, чей центр лежит в N-й ячейке, — и плашка, и её заголовок, и её текст.
+
+    Ячейка — прямоугольник, поэтому проверок две. Без второй, поперёк оси, в средний
+    повтор попадал заголовок слайда: он стоит над рядом, но отцентрован по его середине.
+    Цена ошибки двойная — заголовок получал пункт списка вместо заголовка, а вёрстка
+    удаляла его вместе с неиспользованным повтором.
     """
     component = _component_of(manifest, example)
     if component is None:
@@ -181,24 +186,49 @@ def _repeat_map(manifest: TemplateManifest, example: TemplateExample) -> tuple[d
     if step <= 0 or cell_cx <= 0 or cell_cy <= 0:
         return {}, 0
 
-    cells = [
+    sized = [
         shape
         for shape in example.shapes
         if abs(shape.cx - cell_cx) <= cell_cx * CELL_TOLERANCE
         and abs(shape.cy - cell_cy) <= cell_cy * CELL_TOLERANCE
     ]
+    cells = _row_of(sized, horizontal=horizontal, across=cell_cy if horizontal else cell_cx)
     if len(cells) < 2:
         return {}, 0
 
     origin = min(_center(cell)[0 if horizontal else 1] for cell in cells)
     half = (cell_cx if horizontal else cell_cy) / 2
+    band_lo = min((cell.y if horizontal else cell.x) for cell in cells)
+    band_hi = max(((cell.y + cell.cy) if horizontal else (cell.x + cell.cx)) for cell in cells)
     mapping: dict[str, int] = {}
     for shape in example.shapes:
-        along = _center(shape)[0 if horizontal else 1]
+        center = _center(shape)
+        along, across = (center[0], center[1]) if horizontal else (center[1], center[0])
+        if not band_lo <= across <= band_hi:
+            continue
         index = round((along - origin) / step)
         if 0 <= index < component.repeats and abs(along - (origin + index * step)) <= half:
             mapping[shape.shape_id] = index
     return mapping, component.repeats
+
+
+def _row_of(
+    sized: list[ExampleShape], *, horizontal: bool, across: float
+) -> list[ExampleShape]:
+    """Ряд — это ячейки, стоящие на одной высоте, а не все рамки размером с ячейку.
+
+    Рамка размером с ячейку бывает и вне ряда: заголовок такой же ширины, плашка внизу.
+    Пустить её в отсчёт — значит растянуть полосу ряда на пол-слайда и забрать в повтор
+    всё, что попало в неё по оси.
+    """
+    groups: list[list[ExampleShape]] = []
+    for cell in sorted(sized, key=lambda s: _center(s)[1 if horizontal else 0]):
+        line = _center(cell)[1 if horizontal else 0]
+        if groups and abs(line - _center(groups[-1][0])[1 if horizontal else 0]) <= across / 2:
+            groups[-1].append(cell)
+        else:
+            groups.append([cell])
+    return max(groups, key=len) if groups else []
 
 
 def _zones(ds: DesignSystem, example: TemplateExample, repeats: dict[str, int]) -> list[Zone]:

@@ -22,10 +22,13 @@ from deckforge.composition.free_space import (
     spare_zone,
 )
 from deckforge.composition.layout_picker import pick_layout
+from deckforge.composition.recipe_binding import bind_to_recipe
+from deckforge.composition.recipe_picker import pick_recipe
 from deckforge.composition.visual_selector import select_chart
 from deckforge.designsystem import DesignSystem
+from deckforge.designsystem.models import Recipe
 from deckforge.domain.base import BBox
-from deckforge.domain.content import ContentPackage
+from deckforge.domain.content import ContentPackage, Fact
 from deckforge.domain.enums import ListStyle, TextRole
 from deckforge.domain.plan import SlidePlan
 from deckforge.domain.slide import (
@@ -43,7 +46,7 @@ from deckforge.domain.slide import (
     TextBlock,
 )
 from deckforge.domain.slide import TableBlock as TableBlockIR
-from deckforge.domain.template import LayoutSpec, TemplateManifest
+from deckforge.domain.template import LayoutCapacity, LayoutSpec, TemplateManifest
 from deckforge.domain.variants import VariantProfile
 from deckforge.inference.client import InferenceClient
 from deckforge.inference.structured import generate_model
@@ -248,6 +251,28 @@ def _headline_text(words: list[str], whole: int) -> str:
     return text if len(words) == whole else text.rstrip(" ,;:—-") + _ELLIPSIS
 
 
+def _target_chars(
+    capacity: LayoutCapacity, variant: VariantProfile, recipe: Recipe | None
+) -> int:
+    """Сколько знаков просить у модели. У слайда по рецепту рамка чужая: просим ровно
+    столько, сколько держит самая тесная зона, а не сколько поместилось бы в плейсхолдер."""
+    if recipe is not None:
+        zones = [zone.capacity_chars for zone in recipe.zones if zone.capacity_chars > 0]
+        if zones:
+            return min(zones)
+    return round(capacity.max_chars_body * variant.capacity_ratio())
+
+
+def _target_bullets(
+    capacity: LayoutCapacity, facts: list[Fact], recipe: Recipe | None
+) -> int:
+    """Сколько пунктов просить. Ряд шаблона на три карточки — значит три пункта,
+    иначе четвёртый окажется за краем композиции."""
+    if recipe is not None and recipe.repeats:
+        return max(1, min(recipe.repeats, len(facts) or recipe.repeats))
+    return max(2, min(capacity.max_bullets, len(facts) or 3))
+
+
 def _design_context(rules: DesignRules) -> dict[str, Any]:
     """Что промпт композитора знает о дизайн-системе: роли и виды, без координат и кеглей.
 
@@ -292,6 +317,7 @@ class SlideComposer:
         preserve_wording: bool = False,
         no_think: bool = False,
         design_system: DesignSystem | None = None,
+        previous_recipe: str | None = None,
     ) -> SlideIR:
         """Наполняет макет содержимым слайда.
 
@@ -311,6 +337,19 @@ class SlideComposer:
         """
         layout = pick_layout(slide, manifest, variant)
         rules = DesignRules(manifest, design_system)
+        # Композиция шаблона под этот слайд (таск 05b). Вид назвал план, пример выбрал
+        # счёт; модель о рецепте не знает — ей уходят только лимиты его зон, теми же
+        # словами «вместимость», что и у плейсхолдеров.
+        recipe = (
+            pick_recipe(
+                slide,
+                design_system.recipes,
+                previous_recipe,
+                has_asset=bool(slide.asset_refs),
+            )
+            if design_system is not None
+            else None
+        )
         facts = [fact for ref in slide.fact_refs if (fact := content.fact(ref)) is not None]
         dataset = content.dataset(slide.dataset_ref) if slide.dataset_ref else None
         chart_type = select_chart(dataset) if dataset is not None else None
@@ -336,8 +375,8 @@ class SlideComposer:
             seed=seed,
             size_ladder=manifest.size_ladder_pt,
             capacity=capacity,
-            target_chars=round(capacity.max_chars_body * variant.capacity_ratio()),
-            target_bullets=max(2, min(capacity.max_bullets, len(facts) or 3)),
+            target_chars=_target_chars(capacity, variant, recipe),
+            target_bullets=_target_bullets(capacity, facts, recipe),
             body_free=body_free,
             # B10. Свободная зона рядом с местом под тело: до сих пор её не предлагали
             # никому, и на шаблонах кейса это половина слайда.
@@ -376,9 +415,13 @@ class SlideComposer:
             },
         )
         raw, _completion = await asyncio.to_thread(call)
-        return self._bind(
+        composed = self._bind(
             raw, slide, layout, manifest, variant, seed, content, chart_type, bundle.ref, rules
         )
+        # Рецепт применяется последним: сначала слайд собирается как обычно, потом его
+        # текст раскладывается по зонам шаблона. Так слайд без рецепта не меняется
+        # ни на строку, а слайд с рецептом теряет координаты — рамку ему даёт автор.
+        return bind_to_recipe(composed, recipe) if recipe is not None else composed
 
     def _trim_headline(
         self, block: TextBlock, layout: LayoutSpec, manifest: TemplateManifest, slide_id: str
