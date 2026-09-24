@@ -630,9 +630,13 @@ Html больше не падает, а верстает слайд по рец�
 Тесты: 5 из 6 падали до правки тем самым `AttributeError`; полный прогон 1777 passed,
 95 skipped.
 
+**Проверено живым прогоном** `3dd589541036` на `cbc1d37` (24.09): `state: done`,
+`error: null`, 248,8 с. В `out/` `deck.pptx`, `deck.pdf` и `deck.html` — первый зелёный
+сквозной прогон.
+
 **Незакрыто:** место блока в html не то, что в pptx, — нужна геометрия зоны в каталоге
 (запрос потоку A); оговорки в `degradations` нет — `export_html` их не отдаёт (запрос
-тимлиду). Подробно — `openspec/changes/html-export-keeps-the-zone-text/proposal.md`.
+тимлиду, RG17). Подробно — `openspec/changes/html-export-keeps-the-zone-text/proposal.md`.
 
 ---
 
