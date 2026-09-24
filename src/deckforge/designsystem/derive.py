@@ -23,6 +23,7 @@ from deckforge.designsystem.models import (
     TypeStep,
     Typography,
 )
+from deckforge.designsystem.recipes import recipes
 from deckforge.designsystem.synth import synthesize
 from deckforge.domain.enums import ColorRef, TextRole
 from deckforge.domain.template import (
@@ -304,4 +305,7 @@ def derive(manifest: TemplateManifest) -> DesignSystem:
         theme=_theme(manifest.theme),
     )
     ds = measure(manifest, ds)
-    return synthesize(manifest, ds)
+    ds = synthesize(manifest, ds)
+    #: Композиции считаются последними: виду рецепта нужны и лестница, и компоненты,
+    #: и сетка — всё, что собрано выше (change `recipes-in-the-design-system`).
+    return ds.model_copy(update={"recipes": recipes(manifest, ds)})

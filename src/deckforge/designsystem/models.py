@@ -364,6 +364,54 @@ class AssemblyRule(DomainModel):
     origin: Origin = Origin.DERIVED
 
 
+# --- каталог композиций шаблона (change `recipes-in-the-design-system`) --------
+
+
+class RecipeKind(StrEnum):
+    """Вид композиции. Выводится из фигур примера, а не из имени его макета."""
+
+    COVER = "cover"
+    SECTION = "section"
+    FINAL = "final"
+    METRICS = "metrics"
+    CARDS = "cards"
+    TEXT_WITH_PICTURE = "text_with_picture"
+    TEXT = "text"
+
+
+class Zone(DomainModel):
+    """Текстовая фигура рецепта, которую заполняет наш текст.
+
+    `xml_id` — настоящий `cNvPr id` фигуры в файле: по нему writer найдёт её при
+    копировании. Текста примера здесь нет и не будет: рецепту нужен размер зоны
+    и её кегль, а не чужие слова.
+    """
+
+    zone_id: str = Field(min_length=1)
+    xml_id: int | None = Field(default=None, description="cNvPr id фигуры в файле шаблона")
+    role: TypeLevel
+    repeat: int | None = Field(default=None, description="Номер повтора, если зона внутри него")
+    capacity_chars: int = Field(ge=0, description="Сколько знаков держит рамка при своём кегле")
+    size_pt: float | None = Field(default=None, gt=0)
+
+
+class Recipe(DomainModel):
+    """Слайд-пример шаблона как готовая композиция.
+
+    Автор шаблона уже решил, где плашки, где декор и где текст. Рецепт — это его
+    решение, названное так, чтобы вёрстка могла его повторить: вид, зоны, повторы.
+    """
+
+    recipe_id: str = Field(min_length=1, description="ex<номер примера, три цифры>")
+    example_index: int = Field(ge=1)
+    part_name: str | None = Field(default=None, description="Часть слайда-примера в файле")
+    kind: RecipeKind
+    zones: list[Zone] = Field(default_factory=list)
+    repeats: int = Field(default=0, ge=0, description="Сколько повторов в ряду композиции")
+    has_picture: bool = Field(default=False, description="В области контента стоит картинка")
+    origin: Origin = Origin.MEASURED
+
+
 class DesignSystem(DomainModel):
     """Дизайн-система шаблона целиком: поля соответствуют разделам страницы."""
 
@@ -387,5 +435,7 @@ class DesignSystem(DomainModel):
         default_factory=list,
         description="Где шаблон не даёт читаемой пары — change `a-minimum-is-not-a-norm`",
     )
+    #: Заполняет change `recipes-in-the-design-system` — седьмой раздел, композиции.
+    recipes: list[Recipe] = Field(default_factory=list)
     synthesized: list[SynthElement] = Field(default_factory=list)
     assembly_rules: list[AssemblyRule] = Field(default_factory=list)

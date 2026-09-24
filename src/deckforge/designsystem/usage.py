@@ -57,8 +57,16 @@ def element_of(block: Block) -> str | None:
 
 
 def slide_elements(slide: SlideIR) -> list[str]:
-    """Элементы ДС на слайде, в порядке блоков, без повторов."""
+    """Элементы ДС на слайде, в порядке блоков, без повторов.
+
+    Слайд, собранный по рецепту шаблона, — элемент ДС целиком, и стоит он первым:
+    композиция автора задаёт слайд раньше, чем отдельные блоки на нём. Без этого доля
+    «слайдов с элементом ДС» упала бы ровно там, где колода впервые стала похожа
+    на шаблон (change `recipes-in-the-design-system`).
+    """
     found: list[str] = []
+    if slide.recipe_id:
+        found.append(f"recipe:{slide.recipe_id}")
     for block in slide.blocks:
         name = element_of(block)
         if name is not None and name not in found:
