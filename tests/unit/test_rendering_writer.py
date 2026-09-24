@@ -35,7 +35,12 @@ from deckforge.rendering.theme_binding import (
     resolve_font,
     theme_font_token,
 )
-from deckforge.rendering.writer import PptxWriter, SlideDegrader, WriterError
+from deckforge.rendering.writer import (
+    PptxWriter,
+    SlideDegrader,
+    SlideValidator,
+    WriterError,
+)
 from tests.unit.test_layout_fonts import make_font
 
 # --- theme_binding -----------------------------------------------------------
@@ -521,3 +526,105 @@ def test_overflowing_table_degrades_to_bullets_without_content(
     bullets = degrader.degrade(slide, None).blocks[1]
     assert isinstance(bullets, BulletsBlock)
     assert [item.text for item in bullets.items] == ["Год: 2025 — Выручка: 2"]
+
+
+# --- RG5: писатель не падает (change `recipe-is-not-the-models-word`) ----------
+
+
+def zoned(block_id: str, text: str, zone_id: str | None) -> TextBlock:
+    return TextBlock(block_id=block_id, role=TextRole.BODY, text=text, zone_id=zone_id)
+
+
+def test_a_block_without_a_measurement_is_written_by_the_size_of_its_role(
+    writer: PptxWriter,
+) -> None:
+    """Нарушитель: записи о вписывании нет.
+
+    Колода из десяти слайдов лучше отсутствия колоды: блок пишется кеглем своей роли
+    из типошкалы шаблона, подмена называется. Прежде здесь был `KeyError` на последней
+    стадии прогона, из которого причина не читалась.
+    """
+    block = title()
+    slide = ok_slide(blocks=[block], fit_report={})
+
+    result = writer._fit_of(slide, block)
+
+    ladder = writer.manifest.size_ladder_pt
+    assert result.final_size_pt in ladder, "кегль обязан быть из шкалы шаблона"
+    assert result.final_size_pt == writer.manifest.typography(TextRole.TITLE).size_pt
+    assert any("s01/t" in line for line in writer.degradations), "подмена не названа"
+
+
+def test_a_measured_block_keeps_its_measurement(writer: PptxWriter) -> None:
+    """Норма: замер есть — берётся он, подмены нет."""
+    block = title()
+    slide = ok_slide(blocks=[block], fit_report={"t": fit(40)})
+
+    result = writer._fit_of(slide, block)
+
+    assert result.final_size_pt == 40
+    assert writer.degradations == []
+
+
+def test_a_recipe_outside_the_catalogue_is_a_named_error(
+    manifest: TemplateManifest,
+) -> None:
+    """Нарушитель: слайд назван собранным по рецепту, которого у шаблона нет.
+
+    Выдуманный моделью рецепт проходил весь конвейер и падал в писателе `KeyError`
+    через 138 секунд прогона. Утечка контракта обязана называть себя.
+    """
+    validator = SlideValidator(manifest, ["ex001", "ex002"])
+
+    out = validator.problems(ok_slide(recipe_id="L12_15_title_closing"), None)
+
+    assert out, "рецепт вне каталога прошёл молча"
+    assert "s01" in out[0]
+    assert "L12_15_title_closing" in out[0]
+
+
+def test_a_recipe_from_the_catalogue_passes(manifest: TemplateManifest) -> None:
+    """Норма: рецепт в каталоге есть — проверка о нём молчит."""
+    validator = SlideValidator(manifest, ["ex001", "ex002"])
+
+    out = validator.problems(ok_slide(recipe_id="ex001"), None)
+
+    assert out == []
+
+
+def test_a_catalogue_that_is_not_given_says_nothing_about_recipes(
+    manifest: TemplateManifest,
+) -> None:
+    """Норма: без каталога о композициях не судят — html зовёт валидатор именно так."""
+    assert SlideValidator(manifest).problems(ok_slide(recipe_id="что-угодно"), None) == []
+
+
+def test_a_half_zoned_slide_is_not_a_slide_by_recipe(manifest: TemplateManifest) -> None:
+    """Нарушитель: часть блоков стоит в зонах шаблона, часть — нет.
+
+    Такой слайд не собрать ни одним из двух способов, и его блоки вне зон обязаны
+    пройти обычные проверки. Прежде писатель судил по каждому блоку отдельно,
+    и блок вне зоны уезжал в запись без координат.
+    """
+    validator = SlideValidator(manifest, ["ex001"])
+    slide = ok_slide(
+        recipe_id="ex001",
+        blocks=[zoned("a", "в зоне", "z1"), zoned("b", "без зоны", None)],
+        fit_report={},
+    )
+
+    out = validator.problems(slide, None)
+
+    assert any("s01/b" in line for line in out), "блок вне зоны прошёл как блок рецепта"
+
+
+def test_a_fully_zoned_slide_is_a_slide_by_recipe(manifest: TemplateManifest) -> None:
+    """Норма: все блоки в зонах — слайд собран по рецепту, координат с него не спрашивают."""
+    validator = SlideValidator(manifest, ["ex001"])
+    slide = ok_slide(
+        recipe_id="ex001",
+        blocks=[zoned("a", "раз", "z1"), zoned("b", "два", "z2")],
+        fit_report={},
+    )
+
+    assert validator.problems(slide, None) == []
