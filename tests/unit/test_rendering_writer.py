@@ -28,6 +28,7 @@ from deckforge.domain.slide import (
 )
 from deckforge.domain.template import PlaceholderSpec, TemplateManifest
 from deckforge.layout.fonts import FontLibrary
+from deckforge.parsing import TemplateParser
 from deckforge.rendering.images import contain_box, cover_crop
 from deckforge.rendering.theme_binding import (
     THEME_COLORS,
@@ -35,7 +36,13 @@ from deckforge.rendering.theme_binding import (
     resolve_font,
     theme_font_token,
 )
-from deckforge.rendering.writer import PptxWriter, SlideDegrader, WriterError
+from deckforge.rendering.writer import (
+    PptxWriter,
+    SlideDegrader,
+    SlideValidator,
+    WriterError,
+)
+from tests.case_templates import case_template
 from tests.unit.test_layout_fonts import make_font
 
 # --- theme_binding -----------------------------------------------------------
@@ -288,9 +295,15 @@ def test_placeholder_and_coordinates_together_are_rejected(
     assert "координаты" in problems(writer, ok_slide(blocks=[block], fit_report={"t": fit(40)}))
 
 
-def test_text_without_fit_report_is_rejected(writer: PptxWriter) -> None:
-    """Писатель не пишет слайд, про который не известно, влезает ли текст."""
-    assert "fit_report" in problems(writer, ok_slide(fit_report={"t": fit(40)}))
+def test_text_without_a_measurement_is_not_rejected(writer: PptxWriter) -> None:
+    """Норма к `test_overflow_is_rejected_before_writing`: замера нет — слайд проходит.
+
+    Прежде здесь был отказ: писатель не писал слайд, про который не известно, влезает ли
+    текст. Требование «Отсутствие замера не роняет колоду» это решение отменило — блок
+    пишется кеглем своей роли, подмена называется в `degradations`. Отказ делал подмену
+    в писателе недостижимой: до неё слайд не доживал.
+    """
+    writer.validate(ok_slide(fit_report={"t": fit(40)}))
 
 
 def test_overflow_is_rejected_before_writing(writer: PptxWriter) -> None:
@@ -325,11 +338,11 @@ def test_smartart_with_coordinates_and_fit_passes(
     writer.validate(slide)
 
 
-def test_smartart_needs_coordinates_and_fit(writer: PptxWriter) -> None:
+def test_smartart_needs_coordinates(writer: PptxWriter) -> None:
+    """Координаты компоненту нужны по-прежнему: подменить можно кегль, но не место."""
     block = SmartArtBlock(block_id="s", pattern="cycle", items=["а", "б"])
     message = problems(writer, ok_slide(blocks=[title(), block], fit_report={"t": fit(40)}))
     assert "без координат" in message
-    assert "fit_report" in message
 
 
 def test_smartart_with_an_empty_item_is_rejected(
@@ -460,10 +473,12 @@ def test_impossible_chart_is_named_in_validation(
         writer.validate(slide, content)
 
 
-def test_table_needs_fit_report(writer: PptxWriter, manifest: TemplateManifest) -> None:
+def test_a_table_without_a_measurement_is_not_rejected(
+    writer: PptxWriter, manifest: TemplateManifest
+) -> None:
+    """Таблица с координатами, но без замера, пишется кеглем роли, а не отвергается."""
     table = TableBlock(block_id="tb", header=["а"], rows=[["б"]], **box_of(manifest))
-    slide = ok_slide(blocks=[title(), table], fit_report={"t": fit(40)})
-    assert "fit_report" in problems(writer, slide)
+    writer.validate(ok_slide(blocks=[title(), table], fit_report={"t": fit(40)}))
 
 
 def test_table_without_rows_or_dataset_is_rejected(
@@ -474,11 +489,10 @@ def test_table_without_rows_or_dataset_is_rejected(
     assert "d404" in problems(writer, slide)
 
 
-def test_kpi_needs_coordinates_and_fit(writer: PptxWriter) -> None:
+def test_kpi_needs_coordinates(writer: PptxWriter) -> None:
     kpi = KpiBlock(block_id="k", items=[KpiItem(value="37 %", label="рост")])
     message = problems(writer, ok_slide(blocks=[title(), kpi], fit_report={"t": fit(40)}))
     assert "без координат" in message
-    assert "fit_report" in message
 
 
 def test_all_problems_are_reported_at_once(writer: PptxWriter) -> None:
@@ -521,3 +535,139 @@ def test_overflowing_table_degrades_to_bullets_without_content(
     bullets = degrader.degrade(slide, None).blocks[1]
     assert isinstance(bullets, BulletsBlock)
     assert [item.text for item in bullets.items] == ["Год: 2025 — Выручка: 2"]
+
+
+# --- RG5: писатель не падает (change `recipe-is-not-the-models-word`) ----------
+
+
+def zoned(block_id: str, text: str, zone_id: str | None) -> TextBlock:
+    return TextBlock(block_id=block_id, role=TextRole.BODY, text=text, zone_id=zone_id)
+
+
+@pytest.fixture(scope="module")
+def case() -> tuple[Path, TemplateManifest]:
+    """Настоящий шаблон: подмена кегля проверяется на записанном файле, а не на замысле."""
+    path = case_template("VK Tech шаблон.pptx")
+    return path, TemplateParser().parse(path, use_cache=False)
+
+
+def slide_on(manifest: TemplateManifest, **update: object) -> SlideIR:
+    layout = next(lt for lt in manifest.layouts if lt.capacity.max_chars_title > 0)
+    ph = next(p for p in layout.placeholders if p.role is TextRole.TITLE)
+    base = SlideIR(
+        slide_id="s01",
+        layout_id=layout.layout_id,
+        variant="A",
+        blocks=[
+            TextBlock(block_id="t", placeholder_idx=ph.idx, role=TextRole.TITLE, text="Итоги")
+        ],
+    )
+    return base.model_copy(update=update)
+
+
+def test_a_deck_is_written_when_a_measurement_is_missing(
+    case: tuple[Path, TemplateManifest], tmp_path: Path
+) -> None:
+    """Нарушитель: записи о вписывании нет ни для одного блока.
+
+    Колода из десяти слайдов лучше отсутствия колоды: блок пишется кеглем своей роли
+    из типошкалы шаблона, подмена называется. Прежде здесь был `KeyError` на последней
+    стадии прогона, из которого причина не читалась. Проверяется записью файла целиком:
+    подмена, до которой слайд не доживает, ничего не стоит.
+    """
+    path, manifest = case
+    writer = PptxWriter(path, manifest)
+    slide = slide_on(manifest, fit_report={})
+    deck = DeckIR(
+        deck_id="d", variant="A", template_id=manifest.template_id, seed=1, slides=[slide]
+    )
+    out = tmp_path / "deck.pptx"
+
+    writer.write(deck, out)
+
+    assert out.is_file(), "колода не написана"
+    assert any("s01/t" in line for line in writer.degradations), "подмена не названа"
+    title_pt = manifest.typography(TextRole.TITLE).size_pt
+    assert f"{title_pt:g}" in " ".join(writer.degradations)
+    assert title_pt in manifest.size_ladder_pt, "кегль обязан быть из шкалы шаблона"
+
+
+def test_a_measured_deck_keeps_its_measurements(
+    case: tuple[Path, TemplateManifest], tmp_path: Path
+) -> None:
+    """Норма: замер есть — берётся он, подмены не случается."""
+    path, manifest = case
+    writer = PptxWriter(path, manifest)
+    size = manifest.size_ladder_pt[0]
+    slide = slide_on(manifest, fit_report={"t": FitResult(final_size_pt=size)})
+    deck = DeckIR(
+        deck_id="d", variant="A", template_id=manifest.template_id, seed=1, slides=[slide]
+    )
+
+    writer.write(deck, tmp_path / "deck.pptx")
+
+    assert writer.degradations == []
+
+
+def test_a_recipe_outside_the_catalogue_is_a_named_error(
+    manifest: TemplateManifest,
+) -> None:
+    """Нарушитель: слайд назван собранным по рецепту, которого у шаблона нет.
+
+    Выдуманный моделью рецепт проходил весь конвейер и падал в писателе `KeyError`
+    через 138 секунд прогона. Утечка контракта обязана называть себя.
+    """
+    validator = SlideValidator(manifest, ["ex001", "ex002"])
+
+    out = validator.problems(ok_slide(recipe_id="L12_15_title_closing"), None)
+
+    assert out, "рецепт вне каталога прошёл молча"
+    assert "s01" in out[0]
+    assert "L12_15_title_closing" in out[0]
+
+
+def test_a_recipe_from_the_catalogue_passes(manifest: TemplateManifest) -> None:
+    """Норма: рецепт в каталоге есть — проверка о нём молчит."""
+    validator = SlideValidator(manifest, ["ex001", "ex002"])
+
+    out = validator.problems(ok_slide(recipe_id="ex001"), None)
+
+    assert out == []
+
+
+def test_a_catalogue_that_is_not_given_says_nothing_about_recipes(
+    manifest: TemplateManifest,
+) -> None:
+    """Норма: без каталога о композициях не судят — html зовёт валидатор именно так."""
+    assert SlideValidator(manifest).problems(ok_slide(recipe_id="что-угодно"), None) == []
+
+
+def test_a_half_zoned_slide_is_not_a_slide_by_recipe(manifest: TemplateManifest) -> None:
+    """Нарушитель: часть блоков стоит в зонах шаблона, часть — нет.
+
+    Такой слайд не собрать ни одним из двух способов, и его блоки вне зон обязаны
+    пройти обычные проверки. Прежде писатель судил по каждому блоку отдельно,
+    и блок вне зоны уезжал в запись без координат.
+    """
+    validator = SlideValidator(manifest, ["ex001"])
+    slide = ok_slide(
+        recipe_id="ex001",
+        blocks=[zoned("a", "в зоне", "z1"), zoned("b", "без зоны", None)],
+        fit_report={},
+    )
+
+    out = validator.problems(slide, None)
+
+    assert any("s01/b" in line for line in out), "блок вне зоны прошёл как блок рецепта"
+
+
+def test_a_fully_zoned_slide_is_a_slide_by_recipe(manifest: TemplateManifest) -> None:
+    """Норма: все блоки в зонах — слайд собран по рецепту, координат с него не спрашивают."""
+    validator = SlideValidator(manifest, ["ex001"])
+    slide = ok_slide(
+        recipe_id="ex001",
+        blocks=[zoned("a", "раз", "z1"), zoned("b", "два", "z2")],
+        fit_report={},
+    )
+
+    assert validator.problems(slide, None) == []

@@ -15,6 +15,7 @@ from __future__ import annotations
 import io
 import re
 import zipfile
+from collections.abc import Collection
 from pathlib import Path
 
 from lxml import etree
@@ -177,8 +178,15 @@ def _paragraphs(block: TextBlock | BulletsBlock) -> list[tuple[str, int]]:
 class SlideValidator:
     """Инварианты IR до записи — общие для pptx и html: оба формата показывают одно и то же."""
 
-    def __init__(self, manifest: TemplateManifest) -> None:
+    def __init__(
+        self, manifest: TemplateManifest, recipes: Collection[str] | None = None
+    ) -> None:
         self.manifest = manifest
+        #: Имена композиций шаблона. Каталог даёт тот, у кого он на руках: `domain`
+        #: о дизайн-системе не знает (ADR-003), поэтому существование рецепта
+        #: проверяется здесь, а не в `SlideIR.by_recipe`. Без каталога проверка молчит —
+        #: html зовёт валидатор без него и о композициях не судит.
+        self.recipes = recipes
 
     def validate(self, slide: SlideIR, content: ContentPackage | None = None) -> None:
         """Инварианты §4.4: макет есть в манифесте, placeholder_idx существует,
@@ -195,6 +203,13 @@ class SlideValidator:
             # Такой слайд — пустой фон шаблона; живой прогон показал, что без проверки
             # он молча попадает в колоду.
             return [f"{slide.slide_id}: слайд без блоков"]
+        if slide.recipe_id and self.recipes is not None and slide.recipe_id not in self.recipes:
+            # Выдуманный моделью рецепт прошёл весь конвейер и упал в писателе `KeyError`
+            # через 138 секунд прогона: слайд по рецепту, которого нет, молча уходил
+            # собираться на пустом макете. Утечка контракта обязана называть себя.
+            return [
+                f"{slide.slide_id}: рецепта {slide.recipe_id} нет в каталоге композиций шаблона"
+            ]
         out: list[str] = []
         if all(isinstance(block, ImageBlock) for block in slide.blocks):
             out.append(f"{slide.slide_id}: слайд из одних картинок нарушает C3")
@@ -203,8 +218,10 @@ class SlideValidator:
             where = f"{slide.slide_id}/{block.block_id}"
             # Блок слайда по рецепту стоит в зоне шаблона: рамку ему дал автор, кегль —
             # его же `rPr`. Ни координат, ни отчёта о вписывании у такого блока нет
-            # и быть не должно (change `recipe-slide-in-the-writer`).
-            if slide.recipe_id and getattr(block, "zone_id", None):
+            # и быть не должно (change `recipe-slide-in-the-writer`). Спрашивается весь
+            # слайд, а не отдельный блок: смешанный слайд по рецепту не собран, и его
+            # блоки вне зон обязаны пройти обычные проверки (`SlideIR.by_recipe`, RG3).
+            if slide.by_recipe:
                 if not _lines_in(block):
                     out.append(f"{where}: блок в зоне рецепта без текста")
                 continue
@@ -259,7 +276,12 @@ class SlideValidator:
         fit = slide.fit_report.get(block_id)
         ladder = self.manifest.size_ladder_pt
         if fit is None:
-            return [f"{where}: нет записи в fit_report — вписывание не выполнялось"]
+            # Пропущенный замер колоду не отменяет: писатель поставит кегль роли
+            # из типошкалы шаблона и назовёт подмену в `degradations`
+            # (`degradation-is-not-an-error`, требование «Отсутствие замера не роняет
+            # колоду»). Раньше здесь стоял отказ — и подмена в писателе была
+            # недостижима: до неё слайд не доживал.
+            return []
         out = []
         if fit.overflow:
             out.append(f"{where}: переполнение, стратегия {fit.strategy}")
@@ -460,7 +482,7 @@ class PptxWriter:
         }
         #: Что было подменено при последней записи и почему — для аудита и интерфейса.
         self.degradations: list[str] = []
-        self.validator = SlideValidator(manifest)
+        self.validator = SlideValidator(manifest, self.recipes)
 
     def validate(self, slide: SlideIR, content: ContentPackage | None = None) -> None:
         self.validator.validate(slide, content)
@@ -491,8 +513,13 @@ class PptxWriter:
         # (changes `recipe-slide-in-the-writer`, `slide-order-follows-the-deck`).
         written: list[object] = []
         for slide in slides:
-            if slide.recipe_id and slide.recipe_id in self.recipes:
-                written.append(clone_recipe(prs, self.recipes[slide.recipe_id], slide))
+            # Тот же предикат, что у проверки и у вписывания. Рецепт в каталоге есть:
+            # его отсутствие проверка уже назвала и до записи не пустила. Проверка
+            # на `None` рядом — сужение типа для mypy, а не второе условие: непустой
+            # `recipe_id` входит в сам предикат.
+            recipe_id = slide.recipe_id
+            if slide.by_recipe and recipe_id is not None:
+                written.append(clone_recipe(prs, self.recipes[recipe_id], slide))
             else:
                 written.append(
                     self._render_slide(prs, layouts[slide.layout_id], slide, content, table_style)
@@ -556,7 +583,7 @@ class PptxWriter:
         used: set[int] = set()
         for block in slide_ir.blocks:
             if isinstance(block, TextBlock | BulletsBlock):
-                size_pt = slide_ir.fit_report[block.block_id].final_size_pt
+                size_pt = self._fit_of(slide_ir, block).final_size_pt
                 if block.placeholder_idx is not None:
                     self._fill_placeholder(slide, layout, block, size_pt, background)
                     used.add(block.placeholder_idx)
@@ -575,7 +602,7 @@ class PptxWriter:
             elif isinstance(block, TableBlock):
                 dataset = _dataset(content, block.dataset_ref)
                 cells = table_cells(block, dataset)
-                size_pt = slide_ir.fit_report[block.block_id].final_size_pt
+                size_pt = self._fit_of(slide_ir, block).final_size_pt
                 body = self.manifest.typography(TextRole.BODY)
                 add_table(
                     slide, block, cells, size_pt=size_pt, style_id=table_style,
@@ -588,13 +615,13 @@ class PptxWriter:
                 )
             elif isinstance(block, KpiBlock):
                 self._add_kpi(
-                    slide, block, slide_ir.fit_report[block.block_id].final_size_pt, text_color,
+                    slide, block, self._fit_of(slide_ir, block).final_size_pt, text_color,
                     background,
                 )
             elif isinstance(block, SmartArtBlock):
                 add_smartart(
                     slide, block, self.manifest,
-                    size_pt=slide_ir.fit_report[block.block_id].final_size_pt,
+                    size_pt=self._fit_of(slide_ir, block).final_size_pt,
                     text_color=text_color,
                     design=self.design,
                     fill=self.design.block_accent(background),
@@ -603,7 +630,7 @@ class PptxWriter:
                 add_icon(slide, block, default=self.design.block_accent(background))
             elif isinstance(block, QuoteBlock | CalloutBlock):
                 add_boxed(
-                    slide, block, slide_ir.fit_report[block.block_id], self.manifest,
+                    slide, block, self._fit_of(slide_ir, block), self.manifest,
                     self.design, text_color=text_color, background_hex=background,
                 )
 
@@ -616,6 +643,30 @@ class PptxWriter:
         if slide_ir.speaker_note:
             slide.notes_slide.notes_text_frame.text = slide_ir.speaker_note
         return slide
+
+    def _fit_of(self, slide_ir: SlideIR, block: Block) -> FitResult:
+        """Замер блока, а если его нет — кегль роли из типошкалы шаблона.
+
+        Колода из десяти слайдов лучше отсутствия колоды (`degradation-is-not-an-error`):
+        пропущенная запись о вписывании — повод написать блок кеглем его роли и назвать
+        подмену, а не уронить прогон на последней стадии. Ни одного `fit_report[...]`
+        по ключу в писателе не остаётся.
+        """
+        fit = slide_ir.fit_report.get(block.block_id)
+        if fit is not None:
+            return fit
+        role = getattr(block, "role", None) or TextRole.BODY
+        step = self.manifest.typography(role) or self.manifest.typography(TextRole.BODY)
+        ladder = self.manifest.size_ladder_pt
+        size = step.size_pt if step is not None else (ladder[len(ladder) // 2] if ladder else None)
+        if size is None:
+            raise WriterError(
+                f"{slide_ir.slide_id}/{block.block_id}: нет ни замера, ни типошкалы шаблона"
+            )
+        self.degradations.append(
+            f"{slide_ir.slide_id}/{block.block_id}: замера нет — кегль роли {size:g} pt"
+        )
+        return FitResult(final_size_pt=size)
 
     def _readable_on_background(self, slide_ir: SlideIR) -> ColorRef | None:
         """Цвет свободного текста, когда макет не назвал его ни в одном плейсхолдере.
