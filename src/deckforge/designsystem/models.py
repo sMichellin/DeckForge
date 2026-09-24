@@ -385,6 +385,12 @@ class Zone(DomainModel):
     `xml_id` — настоящий `cNvPr id` фигуры в файле: по нему writer найдёт её при
     копировании. Текста примера здесь нет и не будет: рецепту нужен размер зоны
     и её кегль, а не чужие слова.
+
+    Рамка (`x`, `y`, `cx`, `cy`) — фигуры примера в координатах слайда, с учётом масштаба
+    группы (change `zone-carries-its-frame`, RG18). Писателю pptx она не нужна — он
+    копирует фигуру целиком; нужна тем, кто верстает слайд по рецепту без файла шаблона:
+    html ставит блок туда же, куда его поставит PowerPoint. Не `BBox`: фигура примера
+    бывает заведена за край слайда, и `x`, `y` у неё отрицательные.
     """
 
     zone_id: str = Field(min_length=1)
@@ -393,6 +399,17 @@ class Zone(DomainModel):
     repeat: int | None = Field(default=None, description="Номер повтора, если зона внутри него")
     capacity_chars: int = Field(ge=0, description="Сколько знаков держит рамка при своём кегле")
     size_pt: float | None = Field(default=None, gt=0)
+    #: Новые поля идут последними и необязательны: дизайн-система лежит в чекпойнте,
+    #: и ДС, сохранённая до этого change, обязана читаться без правок.
+    x: int | None = Field(default=None, description="Левый край рамки зоны, EMU от края слайда")
+    y: int | None = Field(default=None, description="Верхний край рамки зоны, EMU от края слайда")
+    cx: int | None = Field(default=None, gt=0, description="Ширина рамки зоны, EMU")
+    cy: int | None = Field(default=None, gt=0, description="Высота рамки зоны, EMU")
+
+    @property
+    def has_frame(self) -> bool:
+        """Рамка известна целиком: зона из каталога до этого change её не несёт."""
+        return None not in (self.x, self.y, self.cx, self.cy)
 
 
 class Recipe(DomainModel):
