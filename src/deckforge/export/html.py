@@ -137,6 +137,15 @@ class _HtmlDeck:
             f"width: {_pct(box.cx, self.cx)}; height: {_pct(box.cy, self.cy)}"
         )
 
+    def frame(self, block: Block, box: BBox) -> str:
+        """Рамка блока. У блока в зоне рецепта её нет: место ему даёт полоса `.zones`.
+
+        Инлайновый стиль сильнее правила класса, поэтому координаты такому блоку
+        не выписываются вовсе — иначе `width` из `style` перебил бы `width: auto`
+        и блок вышел бы из потока полосы.
+        """
+        return "" if self._in_a_zone(block) else self.place(box)
+
     # --- документ ---------------------------------------------------------------
 
     def document(self, deck: DeckIR) -> str:
@@ -163,6 +172,13 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
 .block {{ position: absolute; box-sizing: border-box; overflow: hidden;
   padding: {self.cqw(TEXT_FRAME_INSET_Y_EMU)} {self.cqw(TEXT_FRAME_INSET_X_EMU)};
   line-height: {LINE_HEIGHT_RATIO}; overflow-wrap: anywhere; }}
+/* Слайд по рецепту: рамки зон задал автор шаблона, и html их не знает — каталог
+   композиций хранит вместимость и кегль зоны, но не её геометрию. Текст ставится
+   потоком в области контента, в порядке зон: смысл и порядок чтения целы, точное
+   место — нет. */
+.zones {{ position: absolute; display: flex; flex-direction: column;
+  gap: {self.cqw(TEXT_FRAME_INSET_Y_EMU)}; box-sizing: border-box; }}
+.zones > .block {{ position: static; width: auto; height: auto; overflow: visible; }}
 .block p {{ margin: 0; white-space: pre-wrap; }}
 .block ul {{ margin: 0; padding: 0; list-style: none; }}
 .block li::before {{ content: "•"; display: inline-block; width: 1em; margin-left: -1em; }}
@@ -200,9 +216,25 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
 @media print {{ body {{ background: none; padding: 0; }} .slide {{ margin: 0; width: 100vw; }} }}
 """
 
+    @staticmethod
+    def _in_a_zone(block: Block) -> bool:
+        """Блок стоит в зоне рецепта: рамку дал автор шаблона, и в IR её нет."""
+        return block.zone_id is not None and block.bbox is None
+
     def slide(self, slide: SlideIR, number: int) -> str:
         layout = self.manifest.layout(slide.layout_id)
-        blocks = "".join(self.block(slide, block, layout) for block in slide.blocks)
+        zoned = [block for block in slide.blocks if self._in_a_zone(block)]
+        blocks = "".join(
+            self.block(slide, block, layout)
+            for block in slide.blocks
+            if not self._in_a_zone(block)
+        )
+        if zoned:
+            inner = "".join(self.block(slide, block, layout) for block in zoned)
+            blocks += (
+                f'<div class="zones" style="{self.place(self.manifest.content_bbox)}">'
+                f"{inner}</div>"
+            )
         notes = (
             f'<aside class="notes" hidden>{escape(slide.speaker_note)}</aside>'
             if slide.speaker_note
@@ -216,10 +248,17 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
     def block(self, slide: SlideIR, block: Block, layout: object) -> str:
         box = block.bbox
         if box is None and isinstance(block, TextBlock | BulletsBlock):
+            #: Плейсхолдера с таким номером в макете может не быть, а у блока в зоне
+            #: рецепта номера нет вовсе — `placeholder(None)` вернёт `None`. Прогон
+            #: `5cf2705fc173` падал здесь `AttributeError` на четырнадцати блоках
+            #: девяти слайдов, уже после того как колода была записана.
             placeholder = layout.placeholder(block.placeholder_idx)  # type: ignore[attr-defined]
-            box = placeholder.bbox
-        if box is None:
+            box = placeholder.bbox if placeholder is not None else None
+        if box is None and not self._in_a_zone(block):
             return ""
+        #: Блок в зоне идёт потоком внутри `.zones`: своей рамки у него нет, место задаёт
+        #: полоса. Область контента подставляется, чтобы кегль в `cqw` мерился от неё же.
+        box = box if box is not None else self.manifest.content_bbox
         size = (
             slide.fit_report[block.block_id].final_size_pt
             if block.block_id in (slide.fit_report)
@@ -232,8 +271,12 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
             color = (block.color_ref if isinstance(block, TextBlock) else None) or (
                 step.color_ref if step else None
             )
+            #: Без записи о вписывании кегль берётся из типошкалы шаблона. У блока в зоне
+            #: рецепта такой записи нет и быть не может — вписывание его не мерило, —
+            #: а `font-size: 0` сделал бы текст невидимым вместо того, чтобы его показать.
+            size = size if size is not None else (step.size_pt if step else None)
             style = (
-                f"{self.place(box)}; font-size: {self.font_size(size or 0)}; "
+                f"{self.frame(block, box)}; font-size: {self.font_size(size or 0)}; "
                 f"color: {_var(color)}; font-family: {self.family(step)}"
                 + ("; font-weight: bold" if step and step.bold else "")
             )
@@ -263,38 +306,39 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
 
         if isinstance(block, ImageBlock):
             image = self.image(block)
-            return f'<div class="block image" {head} style="{self.place(box)}">{image}</div>'
+            return f'<div class="block image" {head} style="{self.frame(block, box)}">{image}</div>'
         if isinstance(block, TableBlock):
             return (
-                f'<div class="block table" {head} style="{self.place(box)}; '
+                f'<div class="block table" {head} style="{self.frame(block, box)}; '
                 f'font-size: {self.font_size(size or 0)}">{self.table(block)}</div>'
             )
         if isinstance(block, KpiBlock):
             return (
-                f'<div class="block kpi" {head} style="{self.place(box)}">'
+                f'<div class="block kpi" {head} style="{self.frame(block, box)}">'
                 f"{self.kpi(block, size or 0)}</div>"
             )
         if isinstance(block, SmartArtBlock):
             return (
-                f'<div class="block smartart" {head} style="{self.place(box)}">'
+                f'<div class="block smartart" {head} style="{self.frame(block, box)}">'
                 f"{self.smartart(block, box, size or 0)}</div>"
             )
         if isinstance(block, IconBlock):
             return (
-                f'<div class="block icon" {head} style="{self.place(box)}">{self.icon(block)}</div>'
+                f'<div class="block icon" {head} style="{self.frame(block, box)}">'
+                f"{self.icon(block)}</div>"
             )
         if isinstance(block, QuoteBlock | CalloutBlock):
             fit = slide.fit_report.get(block.block_id)
             if fit is None:
                 return ""
             return (
-                f'<div class="block boxed {block.type}" {head} style="{self.place(box)}">'
+                f'<div class="block boxed {block.type}" {head} style="{self.frame(block, box)}">'
                 f"{self.boxed(block, box, fit)}</div>"
             )
         if isinstance(block, ChartBlock):
             dataset = self.dataset(block.dataset_ref)
             svg = self.chart(block, dataset, box) if dataset is not None else ""
-            return f'<div class="block chart" {head} style="{self.place(box)}">{svg}</div>'
+            return f'<div class="block chart" {head} style="{self.frame(block, box)}">{svg}</div>'
         return ""
 
     # --- объекты ----------------------------------------------------------------
