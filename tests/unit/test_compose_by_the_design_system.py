@@ -761,8 +761,14 @@ async def test_a_cold_prompt_names_accent1_as_on_any_template(
 
 
 def test_the_active_composer_prompt_is_the_design_system_one() -> None:
+    """Проверяется не номер версии, а то, что активный промпт — по дизайн-системе.
+
+    Номер был вписан числом (`1.3.1`) и ломался от любого поднятия версии, ничего при
+    этом не проверяя по существу: 1.4.0 (`composer-response-schema-without-recipe`)
+    тот же текст и несёт. Номер активной версии держит
+    `test_composer_response_schema_without_recipe.py` — там он по делу.
+    """
     bundle = get_prompt_registry().load("slide_composer")
-    assert bundle.version == "1.3.1"
     assert "Цитата и callout" in bundle.system_template
     assert "Стиль списка" in bundle.system_template
 

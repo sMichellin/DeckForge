@@ -5,7 +5,7 @@ skills:
     active: "1.2.0"
     model_ref: llm_main
   slide_composer:
-    active: "1.3.1"
+    active: "1.4.0"
     model_ref: llm_main
     pinned:
       dev: "1.0.0"
