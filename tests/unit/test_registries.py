@@ -94,7 +94,7 @@ def test_check_specs_cover_tz_appendix() -> None:
     ids = {c.check_id for c in specs.checks}
     # Приложение 1 ТЗ: вёрстка, шаблон, плотность, целостность
     assert len([i for i in ids if i.startswith("layout.")]) == 7
-    assert len([i for i in ids if i.startswith("template.")]) == 7
+    assert len([i for i in ids if i.startswith("template.")]) == 9
     assert len([i for i in ids if i.startswith("density.")]) == 5
     # Семь: шесть из Приложения 1 плюс `integrity.content_lost` — потерю содержания
     # ТЗ отдельным вопросом не называет, но колода из одних заголовков ему не отвечает.

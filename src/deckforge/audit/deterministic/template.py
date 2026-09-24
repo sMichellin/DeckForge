@@ -38,6 +38,7 @@ from deckforge.audit.geometry import (
     self_positioned_blocks,
 )
 from deckforge.audit.registry import CheckContext, CheckUnavailable, check
+from deckforge.designsystem import derive
 from deckforge.designsystem.contrast import (
     TextClass,
     comfort_ratio,
@@ -708,3 +709,66 @@ def sample_text_left(ctx: CheckContext) -> Iterable[Finding]:
                     "text": text[:SAMPLE_SNIPPET_CHARS],
                 },
             )
+
+
+def _catalogue(ctx: CheckContext) -> set[str]:
+    """Идентификаторы рецептов шаблона — тем же `derive`, которым каталог строит `parse`.
+
+    Дизайн-системы в контексте аудита нет, а протаскивать её через граф — файл тимлида.
+    `derive` — чистая функция манифеста без модели и без файлов, поэтому каталог здесь
+    совпадает с каталогом писателя по построению. Считается один раз на вызов проверки.
+    """
+    return {recipe.recipe_id for recipe in derive(ctx.manifest).recipes}
+
+
+@check(id="template.recipe_not_in_catalogue", deterministic=True, severity=Severity.ERROR,
+       title="Слайд назван рецептом, которого нет в каталоге шаблона")
+def recipe_not_in_catalogue(ctx: CheckContext) -> Iterable[Finding]:
+    """Слайд назван рецептом, которого нет в каталоге композиций шаблона.
+
+    Такой `recipe_id` — выдумка модели, а не решение каталога: 24.09 она прошла весь
+    конвейер и упала в писателе `KeyError` (change `recipe-is-not-the-models-word`).
+    Слайд без `recipe_id` здесь не в счёт — это вопрос `template.slide_without_recipe`.
+    """
+    catalogue = _catalogue(ctx)
+    for slide in ctx.deck.slides:
+        if not slide.recipe_id or slide.recipe_id in catalogue:
+            continue
+        yield make_finding(
+            check_id="template.recipe_not_in_catalogue",
+            slide_id=slide.slide_id,
+            reason=f"recipe:{slide.recipe_id}",
+            message=(
+                f"Слайд {slide.slide_id} назван рецептом {slide.recipe_id}, а в каталоге "
+                f"шаблона его нет (рецептов в каталоге: {len(catalogue)})"
+            ),
+            evidence={"recipe_id": slide.recipe_id, "catalogue_size": str(len(catalogue))},
+        )
+
+
+@check(id="template.slide_without_recipe", deterministic=True, severity=Severity.INFO,
+       title="Слайд собран не по рецепту, хотя у шаблона есть каталог композиций")
+def slide_without_recipe(ctx: CheckContext) -> Iterable[Finding]:
+    """Слайд собран не по рецепту, хотя у шаблона есть каталог композиций.
+
+    Оговорка, а не ошибка: слайд по макету корректен, но идёт мимо дизайн-системы
+    шаблона. «По рецепту» — единый предикат `SlideIR.by_recipe`: смешанный слайд
+    (часть блоков вне зон) писатель тоже собирает не по рецепту. Каталог пуст —
+    сравнивать не с чем, это пропуск, а не «прошла».
+    """
+    catalogue = _catalogue(ctx)
+    if not catalogue:
+        raise CheckUnavailable("у шаблона нет каталога композиций: рецептов не бывает")
+    for slide in ctx.deck.slides:
+        if slide.by_recipe:
+            continue
+        yield make_finding(
+            check_id="template.slide_without_recipe",
+            slide_id=slide.slide_id,
+            reason="not_by_recipe",
+            message=(
+                f"Слайд {slide.slide_id} собран по макету {slide.layout_id}, а не по рецепту: "
+                f"в каталоге шаблона {len(catalogue)} рецептов"
+            ),
+            evidence={"recipe_id": slide.recipe_id or "", "layout_id": slide.layout_id},
+        )
