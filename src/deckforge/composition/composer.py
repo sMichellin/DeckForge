@@ -346,6 +346,9 @@ class SlideComposer:
                 design_system.recipes,
                 previous_recipe,
                 has_asset=bool(slide.asset_refs),
+                # Откат структурного слайда на родственный вид называется в отчёте
+                # прогона (RG8, `closing-slide-has-a-recipe`).
+                notes=self.notes,
             )
             if design_system is not None
             else None

@@ -7,6 +7,11 @@
 
 Здесь только счёт: отбросить не вмещающие, взять ближайший по числу повторов, не ставить
 два одинаковых слайда подряд.
+
+Структурный слайд без рецепта своего вида не остаётся на пустом макете (change
+`closing-slide-has-a-recipe`, RG8): берёт родственный вид по таблице `RELATED_KINDS`,
+а нет и его — вмещающий содержательный. Во всех прогонах 24.09 без рецепта оставался
+закрывающий слайд: вида `final` каталог не нашёл ни у одного шаблона кейса.
 """
 
 from __future__ import annotations
@@ -26,6 +31,15 @@ INTENT_KINDS: dict[SlideIntent, RecipeKind] = {
 
 #: Виды, которые слайд получает по месту в колоде, а не по заказу.
 STRUCTURAL = frozenset(INTENT_KINDS.values())
+
+#: Родственные виды структурного слайда — по порядку предпочтения. Таблица, а не
+#: эвристика: закрывающий слайд — одна крупная фраза, и по виду он ближе к разделителю,
+#: чем к ряду карточек; обложка и разделитель подменяют друг друга.
+RELATED_KINDS: dict[SlideIntent, tuple[RecipeKind, ...]] = {
+    SlideIntent.TITLE: (RecipeKind.SECTION,),
+    SlideIntent.SECTION: (RecipeKind.COVER,),
+    SlideIntent.CLOSING: (RecipeKind.SECTION, RecipeKind.COVER),
+}
 
 
 def _needs(slide: SlidePlan) -> int:
@@ -52,29 +66,73 @@ def pick_recipe(
     previous: str | None = None,
     *,
     has_asset: bool = False,
+    notes: list[str] | None = None,
 ) -> Recipe | None:
     """Композиция под слайд или `None` — тогда слайд собирается прежним путём.
 
-    Структурный слайд берёт рецепт своего вида. Содержательный — вида, названного планом;
-    нет такого вида — любой вмещающий, нет и его — прежний путь.
+    Структурный слайд берёт рецепт своего вида; нет его — родственного (`RELATED_KINDS`);
+    нет и его — вмещающий содержательный. Содержательный — вида, названного планом;
+    нет такого вида — любой вмещающий. `None` — каталог пуст или ни один рецепт
+    не вмещает содержание слайда.
+
+    `notes` получает откат структурного слайда словами: подмена вида, о которой молчат,
+    неотличима от точного совпадения.
     """
     if not recipes:
         return None
-
-    wanted = INTENT_KINDS.get(slide.intent) or kind_for_visual(slide.suggested_visual)
-    if slide.intent in INTENT_KINDS:
-        same = [recipe for recipe in recipes if recipe.kind is wanted]
-        return _nearest(same, slide, previous, has_asset=has_asset)
 
     fitting = [
         recipe
         for recipe in recipes
         if recipe.kind not in STRUCTURAL and _fits(recipe, slide, has_asset=has_asset)
     ]
+    own = INTENT_KINDS.get(slide.intent)
+    if own is not None:
+        return _structural(slide, recipes, fitting, own, previous, has_asset, notes)
+
+    wanted = kind_for_visual(slide.suggested_visual)
     named = [recipe for recipe in fitting if recipe.kind is wanted] if wanted else []
     return _nearest(named, slide, previous, has_asset=has_asset) or _nearest(
         fitting, slide, previous, has_asset=has_asset
     )
+
+
+def _structural(
+    slide: SlidePlan,
+    recipes: list[Recipe],
+    fitting: list[Recipe],
+    own: RecipeKind,
+    previous: str | None,
+    has_asset: bool,
+    notes: list[str] | None,
+) -> Recipe | None:
+    """Рецепт структурного слайда: свой вид → родственный → вмещающий содержательный."""
+    for kind in (own, *RELATED_KINDS.get(slide.intent, ())):
+        same = [recipe for recipe in recipes if recipe.kind is kind]
+        chosen = _nearest(same, slide, previous, has_asset=has_asset)
+        if chosen is not None:
+            if kind is not own:
+                _note_fallback(notes, slide, own, chosen)
+            return chosen
+    chosen = _nearest(fitting, slide, previous, has_asset=has_asset)
+    if chosen is not None:
+        _note_fallback(notes, slide, own, chosen)
+    elif notes is not None:
+        notes.append(
+            f"слайд {slide.slide_id}: рецепта вида «{own.value}» в шаблоне нет, "
+            "и ни один рецепт каталога не вмещает слайд — собран по макету"
+        )
+    return chosen
+
+
+def _note_fallback(
+    notes: list[str] | None, slide: SlidePlan, own: RecipeKind, chosen: Recipe
+) -> None:
+    if notes is not None:
+        notes.append(
+            f"слайд {slide.slide_id}: рецепта вида «{own.value}» в шаблоне нет, "
+            f"взят {chosen.recipe_id} («{chosen.kind.value}»)"
+        )
 
 
 def _nearest(
