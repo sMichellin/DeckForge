@@ -136,8 +136,14 @@ def _fit_shortening(
     Слайд по рецепту не вписывается: его рамки задаёт рецепт (зоны), а не макет, и текст
     уже обрезан по вместимости зоны (`bind_to_recipe`). Вписывание по макету для него
     падало бы — у блока с `zone_id` нет ни координат, ни плейсхолдера.
+
+    Условие — `SlideIR.by_recipe`, то же, что у проверки перед записью и у писателя
+    (change `by-recipe-is-one-predicate`). Прежнее «есть `recipe_id`» было слабее: слайд
+    с названным рецептом, но блоками вне зон, уходил мимо вписывания с пустым
+    `fit_report`, а писатель брал из него кегль прямым обращением — `KeyError` на стадии
+    `render` (пять прогонов 24.09).
     """
-    if slide.recipe_id:
+    if slide.by_recipe:
         return slide, []
     fitted = fit_slide(
         _into_placeholders(slide), manifest, fonts=fonts, content=content, design=design
