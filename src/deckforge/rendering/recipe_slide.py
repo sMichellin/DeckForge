@@ -32,6 +32,11 @@ REL_ATTRS = (qn("r:embed"), qn("r:id"), qn("r:link"))
 #: Узлы дерева фигур, которые у нового слайда уже свои.
 OWN_NODES = (qn("p:nvGrpSpPr"), qn("p:grpSpPr"))
 
+#: Фигуры, которые адресует каталог рецептов по `cNvPr id`. Тот же набор, что берёт разбор
+#: примеров (`parsing/ooxml/examples._collect`): группы раскрываются, сами не адресуются.
+SHAPE_TAGS = (qn("p:sp"), qn("p:pic"), qn("p:cxnSp"), qn("p:graphicFrame"))
+GROUP = qn("p:grpSp")
+
 
 class RecipeError(ValueError):
     """Рецепт не удалось применить: примера нет в файле или зоны не нашлись."""
@@ -54,23 +59,55 @@ def _shapes_tree(slide: Any) -> Any:
 
 
 def _xml_id(node: Any) -> int | None:
-    name = node.find(f".//{qn('p:cNvPr')}")
+    name = node.find(f"./*/{qn('p:cNvPr')}")
     if name is None:
         return None
     raw = name.get("id")
     return int(raw) if raw and raw.isdigit() else None
 
 
-def _by_xml_id(tree: Any) -> dict[int, Any]:
-    """Фигуры верхнего уровня по их `cNvPr id`. Группа адресуется целиком: удаляя повтор,
-    удаляем и плашку, и всё, что автор в неё вложил."""
+def _shapes_in(parent: Any) -> Any:
+    """Фигуры в порядке документа, группы раскрыты — так же, как их видит разбор примеров."""
+    for node in parent:
+        if node.tag == GROUP:
+            yield from _shapes_in(node)
+        elif node.tag in SHAPE_TAGS:
+            yield node
+
+
+def _addressed(recipe: Recipe) -> set[int]:
+    ids = {zone.xml_id for zone in recipe.zones if zone.xml_id is not None}
+    ids.update(xml_id for row in recipe.repeat_xml_ids for xml_id in row)
+    if recipe.picture_xml_id is not None:
+        ids.add(recipe.picture_xml_id)
+    return ids
+
+
+def _by_xml_id(tree: Any, recipe: Recipe) -> dict[int, Any]:
+    """Фигуры слайда по их `cNvPr id` на любой глубине групп.
+
+    Каталог делает зонами и фигуры внутри `p:grpSp` — подписи карточек, строки таймлайна.
+    Ищи writer только верхний уровень, такая зона молча пропускалась бы: наш текст
+    терялся, а текст шаблона оставался.
+
+    Если id, который адресует рецепт, в примере повторяется, какую фигуру имел в виду
+    каталог, неизвестно: писать наугад — значит молча оставить чужую фразу. Это ошибка.
+    """
     found: dict[int, Any] = {}
-    for node in tree:
-        if node.tag in OWN_NODES:
-            continue
+    twins: set[int] = set()
+    for node in _shapes_in(tree):
         identifier = _xml_id(node)
-        if identifier is not None:
-            found[identifier] = node
+        if identifier is None:
+            continue
+        if identifier in found:
+            twins.add(identifier)
+        found.setdefault(identifier, node)
+    ambiguous = sorted(twins & _addressed(recipe))
+    if ambiguous:
+        raise RecipeError(
+            f"рецепт {recipe.recipe_id}: cNvPr id {ambiguous} повторяется в примере, "
+            "фигуру зоны не определить"
+        )
     return found
 
 
@@ -177,7 +214,7 @@ def _used_repeats(recipe: Recipe, blocks: list[Block]) -> int:
 def clone_recipe(prs: Any, recipe: Recipe, slide_ir: SlideIR) -> Any:
     """Слайд колоды по рецепту: копия примера, наш текст по зонам, лишнее удалено."""
     slide = clone_slide(prs, recipe)
-    shapes = _by_xml_id(_shapes_tree(slide))
+    shapes = _by_xml_id(_shapes_tree(slide), recipe)
 
     filled: set[str] = set()
     for block in slide_ir.blocks:
@@ -190,33 +227,38 @@ def clone_recipe(prs: Any, recipe: Recipe, slide_ir: SlideIR) -> Any:
         write_zone(shapes[zone.xml_id], _lines_of(block))
         filled.add(zone_id)
 
-    _drop_spare_repeats(slide, recipe, _used_repeats(recipe, list(slide_ir.blocks)), shapes)
-    _drop_empty_zones(slide, recipe, filled, shapes)
+    _drop_spare_repeats(recipe, _used_repeats(recipe, list(slide_ir.blocks)), shapes)
+    _drop_empty_zones(recipe, filled, shapes)
     return slide
 
 
-def _remove(tree: Any, node: Any) -> None:
-    if node is not None and node.getparent() is tree:
-        tree.remove(node)
+def _remove(node: Any) -> None:
+    """Удалить фигуру у её собственного родителя. Группа, в которой не осталось ничего,
+    кроме её собственных свойств, уходит следом: пустая рамка группы на слайде ни к чему.
+    Всё прочее в группе (`p:contentPart`, `mc:AlternateContent`) не наше — группа остаётся."""
+    parent = node.getparent() if node is not None else None
+    if parent is None:
+        return
+    parent.remove(node)
+    if parent.tag == GROUP and all(child.tag in OWN_NODES for child in parent):
+        _remove(parent)
 
 
-def _drop_spare_repeats(slide: Any, recipe: Recipe, used: int, shapes: dict[int, Any]) -> None:
+def _drop_spare_repeats(recipe: Recipe, used: int, shapes: dict[int, Any]) -> None:
     """Лишние повторы удаляются целиком и с конца ряда: плашка вместе со своим текстом."""
     if not recipe.repeat_xml_ids:
         return
-    tree = _shapes_tree(slide)
     for row in recipe.repeat_xml_ids[max(used, 0) :]:
         for xml_id in row:
-            _remove(tree, shapes.get(xml_id))
+            _remove(shapes.get(xml_id))
 
 
-def _drop_empty_zones(slide: Any, recipe: Recipe, filled: set[str], shapes: dict[int, Any]) -> None:
+def _drop_empty_zones(recipe: Recipe, filled: set[str], shapes: dict[int, Any]) -> None:
     """Зона без нашего текста удаляется — иначе в колоде останется текст шаблона.
 
     Заголовок не удаляется никогда: слайд без заголовка читать нечем, и пустую рамку
     заметит человек, а чужую фразу — нет.
     """
-    tree = _shapes_tree(slide)
     for zone in recipe.zones:
         if zone.zone_id in filled or zone.xml_id is None or zone.xml_id not in shapes:
             continue
@@ -227,4 +269,4 @@ def _drop_empty_zones(slide: Any, recipe: Recipe, filled: set[str], shapes: dict
         if zone.repeat is not None or zone.role is TypeLevel.SLIDE_TITLE:
             write_zone(shapes[zone.xml_id], [])
             continue
-        _remove(tree, shapes[zone.xml_id])
+        _remove(shapes[zone.xml_id])

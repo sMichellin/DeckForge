@@ -583,6 +583,12 @@ VK WorkSpace — `lt1` до и после, без изменений. На 111 �
 вместе с местом под картинку (`effective_capacity`). Подробно —
 `openspec/changes/layout-by-content-schema/proposal.md`.
 
+### `recipe-leaves-no-sample-text` — готово, кроме таблиц (запрос тимлиду)
+
+Writer находит зоны и повторы рецепта внутри групп: текст шаблона при занятых зонах —
+4 рецепта из 128 вместо 11, остались только таблицы (разбор примеров их не видит).
+Подробно — `openspec/changes/recipe-leaves-no-sample-text/proposal.md`.
+
 ### `slide-order-follows-the-deck` — готово (живого прогона не было)
 
 `write()` пишет колоду одним проходом в порядке IR, примеры удаляются после прохода: слайд по рецепту больше не уезжает в начало файла. `openspec/changes/slide-order-follows-the-deck/proposal.md`.
