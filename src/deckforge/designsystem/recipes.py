@@ -347,13 +347,17 @@ def _recipe(
     if not zones:
         return None
     area = max(1, (box[2] - box[0]) * (box[3] - box[1]))
-    has_picture = any(
-        shape.kind is ShapeKind.PICTURE
-        and _inside(shape, box)
-        and shape.cx * shape.cy >= area * LARGE_ZONE_SHARE
-        for shape in example.shapes
+    picture = next(
+        (
+            shape
+            for shape in example.shapes
+            if shape.kind is ShapeKind.PICTURE
+            and _inside(shape, box)
+            and shape.cx * shape.cy >= area * LARGE_ZONE_SHARE
+        ),
+        None,
     )
-    kind = _kind(manifest, ds, example, zones, repeats, has_picture, box)
+    kind = _kind(manifest, ds, example, zones, repeats, picture is not None, box)
     if kind is None:
         return None
     return Recipe(
@@ -363,9 +367,28 @@ def _recipe(
         kind=kind,
         zones=zones,
         repeats=count if repeats else 0,
-        has_picture=has_picture,
+        repeat_xml_ids=_repeat_addresses(example, repeats, count),
+        has_picture=picture is not None,
+        picture_xml_id=picture.xml_id if picture is not None else None,
         origin=Origin.MEASURED,
     )
+
+
+def _repeat_addresses(
+    example: TemplateExample, repeats: dict[str, int], count: int
+) -> list[list[int]]:
+    """Адреса фигур по повторам: вёрстка удаляет лишний повтор целиком, вместе с плашкой.
+
+    Без этого из ряда исчезала бы только надпись, а плашка под ней оставалась пустой.
+    """
+    if not repeats or count <= 0:
+        return []
+    rows: list[list[int]] = [[] for _ in range(count)]
+    for shape in example.shapes:
+        index = repeats.get(shape.shape_id)
+        if index is not None and shape.xml_id is not None:
+            rows[index].append(shape.xml_id)
+    return rows
 
 
 def kind_for_visual(suggested_visual: str | None) -> RecipeKind | None:

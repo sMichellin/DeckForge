@@ -408,7 +408,13 @@ class Recipe(DomainModel):
     kind: RecipeKind
     zones: list[Zone] = Field(default_factory=list)
     repeats: int = Field(default=0, ge=0, description="Сколько повторов в ряду композиции")
+    #: Адреса фигур каждого повтора, по порядку: плашка, её заголовок, её текст. Нужны
+    #: вёрстке, чтобы удалить лишний повтор целиком, а не одну надпись в нём.
+    repeat_xml_ids: list[list[int]] = Field(default_factory=list)
     has_picture: bool = Field(default=False, description="В области контента стоит картинка")
+    picture_xml_id: int | None = Field(
+        default=None, description="Адрес картинки, которую подменяет ассет слайда"
+    )
     origin: Origin = Origin.MEASURED
 
 
