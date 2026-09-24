@@ -244,6 +244,44 @@ def test_continuation_lands_next_to_its_parent_not_at_the_end(
     assert [s.slide_id for s in fixed.slides] == ["s01", "s01-2", "s02"]
 
 
+def test_continuation_of_a_recipe_slide_is_built_by_the_same_recipe(
+    manifest: TemplateManifest,
+) -> None:
+    """Продолжение наследует `recipe_id`: иначе блоки в зонах без рецепта — смешанный слайд.
+
+    Change `split-slide-carries-the-recipe` (RG19). Такой слайд не вписать по макету и
+    не собрать по рецепту — см. `test_by_recipe_is_one_predicate::
+    test_a_mixed_slide_is_not_by_recipe`. Фикс его больше не порождает.
+    """
+    by_recipe = slide(
+        title(placeholder_idx=None).model_copy(update={"zone_id": "z1"}),
+        bullets(*(f"пункт {i}" for i in range(1, 8)), placeholder_idx=None).model_copy(
+            update={"zone_id": "z2"}
+        ),
+    ).model_copy(update={"recipe_id": "ex003"})
+    assert by_recipe.by_recipe
+    colony = deck(by_recipe)
+    found = list(too_many_bullets(context_for("density.too_many_bullets", colony, manifest)))
+
+    fixed, _ = FixApplier().apply(colony, found, manifest)
+
+    first, second = fixed.slides
+    assert (first.recipe_id, second.recipe_id) == ("ex003", "ex003")
+    assert first.by_recipe and second.by_recipe
+
+
+def test_continuation_of_an_ordinary_slide_has_no_recipe(manifest: TemplateManifest) -> None:
+    """Норма к предыдущему: слайд по макету и продолжение получает по макету."""
+    colony = deck(slide(title(), bullets(*(f"пункт {i}" for i in range(1, 8)))))
+    found = list(too_many_bullets(context_for("density.too_many_bullets", colony, manifest)))
+
+    fixed, _ = FixApplier().apply(colony, found, manifest)
+
+    continuation = fixed.slides[1]
+    assert continuation.recipe_id is None
+    assert not continuation.by_recipe
+
+
 def test_slide_within_the_limit_is_not_split(manifest: TemplateManifest) -> None:
     colony = deck(slide(title(), bullets(*(f"пункт {i}" for i in range(1, 7)))))
 
