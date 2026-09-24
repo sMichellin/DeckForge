@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "AGENTS.md",
   "skillDir": "/c/Users/gulin/.claude/skills/autopilot",
   "startedAt": "2026-09-23T17:09:26+03:00",
-  "updatedAt": "2026-09-23T17:26:19+03:00",
+  "updatedAt": "2026-09-24T00:30:00+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -49,11 +49,12 @@ window.STATE =
       "id": "build",
       "status": "active",
       "startedAt": "2026-09-23T17:17:28+03:00",
-      "note": "1 из 6 — предложение готово; 02–06 ждут «ок» тимлида"
+      "note": "все таски в main или на ветке; 06b — feat/sample-text-left-audit"
     },
     {
       "id": "review",
-      "status": "pending"
+      "status": "pending",
+      "note": "06b: две оси, 1 доработка, блокирующих нет"
     },
     {
       "id": "final",
@@ -115,11 +116,11 @@ window.STATE =
         "schemas/",
         "src/deckforge/parsing/ooxml/examples.py"
       ],
-      "status": "pending",
+      "status": "done",
       "retries": 0,
       "repairs": 0,
       "handoffs": 0,
-      "note": "ждёт «ок» тимлида по предложению"
+      "note": "смержено в main (PR #159–#163), вела другая сессия"
     },
     {
       "id": "03",
@@ -143,11 +144,11 @@ window.STATE =
         "src/deckforge/designsystem/",
         "src/deckforge/export/design_system_page.py"
       ],
-      "status": "pending",
+      "status": "done",
       "retries": 0,
       "repairs": 0,
       "handoffs": 0,
-      "note": "ждёт «ок» тимлида по предложению"
+      "note": "смержено в main (PR #159–#163), вела другая сессия"
     },
     {
       "id": "04",
@@ -171,11 +172,11 @@ window.STATE =
       "zone": [
         "src/deckforge/rendering/"
       ],
-      "status": "pending",
+      "status": "done",
       "retries": 0,
       "repairs": 0,
       "handoffs": 0,
-      "note": "ждёт «ок» тимлида по предложению"
+      "note": "смержено в main (PR #159–#163), вела другая сессия"
     },
     {
       "id": "05",
@@ -198,15 +199,15 @@ window.STATE =
         "prompts/deck_planner/",
         "prompts/slide_composer/"
       ],
-      "status": "pending",
+      "status": "done",
       "retries": 0,
       "repairs": 0,
       "handoffs": 0,
-      "note": "ждёт «ок» тимлида по предложению"
+      "note": "смержено в main (PR #159–#163), вела другая сессия"
     },
     {
-      "id": "06",
-      "title": "Конвейер, аудит и живой замер",
+      "id": "06a",
+      "title": "Конвейер: рецепты в отчёте прогона",
       "requirements": [
         "R01",
         "R02",
@@ -222,14 +223,50 @@ window.STATE =
       "wave": 5,
       "zone": [
         "src/deckforge/pipeline/",
-        "src/deckforge/audit/",
         "scripts/run_metrics.py"
       ],
-      "status": "pending",
+      "status": "done",
       "retries": 0,
       "repairs": 0,
       "handoffs": 0,
-      "note": "ждёт «ок» тимлида по предложению"
+      "note": "смержено в main (PR #164), тимлид"
+    },
+    {
+      "id": "06b",
+      "title": "Аудит: текст шаблона остался на слайде",
+      "requirements": [
+        "R14",
+        "R22i"
+      ],
+      "blockedBy": [
+        "04"
+      ],
+      "wave": 6,
+      "zone": [
+        "src/deckforge/audit/",
+        "configs/audit_checks.yaml",
+        "AUDIT.md"
+      ],
+      "status": "done",
+      "retries": 0,
+      "repairs": 1,
+      "handoffs": 0,
+      "startedAt": "2026-09-23T19:30:00+03:00",
+      "finishedAt": "2026-09-24T00:30:00+03:00",
+      "commit": "5424597",
+      "files": [
+        "src/deckforge/audit/deterministic/template.py",
+        "configs/audit_checks.yaml",
+        "AUDIT.md",
+        "tests/unit/test_sample_text_left_audit.py"
+      ],
+      "tests": "1828 passed, 21 skipped (было 1815)",
+      "repairFindings": [
+        "a:br и колонтитулы давали ложные находки",
+        "KPI/таблицы/формат чисел — ложные находки",
+        "слайдов меньше, чем в IR → CheckUnavailable",
+        "докстринги расходились с proposal"
+      ]
     }
   ],
   "singlePass": null,
@@ -248,11 +285,13 @@ window.STATE =
     "actions": "репозиторий вписан (Реш.§0); «план выбирает рецепт» — план выбирает вид из меню ДС, пример — счёт (Реш.§4); структурные слайды получают рецепты (Ист.7а); пороги, повторы, содержательный слайд, превью, формат id — определены (Реш.§2,§4); «брейншторм» снят дополнением «давай а»; лишнее — углубления R##.n (normal), путь Б — Вне рамок"
   },
   "concerns": [
-    "после «ок» тимлида перенарезать таски 03/05/06 на 03a/03b, 05a/05b, 06a/06b — как в зонтичном предложении"
+    "writer (поток B) кладёт слайды по рецепту в начало файла: порядок в смешанной колоде расходится с IR — страдают sample_text_left, layout.image_aspect_distorted, превью (audit/preview.py); теста на смешанную колоду нет",
+    "11 из 128 рецептов несут текст шаблона вне зон (таблицы, подписи): VK Tech 2, WorkSpace 1, Education 8 — проверка уровня error будет срабатывать в живых прогонах",
+    "правило «блок → строки зоны» продублировано из rendering/recipe_slide._lines_of — запрос потоку B выставить наружу"
   ],
   "reviewers": {
     "manifestSpec": "a4947f08ddc4ea4ea",
     "craft": null
   },
   "blind": null
-}
+};

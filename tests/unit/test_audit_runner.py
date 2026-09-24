@@ -90,7 +90,7 @@ async def test_clean_deck_produces_no_errors(manifest: TemplateManifest) -> None
 
 
 def test_deterministic_checks_cover_three_content_questions() -> None:
-    """Тридцать детерминированных проверок: 27 в `deterministic/` и три из `semantic/`.
+    """Тридцать одна детерминированная проверка: 28 в `deterministic/` и три из `semantic/`.
 
     Папка отвечает на вопрос «про смысл ли проверка», а флаг `deterministic` —
     «одинаков ли результат на повторных запусках». Три вопроса Приложения 1 уведены
@@ -98,7 +98,7 @@ def test_deterministic_checks_cover_three_content_questions() -> None:
     язык — подсчёт букв. Каждый уведённый вопрос экономит 12 вызовов VLM на колоду.
     """
     deterministic = {c.check_id for c in REGISTRY.deterministic()}
-    assert len(deterministic) == 30
+    assert len(deterministic) == 31
     assert {"content.no_typos", "content.numbers_grounded", "content.single_language"} <= (
         deterministic
     )

@@ -44,3 +44,12 @@
 
 Все поля — с умолчанием, старые IR и манифесты читаются без миграции.
 
+
+## Из таска 06b — аудит `template.sample_text_left` (поток C)
+
+- `audit/deterministic/template.py`: `sample_text_left(ctx: CheckContext) -> Iterable[Finding]`,
+  `check_id="template.sample_text_left"`, deterministic, severity error (`configs/audit_checks.yaml`)
+- evidence находки: `recipe_id`, `xml_id`, `shape`, `text`
+- эталон «нашего» текста — текст колоды из `SlideIR`, не файл шаблона (у `AuditContext` нет пути к шаблону)
+- нечего проверять (нет `deck_path`, нет слайдов по рецепту, холодный шаблон) → `CheckUnavailable`
+- при добавлении проверки аудита правятся счётчики в `tests/unit/test_registries.py` и `test_audit_runner.py`
