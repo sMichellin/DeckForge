@@ -246,6 +246,12 @@ def _zones(ds: DesignSystem, example: TemplateExample, repeats: dict[str, int]) 
                 repeat=repeats.get(shape.shape_id),
                 capacity_chars=_capacity(shape, size_pt),
                 size_pt=size_pt,
+                # Рамка фигуры примера — та, что уже приведена к слайду с масштабом
+                # группы (`ExampleShape`). Каталог её знал и выбрасывал (RG18).
+                x=shape.x,
+                y=shape.y,
+                cx=shape.cx,
+                cy=shape.cy,
             )
         )
     return out
