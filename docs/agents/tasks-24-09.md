@@ -1,0 +1,439 @@
+# Задания потокам — регрессия 24.09: колода не пишется
+
+Постановка: пять прогонов на ml110 от 24.09 на `main` `077e2a5` упали **все пять**,
+на стадии `render`. До сдачи A3 (девять презентаций) — 26.09, до A4 (видео) — 27.09.
+Пайплайн сейчас не отдаёт файл вообще. Это задача номер один, остальное после неё.
+
+Разбор и предложения: [`recipe-is-not-the-models-word`](../../openspec/changes/recipe-is-not-the-models-word/proposal.md),
+[`closing-slide-has-a-recipe`](../../openspec/changes/closing-slide-has-a-recipe/proposal.md),
+[`design-system-in-the-skill-contracts`](../../openspec/changes/design-system-in-the-skill-contracts/proposal.md),
+[`sonar-quality-gate`](../../openspec/changes/sonar-quality-gate/proposal.md),
+[`openspec-deltas-are-the-contract`](../../openspec/changes/openspec-deltas-are-the-contract/proposal.md).
+
+---
+
+## Факты
+
+| Прогон | Стадия | Ошибка |
+|---|---|---|
+| `b5babbdac83f` | render, 138 с | `KeyError: 'b1'` |
+| `98a2c58353f3` | render | `KeyError: 'b1'` |
+| `dc59f95047c0` | render | `KeyError: 'b1'` |
+| `edf7b44ebbb8` | render | `KeyError: 'b1'` |
+| `8242966c5847` | render | `KeyError: 's10-title'` |
+
+`DeckIR` из чекпойнтов (`~/e2e-work/artifacts/runs/<id>/checkpoint.sqlite`, канал `deck`).
+Девять слайдов из десяти — рецепты каталога, десятый во всех прогонах чужой:
+
+```
+b5babbdac83f  s10 recipe=L12_15_title_slide_closing_step_a  blocks=[b1, b2]        zones=[title, body]
+98a2c58353f3  s10 recipe=L12_15_title_closing               blocks=[b1, b2]        zones=[z1, z1]
+8242966c5847  s10 recipe=L00-A                              blocks=[s10-title, …]  zones=[s10, s10]
+```
+
+Каталог этого шаблона даёт `recipe_id` вида `ex001…ex029` и `zone_id` вида `zNNN`.
+Ни таких рецептов, ни таких зон в нём нет, а зоны у `s10` вдобавок повторяются — каталог
+так не делает по построению.
+
+## Причина
+
+**`recipe_id` и `zone_id` спрашивают у модели.** `SlideIR` — одновременно внутренний
+контракт пайплайна и `response_model` промпта `slide_composer`. Change `slide-recipes`
+добавил в него `recipe_id` и в блоки `zone_id`, но не добавил их в `response_omit`
+(`prompts/slide_composer/1.3.1/meta.yaml:6`), поэтому `scripts/gen_schemas.py` их не
+вырезал и схема ответа их требует. `_bind` отдаёт `ir.model_copy` — поля проходят
+насквозь. `bind_to_recipe` их перезаписывает **только если рецепт выбран**
+(`composition/composer.py:424`), а для закрывающего слайда `pick_recipe` возвращает
+`None`: у шаблона нет вида `final` (`text` 17, `cards` 6, `text_with_picture` 4,
+`cover` 1, `section` 1), а структурный слайд отката не имеет.
+
+Дальше выдумка ломается о три **разных** понимания «слайда по рецепту»:
+
+| Слой | Условие | Файл |
+|---|---|---|
+| валидатор | `recipe_id and block.zone_id` → пропускает проверки рамки и вписывания | `rendering/writer.py:207` |
+| вписывание | `recipe_id` → возвращает слайд как есть | `pipeline/nodes/fit.py:140` |
+| писатель | `recipe_id in self.recipes` → не нашёл, идёт в `_render_slide` | `rendering/writer.py:494` |
+
+`_render_slide` берёт `slide_ir.fit_report[block.block_id]` напрямую
+(`writer.py:559, 578, 591, 597, 606`), а отчёта нет — `KeyError`.
+
+Каждый слой по отдельности прав. Общего контракта нет — вот что чиним.
+
+---
+
+## Приоритеты и сроки
+
+| | Что | Когда | Кто |
+|---|---|---|---|
+| **P0** | колода снова пишется | **24.09, до конца дня** | A (один файл), тимлид (прогон) |
+| **P1** | дизайн-система работает на всех слайдах, повтор невозможен | 25.09 | A, B, тимлид |
+| **P2** | Sonar: Bugs 4 → 0, Vulnerabilities 7 → 1 | 25.09, параллельно | все четверо |
+| **P3** | сложность, профиль Sonar, openspec-дельты, 13 сценариев | после 26.09 | все четверо |
+
+**P0 не ждёт ревью цикла.** Один файл, один владелец, тест на воспроизведении из
+чекпойнта — и прогон.
+
+## Порядок и зависимости
+
+```
+RG1 (A, composer.py)  ─── P0, ничего не ждёт
+   └─► RG2 (тимлид: прогон на ml110, подтверждение что колода пишется)
+
+RG3 (тимлид, domain/slide.py: by_recipe + pipeline/nodes/fit.py)  ─── контракт первым
+   ├─► RG4 (A, prompt 1.4.0 + composer по предикату) ─► RG7 (тимлид, registry.yaml + схемы)
+   └─► RG5 (B, writer по предикату, fit_report.get, WriterError)
+
+RG6 (C, проверка «рецепт из каталога» в аудите)  ─── независимо
+RG8 (A, recipe_picker.py)  ─── независимо от RG3–RG7
+RG9 (тимлид, skills/** + гейт контрактов)  ─── независимо, но гейт красный до RG4
+RG10, RG11 (тимлид) · RG12 (A) · RG13 (B) · RG15 (C) — Sonar, независимо
+RG14 (тимлид, openspec-дельты и CI)  ─── независимо
+```
+
+Правило 3 из `AGENTS.md` («один change = одна capability = одна ветка») здесь работает
+жёстко: разбор `recipe-is-not-the-models-word` трогает файлы четырёх владельцев, поэтому
+он — **зонтичное предложение**, а не один PR. Дочерние change'и ниже, у каждого своя ветка.
+
+---
+
+## Тимлид — контракты, граф, инфраструктура
+
+### RG2. Прогон подтверждения (P0, сразу после RG1)
+
+Деплой из `main` по [docs/DEPLOY-ml110.md](../DEPLOY-ml110.md), прогон тем же шаблоном
+и тем же `task_desription.md`, что у `b5babbdac83f`. Живые прогоны — только с ml110.
+
+Что считается подтверждением: состояние `succeeded`, файл `deck.pptx` открывается,
+в отчёте у `s10` нет `recipe_id`, вписывание по нему прошло, оговорка названа.
+Если `s10` встал на пустой макет — это ожидаемо на P0 и закрывается RG8.
+
+### RG3. `by-recipe-is-one-predicate` — один предикат на всё (P1, делать первым)
+
+> **Сделано 24.09**, PR #172, ветка `feat/by-recipe-is-one-predicate`.
+> Предложение — `openspec/changes/by-recipe-is-one-predicate/proposal.md`.
+> Тесты: 2 из 9 красные до правки, полный прогон 1765 passed / 95 skipped.
+> Заодно нашлась латентная дыра: `_split_slide` не переносит `recipe_id` в
+> слайд-продолжение — запрос потоку C, подробности в предложении.
+
+Ветка `feat/by-recipe-is-one-predicate`. Файлы: `src/deckforge/domain/slide.py`,
+`schemas/**` (регенерация), `src/deckforge/pipeline/nodes/fit.py`.
+
+* `SlideIR.by_recipe` — свойство: рецепт назван **и** все текстовые блоки имеют `zone_id`.
+* `pipeline/nodes/fit.py:140`: пропуск вписывания — по `by_recipe`, не по `recipe_id`.
+  Сейчас слайд с `recipe_id` и блоками без зон молча остаётся без замера — именно эта
+  дыра и дала `KeyError`.
+* `make schemas` без diff после правки; golden-схемы обновить в этом же PR.
+
+Дельта — `openspec/changes/recipe-is-not-the-models-word/specs/slide-composition/spec.md`,
+требование «Слайд по рецепту — одно условие на весь пайплайн». Два сценария в ней уже
+записаны, тесты пишутся по ним.
+
+**Это блокирует A (RG4) и B (RG5) — поэтому мержится первым, не последним.**
+
+### RG7. Активация промпта и схем (P1, после RG4)
+
+`prompts/registry.yaml` → `slide_composer: active: "1.4.0"`. `make schemas`, проверка
+что `schema.json` не содержит `recipe_id`, `zone_id`, `fit_report`. Профиль `dev`
+остаётся на `1.0.0` — он ваш.
+
+### RG9. `design-system-in-the-skill-contracts` — четвёртый агент в реестре (P1)
+
+Ветка `feat/design-system-in-the-skill-contracts`. Файлы: `skills/template_analyst/1.1.0/`,
+`skills/deck_architect/1.1.0/`, `skills/slide_designer/1.1.0/`, `skills/registry.yaml`,
+`scripts/lint_skill_contracts.py`, `Makefile`, `ARCHITECTURE.md` §9.1.
+
+Сейчас дизайн-системы нет ни в одном контракте: `template_analyst.outputs: [manifest]`,
+у `deck_architect` и `slide_designer` её нет во входах — при том что её читают `plan`,
+`compose`, `fit`, `render`. Контракт, объявленный только кодом узла, не объявлен.
+
+* `template_analyst` → `outputs: [manifest, design_system]`;
+* `deck_architect`, `slide_designer` → `design_system` во входах;
+* новое поле `owns` — поля `SlideIR` и `TemplateManifest`, которые заполняет шаг;
+  `recipe_id` и `zone_id` принадлежат каталогу, не модели;
+* `scripts/lint_skill_contracts.py`: пересечение `owns` со свойствами схемы ответа
+  промпта этого шага (после `response_omit`) обязано быть пустым. В `make lint`.
+
+**Гейт обязан быть красным на текущем `main` и зелёным после RG4** — это и есть
+доказательство, что он ловит именно тот дефект, который прошёл на e2e. Если красный
+не воспроизводится, гейт написан не про то.
+
+Дельта готова: `.../design-system-in-the-skill-contracts/specs/skill-registry/spec.md`.
+
+### RG10. Sonar — ваша часть (P2)
+
+| Что | Файлы |
+|---|---|
+| **Bug**: приоритет операторов в регулярке | `inference/structured.py:29` — обернуть альтернативу в `(?:…)` |
+| **Bug**: одинаковые левая и правая части | `tests/unit/test_layout_classifier.py:245` — развести в `first`/`second` |
+| **Vuln**: root в образах | `docker/Dockerfile:3`, `Dockerfile.worker:13`, `Dockerfile.libreoffice:5` — непривилегированный `USER`, владение `/app` и каталогом артефактов |
+| **Vuln**: глоб в `COPY` | `Dockerfile:18`, `Dockerfile.worker:39` — `poetry.lock` обязательным в репозиторий, `COPY` без глоба |
+| `Merge this RUN` ×3 | Dockerfile — слить, меньше слоёв |
+| смеси по `parsing/**` | `layouts.py` (10), `background.py` (6), `package.py` (2), `typography.py` (2), `layout_kind.py` (2), `capacity.py`, `usage.py`, `ooxml/decor.py`, `ooxml/examples.py` |
+| `rendering/layout_preview.py:53` ×2 неиспользуемых параметра | файл из change 6 — ваш, не B |
+| `scripts/bench_*` (5) | ваши |
+
+**Девять CRITICAL не править.** `parsing/ooxml/background.py:47,80,83,90,97`,
+`parsing/ooxml/layouts.py:125,314`, `parsing/package.py:171,178` — «identity check
+всегда True/False» над результатом `lxml` `find()`. Sonar выводит тип как не-`Optional`;
+в `lxml` проверка обязательна, потому что пустой элемент ложен в булевом контексте.
+Замена `is not None` на `if node` здесь — прямой путь к «фон шаблона не прочитан,
+слайд белый». Пометить в SonarQube как false positive с этим обоснованием.
+
+То же с `registry/prompts.py:51` (`autoescape=False`): Jinja там собирает промпт для
+модели, не HTML; автоэкранирование поломало бы кавычки в промпте. Единственное
+`Environment(` в `src` — пометить safe, рядом оставить комментарий.
+
+### RG11. Sonar — скан и покрытие (P2)
+
+* `pytest --cov --cov-report=xml` в CI, `sonar.python.coverage.reportPaths` в
+  `sonar-project.properties`. Coverage 0.0 % — это ненастроенный сканер, а не
+  отсутствие тестов, и при нём Quality Gate красный при любом состоянии кода.
+* Исключить `llm-proxy:**` из области гейта: **это чужой репозиторий, его 9 замечаний
+  не наши и не правятся.** Запрос владельцу инфраструктуры — развести скан на два проекта.
+* Профиль качества: `Split this composite assertion` (120) и `Refactor this exception
+  test` (41) отключить для `tests/**`. Требует прав в SonarQube; нет прав — назвать это
+  явно и решать иначе (исключение `tests/**` из `sonar.sources`, но тогда теряются
+  настоящие находки в тестах).
+
+### RG14. `openspec-deltas-are-the-contract` (P3, но начать сегодня)
+
+`openspec validate --changes` на `main` даёт **0 passed, 123 failed**: ни у одного
+change'а нет `specs/`. Семь главных спек начинались с дельта-заголовка
+`## ADDED Requirements` вместо `## Requirements` и без `## Purpose` — для парсера все
+**34 требования были невидимы**. Механизм, из-за отсутствия которого регрессия и прошла
+ревью, не работал нигде.
+
+Уже сделано (в рабочем дереве, **не закоммичено, и лежит прямо на `main`** — прямые
+коммиты в `main` запрещены с 17.09, перенести в ветку):
+
+* семь файлов `openspec/specs/*/spec.md`: заголовок и `## Purpose`;
+* пять новых change'ей, все проходят `openspec validate --type change`.
+
+Ваше:
+
+* правило «дельта или явный `skip_specs`» в `AGENTS.md` и `openspec/changes/README.md`;
+* `openspec validate` в CI **только по затронутым PR'ом папкам** (`git diff --name-only
+  origin/main`) — иначе гейт красный всегда и его снова перестанут читать. Учтите, что
+  `.github/workflows/ci.yml` сейчас пропускает правки `openspec/**`, `docs/**` и `**/*.md`
+  целиком (`paths-ignore`), поэтому такой PR вообще не получает проверок: валидацию
+  заводить отдельным лёгким job'ом без этого фильтра либо снимать `openspec/**` из
+  `paths-ignore`. Фильтр завели, чтобы правка документации не занимала раннер, —
+  решение, оставлять ли его, ваше;
+* решение по 123 старым change'ам. Дельты задним числом — это выдумывание контракта
+  по памяти; предложение в change'е — архивировать как есть с пометкой «до перехода»,
+  а специфику набирать заново дельтами. **Решение ваше, не агентов.**
+
+---
+
+## Поток A — содержание (`composition/**`, `planning/**`, `designsystem/**`, `prompts/`)
+
+### RG1. Композитор не берёт от модели рецепт и зону (P0 — сегодня, один файл)
+
+> **Сделано 24.09**, PR #171, ветка `feat/composer-does-not-name-the-recipe`.
+> Предложение — `openspec/changes/composer-does-not-name-the-recipe/proposal.md`.
+> Тесты: 4 из 6 красные до правки, полный прогон 1762 passed / 95 skipped.
+
+Ветка `feat/composer-does-not-name-the-recipe`. Файл: `src/deckforge/composition/composer.py`.
+
+**Правка минимальная и сегодня:** на входе в `_bind` снять с ответа модели `recipe_id`,
+`fit_report` и `zone_id` каждого блока. Снять **до** размещения свободных блоков: блок
+без плейсхолдера и без координат уходит в `freed` (строка 800) и получает рамку от
+решателя, дальше вписывание считает `fit_report`, и писатель работает как для обычного
+слайда. Названное моделью — в `SlideComposer.notes`, не в `DeckIR`.
+
+Почему именно здесь, а не в писателе: здесь убирается **причина**. Страховка писателя
+(RG5, `fit_report.get`) падение тоже остановит, но кеглем из типошкалы вместо
+посчитанного — то есть спрячет причину и оставит слайд невписанным.
+
+**Уточнение по данным прогона:** ранняя редакция этого задания утверждала, что блок
+с `zone_id` остаётся без рамки и упал бы в `_add_textbox` ещё раньше. Данные это не
+подтверждают — `_bind` про `zone_id` ничего не знает, и на `s10` прогона `b5babbdac83f`
+блок `b1` ушёл в плейсхолдер 0, а `b2` получил координаты от решателя. Единственная
+причина `KeyError` — пустой `fit_report`.
+
+Тест-воспроизведение (красный до правки): ответ модели с `recipe_id`
+`"L12_15_title_closing"` и зонами `title`/`body`, `pick_recipe` вернул `None` →
+собранный `SlideIR` без `recipe_id`, без `zone_id`, блоки с координатами от решателя,
+названное моделью в `notes`.
+
+Отдельно — регресс на настоящих данных: `DeckIR` из чекпойнта `b5babbdac83f` (слайды
+`s01…s10` как есть) через `export_pptx`: до правки `KeyError: 'b1'`, после — файл пишется.
+Чекпойнт забрать с ml110, положить в `tests/fixtures/` (каталог в `.gitignore`), тест
+пропускать при отсутствии файла — как сделано для шаблонов кейса.
+
+**Не ждите RG3.** Предикат `by_recipe` придёт от тимлида, и RG4 переведёт вас на него;
+P0 живёт без него.
+
+### RG4. Схема ответа не спрашивает полей каталога (P1, после RG3)
+
+Ветка `feat/composer-response-schema-without-recipe`. Файлы:
+`prompts/slide_composer/1.4.0/**`, `src/deckforge/composition/composer.py`.
+
+* `1.4.0` копией `1.3.1`, `response_omit` пополняется:
+  `[x, y, cx, cy, slide_id, layout_id, variant, provenance, recipe_id, zone_id, fit_report]`.
+  `changelog` — со ссылкой на пять упавших прогонов. Из троих в схеме ответа сейчас
+  реально стоят только `recipe_id` и `zone_id`: `fit_report` — открытая карта, строгий
+  режим её не выражает, и `gen_schemas.py` выбрасывает её сам. В списке он для полноты.
+* Промпт про зоны и рецепты **не говорит и не должен**: модель файла не видит (ADR-003),
+  ей уходят вместимости зон теми же словами, что вместимости плейсхолдеров.
+* Снятие полей из RG1 остаётся: грамматика llama.cpp не гарантирует отсутствие лишнего
+  ключа, `pattern` из схемы вырезается (#50). Схема — первый барьер, снятие — второй.
+* `registry.yaml` не правите — это RG7, тимлид. В PR напишите, что активация за ним.
+
+Дельта готова: `.../recipe-is-not-the-models-word/specs/slide-composition/spec.md`,
+требование «Рецепт и зону называет код, а не модель», три сценария.
+
+### RG8. `closing-slide-has-a-recipe` — закрывающий слайд не выпадает (P1)
+
+Ветка `feat/closing-slide-has-a-recipe`. Файл: `src/deckforge/composition/recipe_picker.py`.
+
+Содержательный слайд, не найдя рецепт своего вида, берёт любой вмещающий
+(`_nearest(named, …) or _nearest(fitting, …)`). Структурный не берёт ничего — и потому
+закрывающий слайд гарантированно без рецепта на шаблоне без вида `final`. После RG1
+это уже не падение, но `s10` собирается на пустом макете: фон, плашки и декор шаблона
+на него не попадают — ровно то, из-за чего рецепты и вводились (87–96 % оформления
+живёт вне плейсхолдеров).
+
+Откат по родству, таблицей, не эвристикой:
+
+| Место | Свой вид | Родственный |
+|---|---|---|
+| `TITLE` | `cover` | `section` |
+| `SECTION` | `section` | `cover` |
+| `CLOSING` | `final` | `section`, `cover` |
+
+Нет и родственного — вмещающий содержательный. `None` — только при пустом каталоге.
+Откат называется в `notes`.
+
+**Сначала замер, потом код:** по трём шаблонам кейса выписать, какие виды каталог
+находит и сколько примеров у каждого. Если `final` не находится ни у одного — проверить
+отдельно, это отсутствие таких слайдов в шаблонах или недобор в
+`designsystem/recipes.kind_for_*`. Второе — правка каталога, а не подборщика, и тогда
+change ветвится; решение за тимлидом.
+
+Дельта готова: `.../closing-slide-has-a-recipe/specs/slide-composition/spec.md`,
+четыре сценария.
+
+### RG12. Sonar — ваша часть (P2)
+
+| Что | Файлы |
+|---|---|
+| **Bug**: одинаковые части утверждения | `tests/unit/test_composition.py:141` |
+| регулярки с backtracking | `composition/composer.py:85` (`_ARROW`), `composition/visual_selector.py:21`, `parsing/content.py:188` (`_UNIT_IN_TITLE`) — сделать линейными, тесты на тех же входах, результат разбора не меняется |
+| неиспользуемые параметры | `designsystem/recipes.py:285` (`by_id`), `:310` (`ds`), `designsystem/synth.py:670` (`ds`), `planning/planner.py:162` (`no_think`) |
+| смеси | `composition/composer.py` (6), `designsystem/recipes.py` (3), `synth.py` (3), `planning/{planner,headlines}.py` (3), `parsing/content.py` (2), `composition/visual_selector.py` |
+
+`composer.py` всё равно открываете в RG1 и RG4 — четыре функции со сложностью выше
+порога чинятся там же, отдельным проходом не надо.
+
+---
+
+## Поток B — форма (`rendering/**`, `layout/**`, `export/**`)
+
+### RG5. `writer-survives-a-missing-fit` — писатель не падает (P1, после RG3)
+
+Ветка `feat/writer-survives-a-missing-fit`. Файл: `src/deckforge/rendering/writer.py`.
+
+1. **Ни одного `fit_report[...]`.** `fit_report.get(block_id)`; нет записи — кегль роли
+   из `manifest.size_ladder_pt`, подмена в `degradations`. Пять мест: строки 559, 578,
+   591, 597, 606. Колода из десяти слайдов лучше отсутствия колоды — то же решение,
+   что в `degradation-is-not-an-error`.
+2. **Рецепт вне каталога — названная ошибка.** `SlideValidator.problems`: `recipe_id`,
+   которого нет в каталоге композиций, даёт `WriterError` с `slide_id` и названным
+   рецептом. Сейчас такой слайд молча уходит в `_render_slide` — и падает через 138 секунд
+   с `KeyError`, из которого причина не читается.
+3. **Один предикат.** `writer.py:207` и `writer.py:494` — через `SlideIR.by_recipe`
+   (RG3), своих условий не заводить. Именно расхождение этих двух условий с условием
+   в `fit.py` и собрало падение.
+
+После RG1 и RG4 ветка 2 недостижима. Она нужна затем, чтобы следующая утечка контракта
+называла себя, а не падала `KeyError` на стадии `render`.
+
+Дельта готова: `.../recipe-is-not-the-models-word/specs/pptx-writer/spec.md`, два требования.
+
+### RG13. Sonar — ваша часть (P2)
+
+| Что | Файлы |
+|---|---|
+| **Bug**: одинаковые части утверждения | `tests/unit/export/test_design_system_page.py:132` |
+| лишний класс в `except` | `rendering/writer.py:327` — `UnidentifiedImageError` наследует `OSError`, оставить `OSError` |
+| смеси | `rendering/writer.py` (13), `export/html.py` (4), `export/design_system_page.py` (3), `rendering/recipe_slide.py` (2), `rendering/{boxed,charts,icons,smartart,tables}.py`, `layout/{diagram,fitting}.py` |
+
+`rendering/layout_preview.py` и `layout_deck.py` — **не ваши** (change 6, тимлид),
+замечания по ним в RG10.
+
+`writer.py` вы всё равно открываете в RG5 — три функции со сложностью выше порога
+чинятся там же.
+
+---
+
+## Поток C — проверка и сервис (`audit/**`, `api/**`, `frontend/**`)
+
+### RG6. Проверка «рецепт из каталога» в детерминированном аудите (P1)
+
+Ветка `feat/recipe-comes-from-the-catalogue`. Файлы: `src/deckforge/audit/deterministic/template.py`,
+`configs/audit_checks.yaml`, `AUDIT.md`.
+
+Новая проверка: `recipe_id` слайда, которого нет в каталоге композиций шаблона, —
+находка. И вторая: слайд собран не по рецепту, хотя каталог непуст, — оговорка, не ошибка.
+
+Почему это ваше и почему сейчас: выдумка модели прошла **весь** пайплайн и упала в
+писателе. Аудит — последний слой, который мог назвать её по имени вместо `KeyError`.
+Правило 7 `AGENTS.md`: тест на нарушителе **и** на норме — нарушитель берётся из
+чекпойнта `b5babbdac83f` (`recipe=L12_15_title_slide_closing_step_a`), норма — из
+`98a2c58353f3` слайды `s01…s09`.
+
+### RG15. Sonar — ваша часть (P2)
+
+| Что | Файлы |
+|---|---|
+| **Vuln**: SHA-1 | `audit/findings.py:31` — `hashlib.sha1(raw.encode(), usedforsecurity=False)`: хэш здесь идентификатор находки, а не защита, и вызов должен это заявлять |
+| `Document this HTTPException` ×13 | `api/app.py` — `responses=` в декораторах; это ещё и OpenAPI для UI, так что польза не только в метрике |
+| `async` без `await` ×3 | `api/queue.py:51,65,66` — убрать `async` или обосновать интерфейсом |
+| дублирование литерала | `audit/deterministic/design.py:254` — `"design.ink_balance"` ×4 и родня: идентификаторы проверок в один модуль констант |
+| сложность | `audit/deterministic/template.py` (7), `layout.py` (4), `integrity.py` (2), `design.py` (2), `audit/semantic/judge.py` (4), `audit/runner.py` (2) |
+| прочее | `audit/context.py:49` тип возврата, `audit/semantic/{grounding,spelling}.py` |
+
+`audit/deterministic/template.py` — самый сложный файл проекта (7 функций выше порога).
+Вы его открываете в RG6; остальное — отдельным проходом в P3, не сейчас.
+
+---
+
+## Что мерить
+
+Прогон на ml110 тем же шаблоном и тем же контентом, что `b5babbdac83f`:
+
+| Показатель | Сейчас | После P0 | После P1 |
+|---|---|---|---|
+| Прогонов доходит до `export` | 0 из 5 | 5 из 5 | 5 из 5 |
+| Слайдов собрано по рецепту каталога | 9 из 10 (десятый — выдумка) | 9 из 10 | **10 из 10** |
+| `recipe_id` вне каталога в `DeckIR` | 5 прогонов из 5 | 0 | 0 |
+| `openspec validate --changes` по новым change'ам | — | — | 5 из 5 зелёных |
+| Гейт контрактов скиллов | нет | нет | красный до RG4, зелёный после |
+| Sonar Bugs / Vulnerabilities | 4 / 7 | 4 / 7 | **0 / 1** |
+
+Три прогона, а не один: одиночный успех на этом проекте уже трижды оказывался
+случайным. И хотя бы один — на **холодном** шаблоне (правило 10 `AGENTS.md`): правка
+композитора обязана проверяться на шаблоне, которого она не видела.
+
+## Отложено
+
+* Сложность 58 функций целиком (P3, и только вместе с содержательными правками —
+  дробить деревья разбора OOXML ради метрики вредно).
+* ~~13 требований без сценариев в главных спеках~~ — **дописаны 24.09** по существующим
+  тестам, `openspec validate --specs` 7 passed. Таблица «требование → тест» —
+  в `openspec-deltas-are-the-contract`.
+* Спек нет вовсе у `deck-planning` и `audit-deterministic`, хотя change'и по ним идут
+  больше месяца. `slide-composition` появляется дельтами RG4 и RG8.
+* Переписывание 123 старых change'ей под дельты — решение тимлида, см. RG14.
+
+## Решения, которые не за агентами
+
+1. **123 старых change'а**: архивировать как есть или разбирать разом. Дороже и точнее —
+   второе; времени до 26.09 нет ни на одно.
+2. **Профиль качества SonarQube**: отключать правила на тестах или исключить `tests/**`
+   из скана. Нужны права.
+3. **Порог Quality Gate по покрытию** — после RG11, когда покрытие вообще появится.
+4. **Каталог или подборщик** в RG8, если замер покажет, что вида `final` нет ни у одного
+   шаблона кейса.
