@@ -941,6 +941,18 @@ LibreOffice существует только в образе), прогон п�
 по рецепту в начало файла, и порядок расходится с IR (B). Подробно —
 `openspec/changes/sample-text-left-audit/proposal.md`.
 
+### `recipe-comes-from-the-catalogue` (RG6 регрессии 24.09) — готово (на живой колоде не прогнано)
+
+Файлы: `audit/deterministic/template.py`, `configs/audit_checks.yaml`, `AUDIT.md`.
+
+`template.recipe_not_in_catalogue` (`error`): слайд назван рецептом, которого нет в каталоге
+композиций шаблона, — выдумка модели, которая 24.09 дошла до писателя `KeyError`.
+`template.slide_without_recipe` (`info`): каталог непуст, а слайд собран не по рецепту
+(`SlideIR.by_recipe`); каталог пуст — пропуск. Каталог — `designsystem.derive(manifest).recipes`,
+тот же, что у писателя, один раз на вызов проверки; `pipeline/**` не тронут. Тесты на нарушителе
+и норме — VK WorkSpace (нарушитель из прогона `b5babbdac83f`) и синтетика для CI. Подробно —
+`openspec/changes/recipe-comes-from-the-catalogue/proposal.md`.
+
 ---
 
 ## Тимлид: контракты, граф, инфраструктура
