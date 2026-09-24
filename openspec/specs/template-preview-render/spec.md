@@ -1,6 +1,9 @@
 # template-preview-render
 
-## ADDED Requirements
+## Purpose
+Превью страниц шаблона и колоды через LibreOffice: разрешение, кэш, поведение без soffice.
+
+## Requirements
 
 ### Requirement: Кириллица рисуется, а не подставляется
 Образ, в котором работает рендерер, SHALL содержать шрифты с кириллицей.

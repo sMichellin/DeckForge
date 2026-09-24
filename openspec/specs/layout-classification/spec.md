@@ -1,6 +1,9 @@
 # layout-classification
 
-## ADDED Requirements
+## Purpose
+Вид и вместимость макета без констант конкретных шаблонов: эвристика, VLM при низкой уверенности, кэш по геометрии.
+
+## Requirements
 
 ### Requirement: Вид получает каждый макет
 Классификатор SHALL проставлять `kind`, `kind_confidence` и `kind_source` каждому макету

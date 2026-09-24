@@ -1,6 +1,9 @@
 # template-parsing
 
-## ADDED Requirements
+## Purpose
+Разбор .pptx/.potx в `TemplateManifest`: макеты, плейсхолдеры, слайды-примеры, кэш по хэшу файла и версия парсера.
+
+## Requirements
 
 ### Requirement: Сборка манифеста из произвольного пакета
 Парсер SHALL принимать `.pptx`/`.potx` и возвращать `TemplateManifest`, не обращаясь
