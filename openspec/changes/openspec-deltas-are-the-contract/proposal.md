@@ -64,8 +64,9 @@ Change must have at least one delta. No deltas found.
    не приведены в порядок, гейт проверяет **только затронутые PR'ом папки** — иначе он
    красный всегда и его снова перестанут читать. Скрипт берёт список изменённых путей
    из `git diff --name-only origin/main`.
-5. **13 требований без сценариев** — дописать. Это уже существующее поведение,
-   сценарий пишется по существующим тестам, а не выдумывается:
+5. **13 требований без сценариев — дописаны** (решение владельца 24.09: не ждать
+   владельцев капабилити). Сценарии сняты с существующих тестов, а не выдуманы;
+   поведение не менялось ни в одном. `openspec validate --specs` — 7 passed, 0 failed.
 
    | Спека | Требований | Без сценария |
    |---|---|---|
@@ -78,8 +79,28 @@ Change must have at least one delta. No deltas found.
    | `inference` | 5 | 1 |
    | **итого** | **34** | **13** |
 
-   Пока они без сценариев, `openspec validate --specs` красный, и пункт 4 на спеках
-   не включается. Один PR на спеку, по одному владельцу капабилити.
+   Откуда взят каждый сценарий:
+
+   | Требование | Тест |
+   |---|---|
+   | `design-system-extraction` · цвет ссылкой на тему | `test_typography_and_grid.py::test_colour_is_mapped_to_a_theme_slot_not_stored_as_rgb`, `::test_colour_far_from_palette_falls_back_to_default` |
+   | `inference` · исчерпанная квота | `inference/client.py::_QUOTA_CODES`, `test_layout_classifier.py::test_exhausted_quota_stops_further_calls` |
+   | `layout-classification` · повторные вопросы | `test_layout_classifier.py::test_identical_geometry_is_asked_only_once`, `::test_signature_is_resolution_independent`, `::test_signature_ignores_names_but_notices_geometry` |
+   | `layout-classification` · превью без LibreOffice | `test_layout_classifier.py::test_schematic_preview_is_a_png_of_the_right_shape`, `::test_schematic_preview_is_deterministic` |
+   | `layout-fitting` · шаг строки | `test_layout_fitting.py::test_required_height_reported_at_final_size` |
+   | `layout-fitting` · свободные не перекрывают | `test_layout_constraints.py::test_fixed_blocks_stay_and_free_ones_avoid_them`, `::test_free_blocks_share_the_content_area_in_equal_columns`, `::test_more_blocks_than_the_band_can_hold_is_a_layout_error` |
+   | `pptx-writer` · нативные объекты | `test_native_objects.py::test_every_slide_has_editable_objects`, `::test_sample_slides_of_the_template_are_dropped`, `::test_unfilled_placeholders_are_removed`, `test_rendering_writer.py::test_slide_of_a_single_picture_is_rejected` |
+   | `pptx-writer` · пропорции картинки | `test_rendering_writer.py::test_cover_crops_the_long_side_evenly`, `::test_cover_of_a_tall_image_crops_top_and_bottom`, `::test_contain_fits_inside_and_centers` |
+   | `template-parsing` · каскад мастер → макет | `test_ooxml_layouts.py::test_geometry_is_inherited_from_master`, `::test_layout_geometry_overrides_master`, `::test_placeholder_without_geometry_anywhere_is_dropped` |
+   | `template-parsing` · кэш по SHA-256 | `test_template_parsing.py::test_second_parse_comes_from_cache`, `::test_cache_is_invalidated_by_parser_version` |
+   | `template-preview-render` · одна команда | `test_preview_render.py::test_whole_deck_is_converted_once`, `::test_deck_converts_to_one_png_per_slide` |
+   | `template-preview-render` · превью по `slide_id` | `test_preview_plumbing.py::test_previews_are_keyed_by_slide_id`, `::test_page_count_mismatch_is_refused` |
+   | `template-preview-render` · только нужные макеты | `test_preview_render.py::test_only_the_requested_layouts_are_rendered` |
+
+   Двух сценариев в тестах нет дословно, и это названо честно: «LibreOffice для этого
+   не нужен» держится на том, что тест проходит в образе приложения, где его нет,
+   а не на отдельном утверждении; «пакет заново не разбирается» проверяется подменой
+   `TemplateParser._build` на падающую заглушку.
 6. **Три capability без спеки вовсе**, хотя change'и по ним идут больше месяца:
    `slide-composition`, `deck-planning`, `audit-deterministic`. Первая появляется
    дельтами change'ей 1 и 2 этого плана; две остальные — отдельными проходами.
@@ -106,10 +127,16 @@ Change must have at least one delta. No deltas found.
 
 * `openspec/specs/*/spec.md` — семь файлов: `## Purpose` добавлен, дельта-заголовок
   заменён на `## Requirements`.
+* 13 требований без сценариев — дописаны по существующим тестам.
+  `openspec validate --specs`: **7 passed, 0 failed** (было 0 из 7).
 * Дельты четырёх новых change'ей, `openspec validate` на них зелёный.
 
 ## Что осталось незакрытым
 
-* 13 требований без сценариев (пункт 5) — до них `validate --specs` красный.
 * Судьба 123 старых change'ей (пункт 7) — решение владельца.
 * `deck-planning` и `audit-deterministic` без спек (пункт 6).
+* Гейт `openspec validate` в CI (пункт 4) — воркфлоу сейчас пропускает правки
+  `openspec/**` и `docs/**` целиком (`paths-ignore` в `.github/workflows/ci.yml`),
+  так что шаг валидации нужен либо отдельным лёгким job'ом без этого фильтра,
+  либо снятием `openspec/**` из `paths-ignore`. Решение — за тимлидом: фильтр
+  завели, чтобы правка документации не занимала раннер.

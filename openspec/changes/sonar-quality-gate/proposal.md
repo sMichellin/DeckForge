@@ -92,9 +92,12 @@ Vulnerabilities 7 → 1 (обоснованно оставленная), Reliabi
 альтернатива — исключить `tests/**` из скана целиком, но тогда теряются настоящие
 находки вроде `test_layout_classifier.py:302` (константное булево выражение).
 
-**П3. Настройка покрытия и области скана.** `pytest --cov --cov-report=xml` в CI,
-`sonar.python.coverage.reportPaths` в `sonar-project.properties`. Без этого Quality Gate
-будет ERROR при любом состоянии кода. Тем же проходом — исключение `llm-proxy:**` из
+**П3. Настройка покрытия и области скана.** `pytest --cov` в CI **уже есть**
+(`.github/workflows/ci.yml`, шаг «ruff, mypy, gates, tests»), не хватает только
+машиночитаемого отчёта: добавить `--cov-report=xml` рядом с `term-missing` и указать
+`sonar.python.coverage.reportPaths` в `sonar-project.properties`. Coverage 0.0 % —
+это несобранный отчёт, а не отсутствие тестов; без него Quality Gate будет ERROR
+при любом состоянии кода. Тем же проходом — исключение `llm-proxy:**` из
 области, чтобы гейт deckforge отвечал за deckforge.
 
 **П4. Сложность — только вместе с содержательными правками.** Дробить 58 функций
