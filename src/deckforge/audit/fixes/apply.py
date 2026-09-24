@@ -348,6 +348,10 @@ class FixApplier:
             slide_id=_free_slide_id(slides, slide.slide_id),
             layout_id=slide.layout_id,
             variant=slide.variant,
+            # Блоки уезжают со своими `zone_id`, поэтому и рецепт едет с ними: без него
+            # продолжение — смешанный слайд, который ни вписать по макету, ни собрать
+            # по рецепту (change `split-slide-carries-the-recipe`).
+            recipe_id=slide.recipe_id,
             blocks=[*carried, *moved],
             speaker_note=slide.speaker_note,
             provenance=slide.provenance,
