@@ -20,6 +20,11 @@ class SkillSpec(BaseModel):
     model_ref: str
     inputs: list[str] = Field(default_factory=list)
     outputs: list[str] = Field(default_factory=list)
+    #: Поля `SlideIR` и `TemplateManifest`, которые заполняет этот шаг. Объявление, а не
+    #: комментарий: гейт `scripts/lint_skill_contracts.py` требует, чтобы ни одно из них
+    #: не встречалось в схеме ответа промпта — иначе одно поле окажется у двух хозяев.
+    #: Пустой список — шаг не владеет ничем особенным, и это тоже объявление.
+    owns: list[str] = Field(default_factory=list)
     retries: int = Field(default=2, ge=0)
     fallback: str | None = Field(default=None, description="Цепочка деградации (§15)")
     params: dict[str, Any] = Field(default_factory=dict)

@@ -1,0 +1,24 @@
+description: >-
+  Разбирает незнакомый шаблон: тема, типошкала, сетка, декор, классификация макетов
+  и каталог композиций — рецепты из слайдов-примеров. Единственный шаг, которому
+  доступен исходный .pptx (ADR-003); всё, что знает о файле генерация, приходит отсюда.
+prompt_ref: layout_classifier
+model_ref: vlm_judge
+inputs: [template_path]
+outputs: [manifest, design_system]
+# Поля `SlideIR` и `TemplateManifest`, которые заполняет этот шаг. Гейт
+# `scripts/lint_skill_contracts.py` требует, чтобы ни одно из них не встречалось
+# в схеме ответа промпта: спрашивать у модели то, что заполняет код, — та самая
+# ошибка, что положила пять прогонов 24.09 (`recipe-is-not-the-models-word`).
+owns: [recipe_id, zone_id]
+retries: 1
+fallback: heuristic_only
+params:
+  classify_with_vlm: true
+  # Порог, ниже которого эвристике не верят и зовут VLM (deckforge.parsing.layout_kind).
+  vlm_confidence_threshold: 0.6
+  # Мажоритарное голосование: три прогона с разными seed.
+  votes: 3
+  cache_by_sha256: true
+  # Макеты с одинаковой геометрией спрашиваются у модели один раз.
+  cache_by_geometry: true

@@ -37,9 +37,10 @@ schemas: ## Перегенерировать JSON-схемы из доменны
 warm-cache: ## Предразбор шаблонов кейса в кэш манифестов (D1). TEMPLATES=путь/*.pptx
 	$(RUN) python scripts/warm_template_cache.py $(TEMPLATES)
 
-gates: ## CI-гейты ТЗ: C1/C2 (лицензии) и C6 (константы шаблона)
+gates: ## CI-гейты: C1/C2 (лицензии), C6 (константы шаблона), контракты скиллов
 	$(RUN) python scripts/check_licenses.py
 	$(RUN) python scripts/lint_no_template_constants.py
+	$(RUN) python scripts/lint_skill_contracts.py
 
 checks: ## Показать реестр проверок аудита
 	$(RUN) python -m deckforge.cli checks --list

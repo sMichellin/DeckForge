@@ -48,6 +48,7 @@ jobs:
               mypy
               python scripts/check_licenses.py
               python scripts/lint_no_template_constants.py
+              python scripts/lint_skill_contracts.py
               pytest -q -p no:cacheprovider --cov=deckforge --cov-report=term-missing
             '
       # Прежние теги своего образа — и только их: на сервере образы других проектов,
