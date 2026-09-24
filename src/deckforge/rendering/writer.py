@@ -276,7 +276,12 @@ class SlideValidator:
         fit = slide.fit_report.get(block_id)
         ladder = self.manifest.size_ladder_pt
         if fit is None:
-            return [f"{where}: нет записи в fit_report — вписывание не выполнялось"]
+            # Пропущенный замер колоду не отменяет: писатель поставит кегль роли
+            # из типошкалы шаблона и назовёт подмену в `degradations`
+            # (`degradation-is-not-an-error`, требование «Отсутствие замера не роняет
+            # колоду»). Раньше здесь стоял отказ — и подмена в писателе была
+            # недостижима: до неё слайд не доживал.
+            return []
         out = []
         if fit.overflow:
             out.append(f"{where}: переполнение, стратегия {fit.strategy}")
