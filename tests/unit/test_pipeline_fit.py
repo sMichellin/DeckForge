@@ -53,6 +53,31 @@ def _slide(*blocks: object) -> SlideIR:
     return SlideIR(slide_id="s01", layout_id="L_NARROW", variant="A", blocks=list(blocks))
 
 
+def test_a_recipe_slide_is_not_fitted(narrow: TemplateManifest, fonts: FontLibrary) -> None:
+    """Слайд по рецепту не вписывается: его рамки задаёт рецепт, а не макет.
+
+    Блок с `zone_id` не имеет ни координат, ни плейсхолдера — вписывание по макету
+    для него падало бы (`нет ни координат, ни плейсхолдера`). Текст уже обрезан
+    по вместимости зоны (`bind_to_recipe`).
+    """
+    by_recipe = SlideIR(
+        slide_id="s01",
+        layout_id="L_NARROW",
+        variant="A",
+        recipe_id="ex003",
+        blocks=[
+            TextBlock(block_id="b1", role=TextRole.TITLE, text="Итоги года", zone_id="z5"),
+            TextBlock(block_id="b2", role=TextRole.BODY, text="Выручка выросла", zone_id="z7"),
+        ],
+    )
+    fitted, notes = _fit_shortening(by_recipe, narrow, fonts, CONTENT)
+
+    assert fitted.recipe_id == "ex003"
+    assert fitted.blocks == by_recipe.blocks
+    assert fitted.fit_report == {}
+    assert notes == []
+
+
 def test_overflowing_text_is_shortened_until_it_fits(
     narrow: TemplateManifest, fonts: FontLibrary
 ) -> None:
