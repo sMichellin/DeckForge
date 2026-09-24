@@ -33,6 +33,10 @@
 | RG4 + RG7 | схема ответа не просит полей каталога, промпт `1.4.0` активирован | #176 |
 | RG14 (частью) | главные спеки видны парсеру, 34 требования со сценариями, дельты у новых change'ей | #170 |
 | RG16 | html не падает на слайде по рецепту и не теряет его текст | #174 |
+| RG5 | писатель не падает на пропущенном замере, одно условие на конвейер | #178 |
+| RG9 | дизайн-система в контрактах шагов, гейт «у поля есть хозяин» | #180 |
+| RG17 | необязательный формат не уносит готовую колоду | #179 |
+| RG8 | структурный слайд берёт родственный вид | #181 |
 
 `openspec validate`: спеки — 7 passed, 0 failed; change'и — 9 passed (наши), 119 failed
 (старые, без `specs/`, состояние описано в `openspec-deltas-are-the-contract`).
@@ -41,12 +45,9 @@
 
 | Таск | Поток | Приоритет | Ветка | Файлы |
 |---|---|---|---|---|
-| **RG5** | B | **P1** | `feat/writer-survives-a-missing-fit` | `rendering/writer.py` |
-| **RG8** | A | **P1** | `feat/closing-slide-has-a-recipe` | `composition/recipe_picker.py` |
-| **RG17** | тимлид | **P1** | `feat/export-node-does-not-lose-the-deck` | `pipeline/nodes/export.py` |
 | **RG6** | C | P1 | `feat/recipe-comes-from-the-catalogue` | `audit/deterministic/template.py`, `configs/audit_checks.yaml` |
-| **RG9** | тимлид | P1 | `feat/design-system-in-the-skill-contracts` | `skills/**`, `scripts/lint_skill_contracts.py` |
 | **RG18** | A | P2 | `feat/zone-carries-its-frame` | `designsystem/recipes.py`, `designsystem/models.py` |
+| **RG21** | A | P2 | `feat/the-catalogue-sees-a-closing-slide` | `designsystem/recipes.py` |
 | **RG19** | C | P2 | `feat/split-slide-carries-the-recipe` | `audit/fixes/apply.py` |
 | **RG20** | тимлид | **P1** | — | прогоны на ml110 |
 | RG10–RG13, RG15 | все | P3 | — | Sonar, **отложено решением владельца 24.09** |
@@ -69,6 +70,32 @@ html не может поставить блок туда же, куда его 
 Поля домена и `schemas/**` — тимлид (правило 11): `Zone` живёт в `designsystem/models.py`,
 это ваш файл, но проверьте по `docs/TEAMWORK.md` §4, не нужен ли запрос. После правки
 html-экспорт сможет ставить блок по рамке — это уже поток B, отдельным change'ем.
+
+**RG21. Каталог не видит закрывающий слайд (поток A, P2).**
+Ветка `feat/the-catalogue-sees-a-closing-slide`. Файл: `designsystem/recipes.py`
+(возможно `parsing/layout_kind.py` — тогда это запрос тимлиду).
+
+Замер RG8 (PR #181): **вида `final` нет ни у одного шаблона кейса**, хотя закрывающие
+слайды в них есть — «Спасибо за внимание»: VK Tech `ex004`–`ex006`, VK WorkSpace `ex029`,
+VK Education `ex052`. Каталог записывает их в `text`.
+
+Причина в коде: `STRUCTURAL_KINDS` (`recipes.py:69`) даёт `final` только примеру на
+макете с `LayoutKind.CLOSING`, а `parsing/layout_kind.py` считает `CLOSING` лишь
+«заголовок без тела и подзаголовка». Настоящие закрывающие слайды кейса стоят на
+макетах `custom`, `quote` и `section` — и мимо.
+
+То есть вид примера определяется **макетом, на котором он лежит**, хотя сам пример
+о себе говорит больше: одна крупная фраза, нет ряда, нет картинки. Разобраться, можно
+ли давать `final` по признакам самого примера, а не только по виду макета, — и что
+тогда станет с `cover` и `section`, которые определяются так же.
+
+После RG8 откат подборщика закрывает дыру и без этого, поэтому приоритет P2, а не P1.
+Но пока `final` не находится, закрывающий слайд везде идёт по чужому виду, и на VK Tech
+это `text` — то есть обложка и финал собираются как обычный текстовый слайд.
+
+**Смотреть вместе с RG20:** если титульный лист VK Tech на прогоне выйдет хуже, чем был
+на пустом макете, это довод не только за RG21, но и за то, чтобы откат на содержательный
+вид разрешать не всем структурным местам.
 
 **RG19. `split_slide` не переносит `recipe_id` (поток C, P2).**
 Ветка `feat/split-slide-carries-the-recipe`. Файл: `audit/fixes/apply.py:346`.
