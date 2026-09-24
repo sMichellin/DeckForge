@@ -694,6 +694,52 @@ class SlideComposer:
             placed.append(block.model_copy(update=coords) if coords else block)
         return placed
 
+    def _drop_catalogue_fields(self, ir: SlideIR, slide_id: str) -> SlideIR:
+        """Снять с ответа модели поля, которыми владеет каталог композиций шаблона.
+
+        `recipe_id` слайда, `zone_id` блока и `fit_report` заполняет код: рецепт выбирает
+        счёт (`pick_recipe`), зоны раскладывает `bind_to_recipe`, отчёт считает вписывание.
+        Модель файла не видит вовсе (ADR-003) и назвать ни рецепт, ни зону не может.
+
+        Спрашивать их у неё и не собирались, но `slide-recipes` добавил их в `SlideIR`,
+        а `SlideIR` — это ещё и схема ответа промпта, и в `response_omit` они не попали.
+        Пять прогонов 24.09 (`b5babbdac83f`, `98a2c58353f3`, `dc59f95047c0`, `edf7b44ebbb8`,
+        `8242966c5847`) упали на записи: закрывающему слайду рецепт не достался
+        (у шаблона нет вида `final`), `bind_to_recipe` его выдумку не перезаписал, и
+        `recipe_id` вида `L12_15_title_slide_closing_step_a` с зонами `title`/`body`
+        уехал в колоду как факт.
+
+        Снимается здесь, до размещения свободных блоков: блок без плейсхолдера и без
+        координат уходит в `freed` и получает рамку от решателя. Тем же ответом чинится
+        и вписывание, и запись — дальше по конвейеру цепочка уже не собирается, потому
+        что у блока с `zone_id` нет рамки, а писатель без рамки рисовать не умеет.
+
+        Схема ответа — первый барьер (`response_omit`), этот метод — второй: грамматика
+        llama.cpp не обещает, что лишнего ключа в ответе не будет, а `pattern` из схемы
+        и вовсе вырезается (#50).
+        """
+        named: list[str] = []
+        if ir.recipe_id:
+            named.append(f"рецепт {ir.recipe_id}")
+        zones = sorted({zone for block in ir.blocks if (zone := block.zone_id)})
+        if zones:
+            named.append("зоны " + ", ".join(zones))
+        if ir.fit_report:
+            named.append("отчёт о вписывании")
+        if not named:
+            return ir
+
+        self._note(
+            slide_id,
+            "модель назвала " + "; ".join(named) + " — снято: эти поля заполняет "
+            "каталог композиций шаблона, а не модель",
+        )
+        blocks: list[Block] = [
+            block.model_copy(update={"zone_id": None}) if block.zone_id else block
+            for block in ir.blocks
+        ]
+        return ir.model_copy(update={"blocks": blocks, "recipe_id": None, "fit_report": {}})
+
     def _bind(
         self,
         ir: SlideIR,
@@ -708,6 +754,7 @@ class SlideComposer:
         rules: DesignRules | None = None,
     ) -> SlideIR:
         rules = rules if rules is not None else DesignRules(manifest)
+        ir = self._drop_catalogue_fields(ir, slide.slide_id)
         known_placeholders = {ph.idx for ph in layout.placeholders}
         known_datasets = {d.dataset_id for d in content.datasets}
         known_assets = {a.asset_id for a in content.assets}
