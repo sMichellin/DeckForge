@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from deckforge.composition.recipe_picker import KEEP_SHARE
 from deckforge.designsystem.models import Recipe, TypeLevel, Zone
 from deckforge.domain.enums import TextRole
 from deckforge.domain.slide import Block, BulletsBlock, SlideIR, TextBlock
@@ -75,6 +76,21 @@ def _clip(text: str, limit: int) -> str:
     return (cut or text[:limit]).rstrip(" ,;:—-")
 
 
+def _note_clip(notes: list[str] | None, slide: SlideIR, block: TextBlock, before: str) -> None:
+    """Назвать обрезку, от которой осталось меньше половины текста.
+
+    Отбор рецептов (RG23) делает такие случаи редкими, но не невозможными: модель пишет
+    длиннее, чем обещала. Молчаливая обрезка — это подмена содержания, о которой никто
+    не узнает: на холодном шаблоне так уехали в колоду одиночные буквы.
+    """
+    if notes is None or len(block.text) >= len(before) * KEEP_SHARE:
+        return
+    notes.append(
+        f"слайд {slide.slide_id}: блок {block.block_id} обрезан до вместимости зоны "
+        f"{block.zone_id} — было {len(before)} знаков, осталось {len(block.text)}"
+    )
+
+
 def _in_zone(block: Block, zone: Zone, text: str, index: int) -> TextBlock:
     """Блок, стоящий в зоне шаблона: без координат и плейсхолдера — рамку дал автор."""
     role = TextRole.TITLE if zone.role is TypeLevel.SLIDE_TITLE else TextRole.BODY
@@ -86,12 +102,30 @@ def _in_zone(block: Block, zone: Zone, text: str, index: int) -> TextBlock:
     )
 
 
-def bind_to_recipe(slide: SlideIR, recipe: Recipe) -> SlideIR:
+def _placed(
+    block: Block,
+    zone: Zone,
+    text: str,
+    index: int,
+    slide: SlideIR,
+    notes: list[str] | None,
+) -> TextBlock:
+    """Блок в зоне, с оговоркой, если от текста осталось меньше половины."""
+    placed = _in_zone(block, zone, text, index)
+    _note_clip(notes, slide, placed, text)
+    return placed
+
+
+def bind_to_recipe(
+    slide: SlideIR, recipe: Recipe, notes: list[str] | None = None
+) -> SlideIR:
     """Разложить текст слайда по зонам композиции.
 
     Заголовок идёт в зону заголовка, пункты — по одному на повтор, остальной текст —
     в свободные зоны по убыванию ступени. Блок, которому зоны не досталось, из слайда
     уходит: вёрстка его всё равно не нарисует, а в отчёте он выглядел бы как поставленный.
+
+    `notes` получает обрезку, от которой осталось меньше половины текста (RG23).
     """
     heading = _title_zone(recipe)
     title_zone = heading
@@ -104,17 +138,18 @@ def bind_to_recipe(slide: SlideIR, recipe: Recipe) -> SlideIR:
         if not lines:
             continue
         if getattr(block, "role", None) is TextRole.TITLE and title_zone is not None:
-            blocks.append(_in_zone(block, title_zone, lines[0], 0))
+            blocks.append(_placed(block, title_zone, lines[0], 0, slide, notes))
             title_zone = None
             continue
         if isinstance(block, BulletsBlock) and recipe.repeats:
             free_repeats = _buckets(recipe, heading)[used_repeat:]
             for line, (index, zones) in zip(lines, free_repeats, strict=False):
-                blocks.append(_in_zone(block, zones[0], line, index))
+                blocks.append(_placed(block, zones[0], line, index, slide, notes))
                 used_repeat += 1
             continue
         if rest:
-            blocks.append(_in_zone(block, rest.pop(0), " ".join(lines), 0))
+            joined = " ".join(lines)
+            blocks.append(_placed(block, rest.pop(0), joined, 0, slide, notes))
 
     return slide.model_copy(
         update={"blocks": blocks, "recipe_id": recipe.recipe_id, "fit_report": {}}
