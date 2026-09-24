@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Iterable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -65,6 +65,23 @@ def collect_content_paths(source: Path) -> list[Path]:
     if not files:
         raise ValueError(f"в {source} нет ни одного файла, который умеет читать ingestion")
     return files
+
+
+def _prompt_versions(state: Mapping[str, Any]) -> list[str]:
+    """Версии промптов, которыми собрана колода, — из провенанса слайдов.
+
+    Отчёт называет то, что звали, а не то, что объявлено активным: расхождение между
+    этими двумя вещами уже один раз прошло незамеченным (прогоны RG20, `slide_composer@1.0.0`
+    при активной `1.4.0`).
+    """
+    deck = state.get("deck")
+    if deck is None:
+        return []
+    return sorted({
+        slide.provenance.prompt_version
+        for slide in deck.slides
+        if slide.provenance.prompt_version
+    })
 
 
 def design_system_summary(ds: DesignSystem | None) -> dict[str, Any] | None:
@@ -166,6 +183,11 @@ class RunResult:
         return {
             "run_id": self.run_id,
             "variant": self.variant,
+            # Какими версиями промптов собрана колода. Берётся из провенанса слайдов,
+            # то есть из того, что действительно звали, а не из реестра. Прогоны RG20
+            # (24.09) шли на `slide_composer@1.0.0` при активной `1.4.0` — профиль
+            # закреплял версию молча, и по отчёту это было не видно.
+            "prompt_versions": _prompt_versions(self.state),
             "seed": self.state.get("seed"),
             "slides": len(self.state["deck"].slides) if "deck" in self.state else 0,
             "planned_slides": len(plan.slides) if plan is not None else 0,
