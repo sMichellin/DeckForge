@@ -425,6 +425,22 @@ assertion–evidence. Решение смысловое, принято влад
 проверку и уводили. Подробно —
 `openspec/changes/a-count-is-not-an-invented-number/proposal.md`.
 
+### `composer-response-schema-without-recipe` (RG4 + RG7 регрессии 24.09) — готово
+
+Схема ответа `slide_composer` больше не спрашивает `recipe_id`, `zone_id` и `fit_report`:
+промпт `1.4.0`, `response_omit` пополнен, `registry.yaml` активирует его. Текст промпта
+не менялся — про рецепты и зоны шаблона он не говорил и не должен (ADR-003).
+
+Живой прогон `3dd589541036` показал масштаб: модель называла выдуманный рецепт
+**на всех десяти слайдах**, а не на одном; на девяти `bind_to_recipe` молча
+перезаписывал выдумку, и наружу вылезал только закрывающий.
+
+Снятие полей в `_bind` (RG1) остаётся вторым барьером: грамматика llama.cpp не обещает
+отсутствия лишнего ключа, а профиль `dev` закреплён на `1.0.0`.
+
+Тесты: 2 из 7 красные до активации; полный прогон 1786 passed, 95 skipped.
+Подробно — `openspec/changes/composer-response-schema-without-recipe/proposal.md`.
+
 ### `composer-does-not-name-the-recipe` (RG1, P0 регрессии 24.09) — готово
 
 Пять прогонов на ml110 упали на стадии `render` с `KeyError` по идентификатору блока.

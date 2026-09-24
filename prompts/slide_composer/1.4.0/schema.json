@@ -1,0 +1,861 @@
+{
+  "$defs": {
+    "BulletItem": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "level": {
+          "default": 0,
+          "maximum": 4,
+          "minimum": 0,
+          "title": "Level",
+          "type": "integer"
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Иконка пункта иконочного списка: имя Lucide (shield-check), не путь и не цвет",
+          "title": "Icon"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "BulletItem",
+      "type": "object"
+    },
+    "BulletsBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "bullets",
+          "default": "bullets",
+          "title": "Type",
+          "type": "string"
+        },
+        "placeholder_idx": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Placeholder Idx"
+        },
+        "role": {
+          "$ref": "#/$defs/TextRole",
+          "default": "body"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/BulletItem"
+          },
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        },
+        "max_level": {
+          "default": 1,
+          "maximum": 4,
+          "minimum": 0,
+          "title": "Max Level",
+          "type": "integer"
+        },
+        "size_pt": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Pt"
+        },
+        "style": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ListStyle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Стиль списка: bulleted, numbered или icon; не задан — маркированный. Знак, цвет и отступ рисует вёрстка по дизайн-системе шаблона"
+        }
+      },
+      "required": [
+        "block_id",
+        "items"
+      ],
+      "title": "BulletsBlock",
+      "type": "object"
+    },
+    "CalloutBlock": {
+      "additionalProperties": false,
+      "description": "Callout «инсайт» или «риск» (DG4, страница дизайн-системы #142).\n\n`tone` — закрытое перечисление: вид callout входит в контракт. Плашку, подпись вида\nи отступы рисует вёрстка; кегля здесь нет (правило 6).",
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "callout",
+          "default": "callout",
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "tone": {
+          "$ref": "#/$defs/CalloutTone"
+        },
+        "accent_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ColorRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Слот темы для акцента; не задан — акцент берёт вёрстка по дизайн-системе"
+        }
+      },
+      "required": [
+        "block_id",
+        "text",
+        "tone"
+      ],
+      "title": "CalloutBlock",
+      "type": "object"
+    },
+    "CalloutTone": {
+      "description": "Вид callout. Набор закрыт: это часть контракта, а не вкус композитора (DG4).\n\nЦвет и подпись вида решает вёрстка по дизайн-системе, а не модель.",
+      "enum": [
+        "insight",
+        "risk"
+      ],
+      "title": "CalloutTone",
+      "type": "string"
+    },
+    "ChartBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "chart",
+          "default": "chart",
+          "title": "Type",
+          "type": "string"
+        },
+        "chart_type": {
+          "$ref": "#/$defs/ChartType"
+        },
+        "dataset_ref": {
+          "title": "Dataset Ref",
+          "type": "string"
+        },
+        "legend": {
+          "default": true,
+          "title": "Legend",
+          "type": "boolean"
+        },
+        "data_labels": {
+          "default": true,
+          "title": "Data Labels",
+          "type": "boolean"
+        },
+        "series_color_refs": {
+          "items": {
+            "$ref": "#/$defs/ColorRef"
+          },
+          "title": "Series Color Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "block_id",
+        "chart_type",
+        "dataset_ref"
+      ],
+      "title": "ChartBlock",
+      "type": "object"
+    },
+    "ChartType": {
+      "enum": [
+        "clustered_bar",
+        "stacked_bar",
+        "clustered_column",
+        "stacked_column",
+        "line",
+        "line_markers",
+        "pie",
+        "doughnut",
+        "scatter",
+        "area"
+      ],
+      "title": "ChartType",
+      "type": "string"
+    },
+    "ColorRef": {
+      "description": "Имена цветов схемы темы. RGB-литералы в IR запрещены (ADR-002).",
+      "enum": [
+        "dk1",
+        "lt1",
+        "dk2",
+        "lt2",
+        "accent1",
+        "accent2",
+        "accent3",
+        "accent4",
+        "accent5",
+        "accent6",
+        "hlink",
+        "folHlink"
+      ],
+      "title": "ColorRef",
+      "type": "string"
+    },
+    "FitResult": {
+      "additionalProperties": false,
+      "properties": {
+        "final_size_pt": {
+          "exclusiveMinimum": 0,
+          "title": "Final Size Pt",
+          "type": "number"
+        },
+        "overflow": {
+          "default": false,
+          "title": "Overflow",
+          "type": "boolean"
+        },
+        "lines": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lines"
+        },
+        "required_cy_emu": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Required Cy Emu"
+        },
+        "strategy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "as_is | shrink | grow | shorten | split",
+          "title": "Strategy"
+        }
+      },
+      "required": [
+        "final_size_pt"
+      ],
+      "title": "FitResult",
+      "type": "object"
+    },
+    "IconBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "icon",
+          "default": "icon",
+          "title": "Type",
+          "type": "string"
+        },
+        "query": {
+          "description": "Имя иконки в библиотеке Lucide/Tabler",
+          "title": "Query",
+          "type": "string"
+        },
+        "color_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ColorRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "block_id",
+        "query"
+      ],
+      "title": "IconBlock",
+      "type": "object"
+    },
+    "ImageBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "image",
+          "default": "image",
+          "title": "Type",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ImageSource"
+        },
+        "asset_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Asset Ref"
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt"
+        },
+        "fit": {
+          "$ref": "#/$defs/ImageFit",
+          "default": "cover"
+        },
+        "alt_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Alt Text"
+        }
+      },
+      "required": [
+        "block_id",
+        "source"
+      ],
+      "title": "ImageBlock",
+      "type": "object"
+    },
+    "ImageFit": {
+      "enum": [
+        "cover",
+        "contain"
+      ],
+      "title": "ImageFit",
+      "type": "string"
+    },
+    "ImageSource": {
+      "enum": [
+        "asset",
+        "generated"
+      ],
+      "title": "ImageSource",
+      "type": "string"
+    },
+    "KpiBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "kpi",
+          "default": "kpi",
+          "title": "Type",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/KpiItem"
+          },
+          "maxItems": 6,
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "block_id",
+        "items"
+      ],
+      "title": "KpiBlock",
+      "type": "object"
+    },
+    "KpiItem": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "color_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ColorRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "value",
+        "label"
+      ],
+      "title": "KpiItem",
+      "type": "object"
+    },
+    "ListStyle": {
+      "description": "Стиль списка (DG3, `compose-by-the-design-system`). Набор закрыт, как у callout.\n\nКомпозиция выбирает стиль по смыслу пунктов, а знак, цвет и отступ рисует вёрстка\nпо дизайн-системе шаблона. Не задан — маркированный, как было до этого поля.",
+      "enum": [
+        "bulleted",
+        "numbered",
+        "icon"
+      ],
+      "title": "ListStyle",
+      "type": "string"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "fact_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fact Refs",
+          "type": "array"
+        },
+        "prompt_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "skill@semver",
+          "title": "Prompt Version"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
+        }
+      },
+      "title": "Provenance",
+      "type": "object"
+    },
+    "QuoteBlock": {
+      "additionalProperties": false,
+      "description": "Цитата с акцентной полосой (DG4, страница дизайн-системы #142).\n\nМодель задаёт только содержание и слот цвета. Ширину полосы, отбивку и кегль\nрешает вёрстка по дизайн-системе шаблона: кегля здесь нет (правило 6).",
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "quote",
+          "default": "quote",
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "author": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Author"
+        },
+        "accent_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ColorRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Слот темы для полосы; не задан — акцент берёт вёрстка по дизайн-системе"
+        }
+      },
+      "required": [
+        "block_id",
+        "text"
+      ],
+      "title": "QuoteBlock",
+      "type": "object"
+    },
+    "SmartArtBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "smartart",
+          "default": "smartart",
+          "title": "Type",
+          "type": "string"
+        },
+        "pattern": {
+          "$ref": "#/$defs/SmartArtPattern"
+        },
+        "items": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "title": "Items",
+          "type": "array"
+        },
+        "color_refs": {
+          "items": {
+            "$ref": "#/$defs/ColorRef"
+          },
+          "title": "Color Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "block_id",
+        "pattern",
+        "items"
+      ],
+      "title": "SmartArtBlock",
+      "type": "object"
+    },
+    "SmartArtPattern": {
+      "description": "Составные компоненты из автофигур (§10) — не OOXML DrawingML diagram.",
+      "enum": [
+        "process",
+        "cycle",
+        "hierarchy",
+        "pyramid",
+        "timeline",
+        "matrix"
+      ],
+      "title": "SmartArtPattern",
+      "type": "string"
+    },
+    "TableBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "table",
+          "default": "table",
+          "title": "Type",
+          "type": "string"
+        },
+        "dataset_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Ref"
+        },
+        "header": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Header",
+          "type": "array"
+        },
+        "rows": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "first_row_header": {
+          "default": true,
+          "title": "First Row Header",
+          "type": "boolean"
+        },
+        "banding": {
+          "default": true,
+          "title": "Banding",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "block_id"
+      ],
+      "title": "TableBlock",
+      "type": "object"
+    },
+    "TextBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "text",
+          "default": "text",
+          "title": "Type",
+          "type": "string"
+        },
+        "placeholder_idx": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Placeholder Idx"
+        },
+        "role": {
+          "$ref": "#/$defs/TextRole"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "color_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ColorRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "size_pt": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Только из шкалы шаблона",
+          "title": "Size Pt"
+        }
+      },
+      "required": [
+        "block_id",
+        "role",
+        "text"
+      ],
+      "title": "TextBlock",
+      "type": "object"
+    },
+    "TextRole": {
+      "description": "Роль в типографической шкале шаблона.",
+      "enum": [
+        "title",
+        "subtitle",
+        "body",
+        "caption"
+      ],
+      "title": "TextRole",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "blocks": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "bullets": "#/$defs/BulletsBlock",
+            "callout": "#/$defs/CalloutBlock",
+            "chart": "#/$defs/ChartBlock",
+            "icon": "#/$defs/IconBlock",
+            "image": "#/$defs/ImageBlock",
+            "kpi": "#/$defs/KpiBlock",
+            "quote": "#/$defs/QuoteBlock",
+            "smartart": "#/$defs/SmartArtBlock",
+            "table": "#/$defs/TableBlock",
+            "text": "#/$defs/TextBlock"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/TextBlock"
+          },
+          {
+            "$ref": "#/$defs/BulletsBlock"
+          },
+          {
+            "$ref": "#/$defs/ChartBlock"
+          },
+          {
+            "$ref": "#/$defs/TableBlock"
+          },
+          {
+            "$ref": "#/$defs/SmartArtBlock"
+          },
+          {
+            "$ref": "#/$defs/IconBlock"
+          },
+          {
+            "$ref": "#/$defs/ImageBlock"
+          },
+          {
+            "$ref": "#/$defs/KpiBlock"
+          },
+          {
+            "$ref": "#/$defs/QuoteBlock"
+          },
+          {
+            "$ref": "#/$defs/CalloutBlock"
+          }
+        ]
+      },
+      "title": "Blocks",
+      "type": "array"
+    },
+    "speaker_note": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Speaker Note"
+    }
+  },
+  "required": [
+    "blocks"
+  ],
+  "title": "SlideIR",
+  "type": "object"
+}
