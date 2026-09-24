@@ -6,6 +6,12 @@
 
 Формат, который не получился, пропускается с причиной: отсутствие LibreOffice не повод
 остаться без pptx и html.
+
+Так было сказано с самого начала, но выполнялось только для pdf. Прогон `5cf2705fc173`
+упал на html (`AttributeError` в `export/html.py`) — и унёс с собой уже записанные
+`deck.pptx` и `deck.pdf`: файлы лежали в `out/`, а прогон считался `failed`, и в
+интерфейсе «скачать» отдавало ошибку. Необязательный формат не уносит обязательный
+(change `export-node-does-not-lose-the-deck`).
 """
 
 from __future__ import annotations
@@ -41,16 +47,28 @@ async def export_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
                     exports["pptx"] = pptx_path
                 continue
             if fmt == "html":
-                exports["html"] = await asyncio.to_thread(
-                    partial(
-                        export_html,
-                        deck,
-                        state["manifest"],
-                        deps.out_dir / f"{DECK_STEM}.html",
-                        content=state["content"],
-                        fonts=deps.fonts,
+                try:
+                    exports["html"] = await asyncio.to_thread(
+                        partial(
+                            export_html,
+                            deck,
+                            state["manifest"],
+                            deps.out_dir / f"{DECK_STEM}.html",
+                            content=state["content"],
+                            fonts=deps.fonts,
+                            # Та же дизайн-система, что видели вписывание и pptx (DG3).
+                            # Без неё html собирался по системе, посчитанной из манифеста,
+                            # то есть по другой, чем колода, — и молча.
+                            design_system=state.get("design_system"),
+                        )
                     )
-                )
+                except Exception as error:
+                    # Ловится всё, а не свой тип ошибки: у pdf он есть (`ExportError`),
+                    # у html такого нет, а цена узкого `except` здесь — выброшенная
+                    # колода. Класс ошибки называется в отчёте, чтобы дефект не растворился
+                    # в «html не получен»: прогон `5cf2705fc173` упал `AttributeError`,
+                    # и это был настоящий баг, а не отсутствие внешней программы.
+                    errors.append(f"html не получен: {type(error).__name__}: {error}")
                 continue
             if fmt == "pdf":
                 if pptx_path is None:
