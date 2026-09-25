@@ -74,10 +74,25 @@ def written(case: tuple[Path, TemplateManifest, DesignSystem], deck: DeckIR, tmp
     return Presentation(str(out))
 
 
+def all_shapes(container) -> list:
+    """Все фигуры слайда, включая вложенные в группы.
+
+    Ряд повторов у шаблона бывает сгруппирован (у VK Tech сетка `ex013` — одна группа),
+    и обход только верхнего уровня такой слайд видит пустым: ни надписей, ни удалённых
+    повторов. Считать надо то же, что видит человек.
+    """
+    out = []
+    for shape in container.shapes:
+        out.append(shape)
+        if getattr(shape, "shapes", None) is not None:
+            out.extend(all_shapes(shape))
+    return out
+
+
 def texts_of(slide) -> list[str]:
     return [
         shape.text_frame.text.strip()
-        for shape in slide.shapes
+        for shape in all_shapes(slide)
         if shape.has_text_frame and shape.text_frame.text.strip()
     ]
 
@@ -93,9 +108,9 @@ def test_a_slide_by_recipe_carries_the_shapes_of_the_example(
 
     assert len(prs.slides) == 1, "слайды-примеры шаблона в колоду не попали"
     slide = prs.slides[0]
-    decor = [shape for shape in slide.shapes if not shape.has_text_frame]
+    decor = [shape for shape in all_shapes(slide) if not shape.has_text_frame]
     assert decor, "на слайде нет ни одной нетекстовой фигуры — оформление примера потеряно"
-    assert len(slide.shapes) > len(texts_of(slide)), "фигур не больше, чем надписей"
+    assert len(all_shapes(slide)) > len(texts_of(slide)), "фигур не больше, чем надписей"
     assert {"Первый", "Второй"} <= set(texts_of(slide))
 
 
@@ -122,7 +137,7 @@ def test_spare_repeats_are_dropped_whole(
     full = written(case, deck_by_recipe(manifest, recipe, ["A", "B", "C"]), tmp_path / "full")
     short = written(case, deck_by_recipe(manifest, recipe, ["A"]), tmp_path / "short")
 
-    assert len(short.slides[0].shapes) < len(full.slides[0].shapes)
+    assert len(all_shapes(short.slides[0])) < len(all_shapes(full.slides[0]))
 
 
 def test_a_slide_without_a_recipe_is_built_as_before(

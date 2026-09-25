@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 from deckforge.designsystem.models import (
     DesignSystem,
     Origin,
@@ -162,7 +164,160 @@ def _component_of(manifest: TemplateManifest, example: TemplateExample) -> Compo
     return max(seen, key=lambda c: (c.repeats, c.width_share * c.height_share))
 
 
-def _repeat_map(manifest: TemplateManifest, example: TemplateExample) -> tuple[dict[str, int], int]:
+def _same_size(shapes: list[ExampleShape]) -> list[list[ExampleShape]]:
+    """Разложить фигуры по размеру и кеглю: ячейки одного ряда одинаковы во всём.
+
+    Кегль в условии затем, что заголовок и абзац под ним бывают одной ширины и высоты —
+    и без него пара «заголовок + лид» читается как ряд из двух карточек. У настоящего
+    ряда ступень лестницы у всех ячеек одна: автор набрал их одинаково.
+    """
+    buckets: list[list[ExampleShape]] = []
+    for shape in sorted(shapes, key=lambda s: (-s.cx * s.cy, s.shape_id)):
+        for bucket in buckets:
+            first = bucket[0]
+            if (
+                shape.size_pt == first.size_pt
+                and abs(shape.cx - first.cx) <= first.cx * CELL_TOLERANCE
+                and abs(shape.cy - first.cy) <= first.cy * CELL_TOLERANCE
+            ):
+                bucket.append(shape)
+                break
+        else:
+            buckets.append([shape])
+    return buckets
+
+
+def _even_line(cells: list[ExampleShape], *, horizontal: bool) -> tuple[list[ExampleShape], float]:
+    """Ячейки с равным шагом по оси — и сам шаг. Шаг вразнобой рядом не считается:
+    три случайно похожие фигуры по слайду не композиция автора."""
+    line = sorted(cells, key=lambda s: _center(s)[0 if horizontal else 1])
+    if len(line) < 2:
+        return [], 0.0
+    along = [_center(cell)[0 if horizontal else 1] for cell in line]
+    steps = [b - a for a, b in pairwise(along)]
+    step = float(steps[0])
+    if step <= 0 or any(abs(other - step) > step * CELL_TOLERANCE for other in steps):
+        return [], 0.0
+    return line, step
+
+
+def _lines_of(cells: list[ExampleShape], *, horizontal: bool) -> list[list[ExampleShape]]:
+    """Разложить ячейки по линиям: ряд — это ячейки на одной высоте."""
+    lines: list[list[ExampleShape]] = []
+    across = cells[0].cy if horizontal else cells[0].cx
+    for cell in sorted(cells, key=lambda s: _center(s)[1 if horizontal else 0]):
+        line = _center(cell)[1 if horizontal else 0]
+        if lines and abs(line - _center(lines[-1][0])[1 if horizontal else 0]) <= across / 2:
+            lines[-1].append(cell)
+        else:
+            lines.append([cell])
+    return lines
+
+
+def _grid(cells: list[ExampleShape], *, horizontal: bool) -> list[ExampleShape]:
+    """Сетка одинаковых ячеек в порядке чтения — или пусто, если это не сетка.
+
+    Повтор бывает не только рядом: у VK Tech шесть карточек стоят 3×2, и ряд из трёх —
+    это половина композиции. Половину вёрстка заполняет, вторую оставляет пустой
+    и удалить не может: в `repeat_xml_ids` её нет. Поэтому повторами считается вся сетка.
+
+    Сетка — это линии равной длины с равным шагом внутри. Три случайно похожие фигуры,
+    разбросанные по слайду, ни линий равной длины, ни равного шага не дают.
+    """
+    lines = _lines_of(cells, horizontal=horizontal)
+    if not lines or len({len(line) for line in lines}) != 1:
+        return []
+    #: Линии тоже стоят с равным шагом: иначе три одинаковые надписи, разбросанные
+    #: по слайду, читаются как три «строки» сетки по одной ячейке.
+    if len(lines) > 1 and not _even_line(
+        [line[0] for line in lines], horizontal=not horizontal
+    )[0]:
+        return []
+    ordered: list[ExampleShape] = []
+    for line in lines:
+        row, _step = _even_line(line, horizontal=horizontal)
+        if len(line) > 1 and not row:
+            return []
+        ordered.extend(row or line)
+    return ordered if len(ordered) >= 2 else []
+
+
+def _row_in_the_example(ds: DesignSystem, example: TemplateExample) -> list[ExampleShape]:
+    """Ряд повторов, найденный по самому примеру: ячейки, ряд горизонтален, шаг.
+
+    Компонент шаблона (`manifest.components`) видит не всякий ряд: на обложке VK Tech
+    пять одинаковых карточек не опознались ни одним компонентом, рецепт вышел «без
+    повторов», и вёрстка оставила их пустыми — удалять нечего, `repeat_xml_ids` пуст.
+    Одинаковые фигуры, стоящие по оси с равным шагом, — это и есть повтор, и увидеть
+    его можно без парсера.
+
+    Рамка, в которую не влезает ни одного знака самым мелким кеглем шаблона, ячейкой
+    не считается: у той же обложки пять точек-индикатора по 0,27 см — декор автора,
+    а не ряд карточек, и записать их в повторы значило бы обещать вёрстке место
+    под текст там, где его нет.
+    """
+    holders = [
+        shape
+        for shape in example.shapes
+        if shape.cx > 0 and shape.cy > 0 and _holds_a_character(shape, ds)
+    ]
+    best: list[ExampleShape] = []
+    for bucket in _same_size(holders):
+        if len(bucket) < 2:
+            continue
+        for horizontal in (True, False):
+            cells = _grid(bucket, horizontal=horizontal)
+            area = cells[0].cx * cells[0].cy if cells else 0
+            better = len(cells) > len(best) or (
+                len(cells) == len(best) and best and area > best[0].cx * best[0].cy
+            )
+            if cells and better:
+                best = cells
+    return best
+
+
+def _holds_a_character(shape: ExampleShape, ds: DesignSystem) -> bool:
+    """Влезает ли в рамку хоть один знак самым мелким кеглем шаблона."""
+    smallest = min((step.size_pt for step in ds.typography.steps), default=0.0)
+    return bool(smallest) and _capacity(shape, smallest) > 0
+
+
+def _cells_to_repeats(
+    example: TemplateExample,
+    cells: list[ExampleShape],
+    *,
+    horizontal: bool,
+    step: float,
+    count: int,
+) -> dict[str, int]:
+    """Разложить фигуры примера по ячейкам ряда: и плашку, и её заголовок, и её текст.
+
+    Ячейка — прямоугольник, поэтому проверок две. Без второй, поперёк оси, в средний
+    повтор попадал заголовок слайда: он стоит над рядом, но отцентрован по его середине.
+    Цена ошибки двойная — заголовок получал пункт списка вместо заголовка, а вёрстка
+    удаляла его вместе с неиспользованным повтором.
+    """
+    if not cells or step <= 0:
+        return {}
+    origin = min(_center(cell)[0 if horizontal else 1] for cell in cells)
+    half = (cells[0].cx if horizontal else cells[0].cy) / 2
+    band_lo = min((cell.y if horizontal else cell.x) for cell in cells)
+    band_hi = max(((cell.y + cell.cy) if horizontal else (cell.x + cell.cx)) for cell in cells)
+    mapping: dict[str, int] = {}
+    for shape in example.shapes:
+        center = _center(shape)
+        along, across = (center[0], center[1]) if horizontal else (center[1], center[0])
+        if not band_lo <= across <= band_hi:
+            continue
+        index = round((along - origin) / step)
+        if 0 <= index < count and abs(along - (origin + index * step)) <= half:
+            mapping[shape.shape_id] = index
+    return mapping
+
+
+def _repeat_map(
+    manifest: TemplateManifest, ds: DesignSystem, example: TemplateExample
+) -> tuple[dict[str, int], int]:
     """Какая фигура в каком повторе стоит и сколько повторов в ряду.
 
     Начало ряда не хранится в компоненте, поэтому берётся из самого примера: рамки
@@ -176,7 +331,7 @@ def _repeat_map(manifest: TemplateManifest, example: TemplateExample) -> tuple[d
     """
     component = _component_of(manifest, example)
     if component is None:
-        return {}, 0
+        return _by_the_example(ds, example)
 
     size = manifest.slide_size
     horizontal = component.axis == "row"
@@ -184,7 +339,7 @@ def _repeat_map(manifest: TemplateManifest, example: TemplateExample) -> tuple[d
     cell_cy = component.height_share * size.cy_emu
     step = component.gap_share * (size.cx_emu if horizontal else size.cy_emu)
     if step <= 0 or cell_cx <= 0 or cell_cy <= 0:
-        return {}, 0
+        return _by_the_example(ds, example)
 
     sized = [
         shape
@@ -194,21 +349,11 @@ def _repeat_map(manifest: TemplateManifest, example: TemplateExample) -> tuple[d
     ]
     cells = _row_of(sized, horizontal=horizontal, across=cell_cy if horizontal else cell_cx)
     if len(cells) < 2:
-        return {}, 0
+        return _by_the_example(ds, example)
 
-    origin = min(_center(cell)[0 if horizontal else 1] for cell in cells)
-    half = (cell_cx if horizontal else cell_cy) / 2
-    band_lo = min((cell.y if horizontal else cell.x) for cell in cells)
-    band_hi = max(((cell.y + cell.cy) if horizontal else (cell.x + cell.cx)) for cell in cells)
-    mapping: dict[str, int] = {}
-    for shape in example.shapes:
-        center = _center(shape)
-        along, across = (center[0], center[1]) if horizontal else (center[1], center[0])
-        if not band_lo <= across <= band_hi:
-            continue
-        index = round((along - origin) / step)
-        if 0 <= index < component.repeats and abs(along - (origin + index * step)) <= half:
-            mapping[shape.shape_id] = index
+    mapping = _cells_to_repeats(
+        example, cells, horizontal=horizontal, step=step, count=component.repeats
+    )
     return mapping, component.repeats
 
 
@@ -229,6 +374,40 @@ def _row_of(
         else:
             groups.append([cell])
     return max(groups, key=len) if groups else []
+
+
+def _inside_cell(shape: ExampleShape, cell: ExampleShape) -> bool:
+    x, y = _center(shape)
+    return cell.x <= x <= cell.x + cell.cx and cell.y <= y <= cell.y + cell.cy
+
+
+def _by_the_example(ds: DesignSystem, example: TemplateExample) -> tuple[dict[str, int], int]:
+    """Повторы, найденные по самому примеру, — когда компонент шаблона молчит.
+
+    Фигура попадает в повтор по попаданию центра в саму ячейку: ячейки не пересекаются,
+    и для сетки это надёжнее арифметики шага — шаг между строками и внутри строки разный.
+    """
+    cells = _row_in_the_example(ds, example)
+    if len(cells) < 2:
+        return {}, 0
+    mapping = {
+        shape.shape_id: index
+        for shape in example.shapes
+        for index, cell in enumerate(cells)
+        if _inside_cell(shape, cell)
+    }
+    #: Повтор — это место под наш текст, и автор шаблона сам его текстом занял: надписью
+    #: внутри карточки либо самой ячейкой-надписью. Сетка без текста — орнамент:
+    #: у MWS так набраны 50 иконок 1,3 см, у VK Tech — 15. Записать их в повторы значило бы
+    #: обещать вёрстке пятьдесят карточек и предлагать плану набить их фактами.
+    filled = {
+        mapping[shape.shape_id]
+        for shape in example.shapes
+        if shape.shape_id in mapping and _is_text(shape)
+    }
+    if len(filled) < 2:
+        return {}, 0
+    return mapping, len(cells)
 
 
 def _zones(ds: DesignSystem, example: TemplateExample, repeats: dict[str, int]) -> list[Zone]:
@@ -378,7 +557,7 @@ def _recipe(
     if any(shape.kind in UNSUPPORTED_KINDS for shape in example.shapes):
         return None
     box = _content_box(ds)
-    repeats, count = _repeat_map(manifest, example)
+    repeats, count = _repeat_map(manifest, ds, example)
     zones = _with_title(_zones(ds, example, repeats), example, ds)
     if not zones:
         return None
