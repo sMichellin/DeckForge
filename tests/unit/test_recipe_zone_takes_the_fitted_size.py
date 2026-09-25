@@ -277,6 +277,33 @@ def test_a_run_without_the_authors_size_is_left_alone(strategy: str) -> None:
     )
 
 
+@pytest.mark.parametrize("strategy", ["shrink", "as_is"])
+def test_a_styled_run_without_the_authors_size_is_left_alone(strategy: str) -> None:
+    """D04, самый частый случай: у прогона примера `rPr` есть (полужирный, цвет, гарнитура),
+    а `sz` нет — кегль унаследован из макета. Кегль опущен (20 pt при зоне в 60 pt), а зона
+    та же, что у автора: `sz` не появляется, прочее оформление на месте."""
+    prs, recipe, _bare, styled = example(size_pt=60)
+    for run in runs(shape_by_id(prs.slides[0], styled)):
+        del props_of(run).attrib["sz"]
+    no_size = AUTHORS_RPR.replace(' sz="2400"', "")
+    expected = expected_body(
+        shape_by_id(prs.slides[0], styled),
+        [
+            f"<a:p>{AUTHORS_PPR}<a:r>{no_size}<a:t>{line}</a:t></a:r></a:p>"
+            for line in ("Наша подпись", "Вторая строка")
+        ],
+    )
+    lowered = FitResult(final_size_pt=20, strategy=strategy)
+
+    slide = clone_recipe(prs, recipe, slide_ir(recipe, {"b1": lowered}))
+
+    written = shape_by_id(slide, styled)
+    assert all(props_of(run).get("sz") is None for run in runs(written)), (
+        "прогону с rPr без sz писатель поставил кегль вслепую"
+    )
+    assert canonical(written.find(qn("p:txBody"))) == expected
+
+
 # --- настоящий шаблон ---------------------------------------------------------------
 
 TEMPLATE = "VK Tech шаблон.pptx"
