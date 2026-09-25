@@ -39,6 +39,9 @@ class TextMetrics:
     font_family: str
     #: `False` — шрифта шаблона нет, считали по пессимистичной замене.
     font_exact: bool
+    #: Ширина самого длинного слова. Шире строки рамки — PowerPoint рвёт его по знакам
+    #: («извлечен / ие»), и высота этого не видит: строк прибавилось, а места хватило.
+    longest_word_emu: int = 0
 
 
 @cache
@@ -98,6 +101,34 @@ def wrap_paragraph(paragraph: str, limit_em: float, metrics: FontMetrics) -> lis
     return lines
 
 
+def _longest_word_em(paragraphs: list[str], metrics: FontMetrics) -> float:
+    """Самое длинное слово в em. Граница слова — та же, что у переноса (`_SPACED_WORD`):
+    неразрывный пробел — внутри слова."""
+    return max(
+        (
+            metrics.text_width_em(match.group(2))
+            for paragraph in paragraphs
+            for match in _SPACED_WORD.finditer(paragraph)
+        ),
+        default=0.0,
+    )
+
+
+def longest_word_em(
+    text: str,
+    *,
+    font_family: str,
+    bold: bool = False,
+    italic: bool = False,
+    fonts: FontLibrary | None = None,
+) -> float:
+    """Ширина самого длинного слова в em — от кегля не зависит, поэтому меряется один раз,
+    а не переносом всего текста на каждой ступени шкалы."""
+    library = fonts if fonts is not None else _default_library()
+    face = library.resolve(font_family, bold=bold, italic=italic).face
+    return _longest_word_em(split_paragraphs(text), library.metrics(face))
+
+
 def measure_text(
     text: str,
     *,
@@ -119,14 +150,14 @@ def measure_text(
     emu_per_em = size_pt * EMU_PER_PT
     limit_em = usable_width_emu(box) / emu_per_em if emu_per_em > 0 else 0.0
 
-    widths = [
-        w for paragraph in split_paragraphs(text)
-        for w in wrap_paragraph(paragraph, limit_em, metrics)
-    ]
+    paragraphs = split_paragraphs(text)
+    widths = [w for paragraph in paragraphs for w in wrap_paragraph(paragraph, limit_em, metrics)]
+    longest = _longest_word_em(paragraphs, metrics)
     return TextMetrics(
         width_emu=round(max(widths) * emu_per_em),
         height_emu=round(len(widths) * line_height_emu(size_pt, line_spacing)),
         lines=len(widths),
         font_family=resolved.face.family,
         font_exact=resolved.exact,
+        longest_word_emu=round(longest * emu_per_em),
     )
