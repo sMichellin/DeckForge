@@ -288,9 +288,9 @@ def test_a_block_that_shortening_would_empty_stays_below_reading(
 def test_an_explicit_size_snapped_below_reading_is_checked(
     low: TemplateManifest, fonts: FontLibrary
 ) -> None:
-    """Явный кегль 11 pt вне шкалы привязывается к 7,8 pt — это ступень ниже порога, и она
-    проходит ту же проверку: ступеней не ниже порога у блока нет, сокращение оставило бы
-    ноль — ступень под порогом берётся по правилу D06 и помечается, а не молча."""
+    """Явный кегль 11 pt вне шкалы привязывался к 7,8 pt без проверки порога. Теперь эта
+    ступень проходит ту же проверку и не берётся; ступень не ниже порога — 12 pt (пол).
+    «Выручка» при 12 pt — одна строка 182 880 EMU в рамке 274 320 EMU: встаёт на полу."""
     block = TextBlock(
         block_id="p0", role=TextRole.BODY, text="Выручка", size_pt=11,
         x=914_400, y=914_400, cx=WIDE, cy=ONE_LINE_AT_18,
@@ -299,7 +299,34 @@ def test_an_explicit_size_snapped_below_reading_is_checked(
 
     fit = fit_slide(slide, low, fonts=fonts).fit_report["p0"]
 
-    assert (fit.final_size_pt, fit.strategy) == (LOW_STEP, BELOW_READING)
+    assert (fit.final_size_pt, fit.overflow) == (12, False)
+
+
+def test_an_icon_list_with_an_explicit_size_off_the_scale_stays_on_the_scale(
+    low: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Иконочный список с явным 11 pt: ступень 7,8 под порогом не берётся, исход — на полу
+    12 pt с посчитанной высотой (одна строка — 182 880 EMU при высоте 150 000), а не 11 pt
+    вне шкалы без замера."""
+    block = icon_list().model_copy(update={"size_pt": 11})
+    fit = fit_icon_list(block, block.bbox, low, DesignRules(low), fonts=fonts)  # type: ignore[arg-type]
+
+    assert (fit.final_size_pt, fit.overflow, fit.strategy) == (12, True, "shorten")
+    assert (fit.lines, fit.required_cy_emu) == (1, 182_880)
+
+
+def test_a_first_word_that_fits_no_step_stays_on_the_floor(
+    low: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """D06 разрешает ступень под порогом, только если блок на ней встаёт. «Анализирование»
+    (14 знаков) при 7,8 pt — 65,5 pt при строке 35 pt: не встаёт и там. Исход — на полу
+    12 pt с переполнением, а не 7,8 pt с переполнением."""
+    design = rules(low, zone(18, cx=NARROW_CX))
+    slide = by_recipe("Анализирование данных")
+
+    fit = fit_slide(slide, low, fonts=fonts, design=design).fit_report["p0"]
+
+    assert (fit.final_size_pt, fit.overflow, fit.strategy) == (12, True, "shorten")
 
 
 def test_the_floor_is_the_greater_of_reading_and_the_title_floor(

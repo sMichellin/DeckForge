@@ -79,8 +79,9 @@ SHORTEN = "shorten"
 SPLIT = "split"
 GROW = "grow"
 #: Кегль ниже порога читаемости по правилу D06: на ступенях не ниже порога не встаёт даже
-#: первое слово, сокращение свело бы блок к нулю — блок остаётся на ступени под порогом.
-#: Узел `fit` называет это в заметке.
+#: первое слово, сокращение свело бы блок к нулю — блок остаётся на ступени под порогом,
+#: на которой встаёт. Узел `fit` назовёт это в заметке после запроса 0 тимлиду (proposal
+#: `a-size-below-reading-is-not-a-fit`); до того пометка видна только в `fit_report`.
 BELOW_READING = "below_reading"
 
 #: Ниже этой доли своей рамки свободный блок теряется в пустоте: текст жмётся к верхнему
@@ -110,7 +111,8 @@ def _sizes(
     `min_pt` — предел, ниже которого спуск не идёт. Стартовый кегль он не поднимает:
     кто задал блоку кегль явно, тот уже принял решение (см. `_titles_yield_size`). Но старт
     не ниже предела, привязанный к шкале ступенью ниже него, — уже спуск, и он проходит ту же
-    проверку (RG35): такой ступени нет.
+    проверку (RG35): вместо ступени под пределом берётся наименьшая ступень не ниже него —
+    пол. Перебор никогда не пуст: исход любого пути — ступень шкалы с посчитанной высотой.
 
     `keep_start` — старт не привязывается к шкале: это кегль автора шаблона из его же
     фигуры (зона рецепта, RG29), как кегль плейсхолдера. Привяжи его — и текст, который
@@ -128,7 +130,7 @@ def _sizes(
         size = next_size_down(manifest, start_pt) or min(ladder)
         steps = 1
         if min_pt is not None and size < min_pt <= start_pt:
-            return
+            size = min((s for s in ladder if s >= min_pt), default=size)
     while size is not None:
         yield size
         if not allow_shrink or (max_steps is not None and steps >= max_steps):
@@ -225,7 +227,8 @@ def fit_text(
     if not descend(words[0], min_size_pt=floor).overflow:
         return result
     below = descend(text, min_size_pt=min_size_pt)
-    return below if below.overflow else below.model_copy(update={"strategy": BELOW_READING})
+    # Ступень под порогом — только та, на которой блок встаёт (D06); иначе исход на полу.
+    return result if below.overflow else below.model_copy(update={"strategy": BELOW_READING})
 
 
 def _descend(
