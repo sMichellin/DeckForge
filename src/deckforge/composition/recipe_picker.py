@@ -56,6 +56,22 @@ def _title_capacity(recipe: Recipe) -> int:
     return max((zone.capacity_chars for zone in zones), default=0)
 
 
+def _says(slide: SlidePlan, needs_chars: int) -> int:
+    """Сколько знаков слайд собирается сказать на самом деле.
+
+    Содержательный — заголовок и факты, как их посчитал композитор. Структурный —
+    **только заголовок**: обложка не печатает фактов плана, и мерить ей вместимость
+    по ним значит отвергать её за то, чего на ней не будет.
+
+    Прогон RG28 показал, к чему это приводит. У VK WorkSpace одна обложка (`ex014`,
+    вместимость 32) и один разделитель (`ex028`, вместимость 0). Обложку отвергала
+    эта проверка — 32 знака против половины от всех фактов слайда, — а разделитель
+    проходил, потому что вместимость ноль означает «посчитать не удалось» и условие
+    молчит. Титульный слайд получал разделитель вместо обложки шаблона.
+    """
+    return len(slide.headline) if slide.intent in INTENT_KINDS else needs_chars
+
+
 def _holds_the_text(recipe: Recipe, slide: SlidePlan, needs_chars: int) -> bool:
     """Влезет ли в рецепт то, что слайд собирается сказать.
 
@@ -71,7 +87,8 @@ def _holds_the_text(recipe: Recipe, slide: SlidePlan, needs_chars: int) -> bool:
     if title and slide.headline and title < len(slide.headline) * KEEP_SHARE:
         return False
     holds = sum(zone.capacity_chars for zone in recipe.zones)
-    return not (holds and needs_chars and holds < needs_chars * KEEP_SHARE)
+    says = _says(slide, needs_chars)
+    return not (holds and says and holds < says * KEEP_SHARE)
 
 
 def _wanted_seats(slide: SlidePlan) -> int:

@@ -175,6 +175,28 @@ def test_bullets_that_outnumber_the_repeats_are_named() -> None:
     assert any("повторов" in note and "пунктов 5" in note for note in notes), notes
 
 
+def test_a_paragraph_takes_a_card_when_free_zones_run_out() -> None:
+    """Абзац встаёт в карточку ряда, если свободных зон не осталось.
+
+    Прогон RG28 на VK Education: «блок b02 снят — мест под тело 4, блоков тела 2».
+    Противоречие настоящее — четыре места были повторами, а в повтор до этой правки
+    мог встать только список. Пустая карточка рядом со снятым абзацем хуже карточки
+    с абзацем.
+    """
+    notes: list[str] = []
+    row = recipe(
+        3,
+        repeats=3,
+        zones=[zone("z1", TypeLevel.SLIDE_TITLE)]
+        + [zone(f"z{index + 2}", TypeLevel.BODY, repeat=index) for index in range(3)],
+    )
+
+    bound = bind_to_recipe(slide_ir(body(2)), row, notes)
+
+    assert len(bound.blocks) == 3, [block.block_id for block in bound.blocks]
+    assert not [note for note in notes if "снят" in note], notes
+
+
 def test_a_wordless_block_is_named_not_swallowed() -> None:
     """Нарушитель: показатель. Зона — текстовая фигура, поставить в неё нечего.
 
@@ -327,6 +349,28 @@ def test_a_cover_with_a_subtitle_wins_over_one_without() -> None:
     chosen = pick_recipe(plan(intent=SlideIntent.TITLE, fact_refs=["f1"]), [bare, with_sub])
 
     assert chosen is not None and chosen.recipe_id == "ex002"
+
+
+def test_a_cover_is_not_rejected_for_facts_it_will_never_print() -> None:
+    """Обложка меряется по заголовку, а не по фактам плана.
+
+    У VK WorkSpace одна обложка (вместимость 32) и один разделитель (вместимость 0).
+    Обложку отвергала проверка знаков RG23 — 32 против половины всех фактов слайда, —
+    а разделитель проходил: вместимость ноль означает «посчитать не удалось», и условие
+    молчит. Титульный слайд получал разделитель вместо обложки шаблона.
+    """
+    cover = recipe(
+        1, RecipeKind.COVER, zones=[zone("z1", TypeLevel.DISPLAY, chars=32)]
+    )
+    divider = recipe(2, RecipeKind.SECTION, zones=[zone("z1", TypeLevel.DISPLAY, chars=0)])
+
+    chosen = pick_recipe(
+        plan(intent=SlideIntent.TITLE, headline="AI-генерация презентаций"),
+        [cover, divider],
+        needs_chars=400,
+    )
+
+    assert chosen is not None and chosen.recipe_id == "ex001"
 
 
 # --- 3. обрезка не опережает вписывание -------------------------------------------

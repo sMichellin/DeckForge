@@ -349,11 +349,28 @@ def bind_to_recipe(slide: SlideIR, recipe: Recipe, notes: list[str] | None = Non
     heading = _title_zone(recipe)
     title_zone = heading
     rest = [zone for zone in _free_zones(recipe) if zone is not heading]
+    buckets = _buckets(recipe, heading)
     seats = body_seats(recipe)
     wanted = sum(1 for block in slide.blocks if _role_of(block) is not TextRole.TITLE)
 
     blocks: list[Block] = []
     used_repeat = 0
+
+    def take_repeat() -> tuple[int, Zone] | None:
+        """Следующий свободный повтор — абзацу, когда свободных зон не осталось.
+
+        Повтор — это карточка ряда, и абзац в ней стоит законно: модель написала два
+        абзаца там, где шаблон ждал список, и до этой правки второй абзац снимался
+        при четырёх пустых карточках рядом. По заметке прогона это выглядело прямым
+        враньём: «мест под тело 4, блоков тела 2» — и блок снят.
+        """
+        nonlocal used_repeat
+        if used_repeat >= len(buckets):
+            return None
+        index, zones = buckets[used_repeat]
+        used_repeat += 1
+        return index, zones[0]
+
     for block in slide.blocks:
         lines = _lines(block)
         if not lines:
@@ -364,7 +381,7 @@ def bind_to_recipe(slide: SlideIR, recipe: Recipe, notes: list[str] | None = Non
             title_zone = None
             continue
         if isinstance(block, BulletsBlock) and recipe.repeats:
-            free_repeats = _buckets(recipe, heading)[used_repeat:]
+            free_repeats = buckets[used_repeat:]
             placed = 0
             for line, (index, zones) in zip(lines, free_repeats, strict=False):
                 blocks.append(_placed(block, zones[0], line, index, slide, notes))
@@ -373,14 +390,21 @@ def bind_to_recipe(slide: SlideIR, recipe: Recipe, notes: list[str] | None = Non
             if placed < len(lines):
                 _note_lost_lines(notes, slide, block, recipe, placed, len(lines))
             continue
-        zone = _zone_for(block, rest, recipe, slide, notes)
-        if zone is None:
-            _note_drop(notes, slide, block, recipe, seats, wanted)
-            continue
-        rest.remove(zone)
-        _note_plain(notes, slide, block, recipe)
         joined = " ".join(lines)
-        blocks.append(_placed(block, zone, joined, 0, slide, notes, _role_of(block)))
+        zone = _zone_for(block, rest, recipe, slide, notes)
+        if zone is not None:
+            rest.remove(zone)
+            _note_plain(notes, slide, block, recipe)
+            blocks.append(_placed(block, zone, joined, 0, slide, notes, _role_of(block)))
+            continue
+        # Свободных зон не осталось — идём в повтор, пока он есть: пустая карточка
+        # рядом со снятым абзацем хуже карточки с абзацем.
+        if (taken := take_repeat()) is not None:
+            index, card = taken
+            _note_plain(notes, slide, block, recipe)
+            blocks.append(_placed(block, card, joined, index, slide, notes))
+            continue
+        _note_drop(notes, slide, block, recipe, seats, wanted)
 
     return slide.model_copy(
         update={"blocks": blocks, "recipe_id": recipe.recipe_id, "fit_report": {}}
