@@ -39,7 +39,7 @@ from deckforge.domain.template import (
 )
 from deckforge.domain.units import EMU_PER_PT, TEXT_FRAME_INSET_Y_EMU
 from deckforge.layout.boxed import BoxedBlock, paragraphs, style_of, text_frame
-from deckforge.layout.by_design import DesignRules, KpiSizes
+from deckforge.layout.by_design import READING_FLOOR_PT, DesignRules, KpiSizes
 from deckforge.layout.diagram import SUPPORTED_PATTERNS, diagram_geometry
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fonts import FontLibrary
@@ -669,17 +669,25 @@ def _text_of(block: TextBlock | BulletsBlock) -> str:
 
 
 def _floor_of(
-    block: TextBlock | BulletsBlock, box: BBox, step: TypographyStep, manifest: TemplateManifest
-) -> float | None:
-    """Ниже какого кегля блок не спускается; `None` — спуск по всей шкале.
+    block: TextBlock | BulletsBlock,
+    box: BBox,
+    step: TypographyStep,
+    manifest: TemplateManifest,
+    reading_floor_pt: float,
+) -> float:
+    """Ниже какого кегля блок не спускается: наибольшее из порога читаемости и пола заголовка.
 
     Заголовок уступает кегль, но по-разному. Полоса ниже строки кеглем роли — спуск
     по всей шкале (так было до A9: сокращать в таком заголовке нечего). Полоса, которая
     держит строку, но не две, — спуск до кегля тела и не ниже.
+
+    Порог читаемости (RG35) — для любого блока: ступень ниже него не берётся, текст
+    сокращается. Кегль старта он не поднимает (`_sizes`): кегль автора ниже порога остаётся
+    кеглем автора и дальше не спускается.
     """
     if block.role is TextRole.TITLE and _band_holds_the_role_size(box, step):
-        return _title_size_floor(manifest, step)
-    return None
+        return max(reading_floor_pt, _title_size_floor(manifest, step))
+    return reading_floor_pt
 
 
 def fit_block(
@@ -693,7 +701,8 @@ def fit_block(
     """Вписывает текстовый блок: кегль и гарнитура — из типошкалы его роли.
 
     Иконочный список (свободный) меряется по рамке без колонки иконок: `fit_icon_list`.
-    `design` нужен только ему; не передан — ДС считается из манифеста."""
+    `design` нужен ему и даёт порог читаемости текстовому блоку; не передан — ДС считается
+    из манифеста, порог — умолчание `READING_FLOOR_PT`."""
     if isinstance(block, BulletsBlock) and draws_icons(block):
         return fit_icon_list(
             block, block.bbox, manifest,  # type: ignore[arg-type]
@@ -701,7 +710,8 @@ def fit_block(
         )
     step = _step_for(block.role, manifest)
     box = _box_for(block, layout)
-    result = _fit_text_block(block, box, manifest, fonts=fonts)
+    floor = design.reading_floor_pt if design is not None else READING_FLOOR_PT
+    result = _fit_text_block(block, box, manifest, fonts=fonts, reading_floor_pt=floor)
     if _grows_to_its_space(block, result):
         return _grown(
             result,
@@ -832,6 +842,7 @@ def _fit_text_block(
     *,
     fonts: FontLibrary | None,
     zone: _ZoneFrame | None = None,
+    reading_floor_pt: float = READING_FLOOR_PT,
 ) -> FitResult:
     """Текстовый блок в своей рамке — плейсхолдера, координат или зоны рецепта.
 
@@ -846,6 +857,8 @@ def _fit_text_block(
     а не коробка (D02, §11): ограничивает только ширина. Мерить её по высоте — снять
     весь текст, который у автора в ней растёт вниз (карточки VK Tech, рамки 12–13 pt).
     Спуск кегля в зоне — не дальше `_ZONE_STEPS_DOWN` ступеней, дальше — сокращение.
+    И в зоне, и вне её — не ниже порога читаемости (`_floor_of`, RG35): ступень под ним
+    не берётся, текст сокращается.
     """
     step = _step_for(block.role, manifest)
     zone_pt = zone.size_pt if zone is not None else None
@@ -855,7 +868,7 @@ def _fit_text_block(
         manifest=manifest,
         start_size_pt=block.size_pt or zone_pt or step.size_pt,
         font_family=(zone.font_family if zone is not None else None) or _font_of(step, manifest),
-        min_size_pt=_floor_of(block, box, step, manifest),
+        min_size_pt=_floor_of(block, box, step, manifest, reading_floor_pt),
         bold=step.bold,
         italic=step.italic,
         line_spacing=step.line_spacing or 1.0,
@@ -895,7 +908,8 @@ def fit_slide(
             continue
         if (zone := frames.get(block.zone_id)) is not None:
             report[block.block_id] = _fit_text_block(
-                block, zone.box, manifest, fonts=fonts, zone=zone
+                block, zone.box, manifest, fonts=fonts, zone=zone,
+                reading_floor_pt=rules.reading_floor_pt,
             )
 
     if slide.by_recipe:

@@ -51,6 +51,14 @@ ACCENT_SLOTS: tuple[ColorRef, ...] = (
 #: заданное дизайн-системой, при этом сохраняется.
 MAX_INSET_SHARE = 0.08
 
+#: Порог читаемости, пт: ступень шкалы ниже него вписывание не берёт — текст сокращается
+#: (RG35, change `a-size-below-reading-is-not-a-fit`). Совпадает со
+#: `scripts/check_deck_readable.py` `DEFAULT_SIZE_FLOOR_PT`; источник — конфиг, как только
+#: тимлид его проведёт (`configs/default.yaml` → `DesignRules` в узле `fit`). До тех пор это
+#: единственное умолчание, а переопределяется оно аргументом `DesignRules(reading_floor_pt=…)`.
+#: Порог восприятия, а не свойство шаблона.
+READING_FLOOR_PT = 10.0
+
 #: Как вид callout называется в `synthesized` — там его полоса, отбивка и подпись.
 _CALLOUT_KIND: dict[CalloutTone, str] = {
     CalloutTone.INSIGHT: "callout_insight",
@@ -136,8 +144,16 @@ class DesignRules:
     обязан совпадать — иначе вписанный кегль разойдётся с записанным.
     """
 
-    def __init__(self, manifest: TemplateManifest, design_system: DesignSystem | None = None):
+    def __init__(
+        self,
+        manifest: TemplateManifest,
+        design_system: DesignSystem | None = None,
+        *,
+        reading_floor_pt: float = READING_FLOOR_PT,
+    ):
         self.manifest = manifest
+        #: Ниже этого кегля вписывание текст не спускает, а сокращает (RG35).
+        self.reading_floor_pt = reading_floor_pt
         #: Нет в состоянии (старый чекпойнт, вызов вне графа) — считается здесь же:
         #: `derive` — чистая функция без модели и файлов, миллисекунды (DG2).
         self.ds = design_system if design_system is not None else derive(manifest)
