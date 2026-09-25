@@ -37,20 +37,21 @@ from deckforge.audit.geometry import (
     placeholder_of,
     self_positioned_blocks,
 )
+from deckforge.audit.recipes import catalogue, recipe_layout_part
 from deckforge.audit.registry import CheckContext, CheckUnavailable, check
-from deckforge.designsystem import derive
 from deckforge.designsystem.contrast import (
     TextClass,
     comfort_ratio,
     required_ratio,
     text_classes,
 )
+from deckforge.designsystem.models import Recipe
 from deckforge.domain.audit import Finding
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage
 from deckforge.domain.enums import AutoFix, ColorRef, Severity, TextRole
 from deckforge.domain.rules import contrast_ratio
-from deckforge.domain.slide import Block, BulletsBlock, ChartBlock, KpiBlock, TableBlock
+from deckforge.domain.slide import Block, BulletsBlock, ChartBlock, KpiBlock, SlideIR, TableBlock
 from deckforge.domain.template import LayoutSpec, TemplateManifest
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.tabular import table_cells
@@ -297,12 +298,21 @@ def _layout_parts_in_file(ctx: CheckContext) -> list[str] | None:
 @check(id="template.layout_not_from_template", deterministic=True, severity=Severity.ERROR,
        title="Слайд собран не на макете из шаблона")
 def layout_not_from_template(ctx: CheckContext) -> Iterable[Finding]:
-    """Слайд собран не на макете из шаблона."""
+    """Слайд собран не на макете из шаблона.
+
+    Слайд по рецепту (`SlideIR.by_recipe`) — копия слайда-примера, и лежит он на макете
+    примера, а не на том, что выбрал план. Его часть макета сверяется с макетом примера
+    рецепта (RG27): совпала — молчит, не совпала — писатель склонировал не тот пример.
+    """
     parts_in_file = _layout_parts_in_file(ctx)
     if parts_in_file is not None:
+        recipes = catalogue(ctx)
         for number, slide in enumerate(ctx.deck.slides):
             if number >= len(parts_in_file):
                 break
+            if slide.by_recipe:
+                yield from _recipe_layout_mismatch(ctx, slide, parts_in_file[number], recipes)
+                continue
             declared = layout_of(slide, ctx.manifest)
             actual = parts_in_file[number]
             if declared is None or declared.part_name.lstrip("/") == actual:
@@ -348,6 +358,30 @@ def layout_not_from_template(ctx: CheckContext) -> Iterable[Finding]:
                 ),
                 evidence={"layout_id": layout.layout_id, "placeholder_idx": str(idx)},
             )
+
+
+def _recipe_layout_mismatch(
+    ctx: CheckContext, slide: SlideIR, actual: str, recipes: dict[str, Recipe]
+) -> Iterable[Finding]:
+    """Слайд по рецепту лежит не на макете своего примера.
+
+    Рецепта нет в каталоге — это вопрос `template.recipe_not_in_catalogue`; макет примера
+    неизвестен — сверять не с чем, а гадать хуже, чем промолчать.
+    """
+    recipe = recipes.get(slide.recipe_id or "")
+    expected = recipe_layout_part(recipe, ctx.manifest) if recipe is not None else None
+    if recipe is None or expected is None or expected == actual:
+        return
+    yield make_finding(
+        check_id="template.layout_not_from_template",
+        slide_id=slide.slide_id,
+        reason=f"recipe:{recipe.recipe_id}:{actual}",
+        message=(
+            f"Слайд собран по рецепту {recipe.recipe_id} на макете {actual}, "
+            f"а пример рецепта лежит на {expected}"
+        ),
+        evidence={"recipe_id": recipe.recipe_id, "expected": expected, "actual": actual},
+    )
 
 
 @check(id="template.decor_moved", deterministic=True, severity=Severity.WARNING,
@@ -712,13 +746,11 @@ def sample_text_left(ctx: CheckContext) -> Iterable[Finding]:
 
 
 def _catalogue(ctx: CheckContext) -> set[str]:
-    """Идентификаторы рецептов шаблона — тем же `derive`, которым каталог строит `parse`.
-
-    Дизайн-системы в контексте аудита нет, а протаскивать её через граф — файл тимлида.
-    `derive` — чистая функция манифеста без модели и без файлов, поэтому каталог здесь
-    совпадает с каталогом писателя по построению. Считается один раз на вызов проверки.
+    """Идентификаторы рецептов шаблона — из дизайн-системы контекста, а нет её — тем же
+    `derive`, которым каталог строит `parse` (`audit.recipes.catalogue`, RG27).
+    Считается один раз на вызов проверки.
     """
-    return {recipe.recipe_id for recipe in derive(ctx.manifest).recipes}
+    return set(catalogue(ctx))
 
 
 @check(id="template.recipe_not_in_catalogue", deterministic=True, severity=Severity.ERROR,
