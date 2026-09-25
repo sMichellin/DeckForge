@@ -23,6 +23,7 @@ from pptx.oxml.ns import qn
 
 from deckforge.designsystem.models import Recipe, TypeLevel
 from deckforge.domain.slide import Block, BulletsBlock, SlideIR, TextBlock
+from deckforge.layout.fitting import AS_IS
 from deckforge.rendering.units import size_hundredths
 
 #: Атрибуты, которыми фигура ссылается на связь своей части: картинка, диаграмма, ссылка.
@@ -185,7 +186,8 @@ def write_zone(shape: Any, lines: list[str], size_pt: float | None = None) -> No
     не нашло свой (`size_pt`, change `recipe-zone-takes-the-fitted-size`): кегль примера
     стоял под короткое слово примера, и наш текст на нём рвёт слова и выходит за рамку.
     Найденный кегль ставится каждому прогону, `rPr` без него создаётся; без `size_pt`
-    зона пишется как раньше, байт в байт.
+    зона пишется как раньше, байт в байт. Кегль автора писатель только опускает, но не
+    поднимает (D02): `sz = min(size_pt, sz прогона примера)`; у прогона без `sz` — `size_pt`.
     """
     body = shape.find(qn("p:txBody"))
     if body is None:
@@ -204,7 +206,9 @@ def write_zone(shape: Any, lines: list[str], size_pt: float | None = None) -> No
             props = run.find(qn("a:rPr"))
             if props is None:
                 props = etree.SubElement(run, qn("a:rPr"))
-            props.set("sz", size_hundredths(size_pt))
+            fitted, authors = size_hundredths(size_pt), props.get("sz")
+            if authors is None or int(fitted) < int(authors):
+                props.set("sz", fitted)
         text = etree.SubElement(run, qn("a:t"))
         text.text = line
 
@@ -236,11 +240,13 @@ def clone_recipe(prs: Any, recipe: Recipe, slide_ir: SlideIR) -> Any:
             continue
         #: Кегль вписывания по рамке зоны (RG29). Записи нет — зона без рамки или старый
         #: чекпойнт: остаётся кегль автора примера, как до вписывания слайдов по рецепту.
+        #: Вписывание ничего не меняло (`as_is`) — тоже: его стартовый кегль берётся
+        #: из каталога и не всегда равен кеглю прогона примера (D02).
         fitted = slide_ir.fit_report.get(block.block_id)
         write_zone(
             shapes[zone.xml_id],
             _lines_of(block),
-            fitted.final_size_pt if fitted is not None else None,
+            fitted.final_size_pt if fitted is not None and fitted.strategy != AS_IS else None,
         )
         filled.add(zone_id)
 

@@ -171,12 +171,11 @@ def expected_body(source: Any, paragraphs: list[str]) -> bytes:
     return canonical(body)
 
 
-def test_without_a_record_the_zone_is_written_as_before() -> None:
-    """Записи нет — `p:txBody` зоны целиком тот же, что писал код до правки: число абзацев,
-    `pPr`, `rPr` каждого прогона. Страж прежнего поведения: до правки он тоже зелёный."""
-    prs, recipe, bare, styled = example()
+def authors_bodies(prs: Any, bare: int, styled: int) -> dict[int, bytes]:
+    """Эталон зоны с оформлением автора: `p:txBody`, каким его писал код до правки RG29,
+    выписанный вручную по абзацу на строку, с `pPr`/`rPr` автора."""
     source = prs.slides[0]
-    expected = {
+    return {
         bare: expected_body(
             shape_by_id(source, bare),
             [
@@ -193,10 +192,52 @@ def test_without_a_record_the_zone_is_written_as_before() -> None:
         ),
     }
 
+
+def test_without_a_record_the_zone_is_written_as_before() -> None:
+    """Записи нет — `p:txBody` зоны целиком тот же, что писал код до правки: число абзацев,
+    `pPr`, `rPr` каждого прогона. Страж прежнего поведения: до правки он тоже зелёный."""
+    prs, recipe, bare, styled = example()
+    expected = authors_bodies(prs, bare, styled)
+
     slide = clone_recipe(prs, recipe, slide_ir(recipe, {}))
 
     for xml_id, body in expected.items():
         assert canonical(shape_by_id(slide, xml_id).find(qn("p:txBody"))) == body
+
+
+def test_a_zone_the_fitting_left_as_is_keeps_the_authors_look() -> None:
+    """D02: вписывание ничего не меняло (`as_is`) — зона та же, что без записи, байт в байт,
+    даже если `final_size_pt` больше кегля автора. Так заголовки VK Education выросли
+    36 → 60 pt: `Zone.size_pt` каталога не равен кеглю прогона примера."""
+    prs, recipe, bare, styled = example()
+    expected = authors_bodies(prs, bare, styled)
+    as_is = FitResult(final_size_pt=60, strategy="as_is")
+
+    slide = clone_recipe(prs, recipe, slide_ir(recipe, {"b0": as_is, "b1": as_is}))
+
+    for xml_id, body in expected.items():
+        assert canonical(shape_by_id(slide, xml_id).find(qn("p:txBody"))) == body, (
+            "запись as_is изменила оформление автора"
+        )
+
+
+def test_the_fitted_size_never_exceeds_the_authors() -> None:
+    """D02: вписывание опустило кегль, но не ниже авторского (старт каталога был выше
+    кегля прогона примера) — у прогона остаётся `sz` автора, 24 pt, а не 30. Прогон,
+    у которого в примере `sz` не было, получает кегль вписывания: сравнивать не с чем."""
+    prs, recipe, bare, styled = example()
+    expected = authors_bodies(prs, bare, styled)[styled]
+    shrunk = FitResult(final_size_pt=30, strategy="shrink")
+
+    slide = clone_recipe(prs, recipe, slide_ir(recipe, {"b0": shrunk, "b1": shrunk}))
+
+    assert canonical(shape_by_id(slide, styled).find(qn("p:txBody"))) == expected, (
+        "кегль вписывания больше авторского попал в файл"
+    )
+    assert [props_of(run).get("sz") for run in runs(shape_by_id(slide, bare))] == [
+        "3000",
+        "3000",
+    ]
 
 
 # --- настоящий шаблон ---------------------------------------------------------------
@@ -239,7 +280,8 @@ def test_the_written_file_carries_the_fitted_size(tmp_path: Path) -> None:
     recipe, zones = found
     fitted, kept = zones[0], zones[1]
     authors_size = int(authors_props(path, recipe, fitted.xml_id).get("sz"))
-    size_pt = 11.0 if authors_size != 1100 else 12.0
+    #: Ниже кегля автора: выше писатель его не поднимает (D02).
+    size_pt = authors_size / 200
 
     example = next(e for e in manifest.examples if e.slide_index == recipe.example_index)
     ir = SlideIR(
