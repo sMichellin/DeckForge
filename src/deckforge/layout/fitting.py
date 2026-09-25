@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 from deckforge.domain.base import BBox
@@ -77,6 +78,10 @@ SHRINK = "shrink"
 SHORTEN = "shorten"
 SPLIT = "split"
 GROW = "grow"
+#: Кегль ниже порога читаемости по правилу D06: на ступенях не ниже порога не встаёт даже
+#: первое слово, сокращение свело бы блок к нулю — блок остаётся на ступени под порогом.
+#: Узел `fit` называет это в заметке.
+BELOW_READING = "below_reading"
 
 #: Ниже этой доли своей рамки свободный блок теряется в пустоте: текст жмётся к верхнему
 #: краю, а остальное поле остаётся белым. Прогон 693d464d54fb: четыре строки в рамке
@@ -103,7 +108,9 @@ def _sizes(
     """Кегли для перебора: старт, привязанный к шкале шаблона, и ступени вниз.
 
     `min_pt` — предел, ниже которого спуск не идёт. Стартовый кегль он не поднимает:
-    кто задал блоку кегль явно, тот уже принял решение (см. `_titles_yield_size`).
+    кто задал блоку кегль явно, тот уже принял решение (см. `_titles_yield_size`). Но старт
+    не ниже предела, привязанный к шкале ступенью ниже него, — уже спуск, и он проходит ту же
+    проверку (RG35): такой ступени нет.
 
     `keep_start` — старт не привязывается к шкале: это кегль автора шаблона из его же
     фигуры (зона рецепта, RG29), как кегль плейсхолдера. Привяжи его — и текст, который
@@ -120,6 +127,8 @@ def _sizes(
         # Кегль вне шкалы шаблона не используется даже как стартовый (ADR-002).
         size = next_size_down(manifest, start_pt) or min(ladder)
         steps = 1
+        if min_pt is not None and size < min_pt <= start_pt:
+            return
     while size is not None:
         yield size
         if not allow_shrink or (max_steps is not None and steps >= max_steps):
@@ -170,6 +179,7 @@ def fit_text(
     words_bold: bool = False,
     anchor: bool = False,
     max_steps: int | None = None,
+    reading_floor_pt: float | None = None,
 ) -> FitResult:
     """Подбирает кегль по шкале шаблона; не влезло на нижней ступени — назначает стратегию.
 
@@ -194,7 +204,49 @@ def fit_text(
 
     `max_steps` — предел спуска по шкале от стартового кегля (см. `_sizes`); не влезло
     в пределе — стратегия сокращения, как на нижней ступени.
+
+    `reading_floor_pt` — порог читаемости (RG35): пол спуска — наибольшее из него и
+    `min_size_pt`. Не влезло на ступенях не ниже пола — сокращение. Исключение D06: когда
+    на этих ступенях не встаёт даже первое слово (сокращение оставляет начало текста и свело
+    бы блок к нулю), спуск идёт как без порога, и кегль под порогом помечается `BELOW_READING`.
     """
+    floors = [f for f in (min_size_pt, reading_floor_pt) if f is not None]
+    floor = max(floors) if floors else None
+    descend = partial(
+        _descend, box=box, manifest=manifest, start_size_pt=start_size_pt,
+        font_family=font_family, allow_shrink=allow_shrink, bold=bold, italic=italic,
+        line_spacing=line_spacing, fonts=fonts, author_start=author_start,
+        words_bold=words_bold, anchor=anchor, max_steps=max_steps,
+    )
+    result = descend(text, min_size_pt=floor)
+    words = text.split()
+    if not result.overflow or floor == min_size_pt or not words:
+        return result
+    if not descend(words[0], min_size_pt=floor).overflow:
+        return result
+    below = descend(text, min_size_pt=min_size_pt)
+    return below if below.overflow else below.model_copy(update={"strategy": BELOW_READING})
+
+
+def _descend(
+    text: str,
+    *,
+    box: BBox,
+    manifest: TemplateManifest,
+    start_size_pt: float,
+    font_family: str,
+    allow_shrink: bool,
+    min_size_pt: float | None,
+    bold: bool,
+    italic: bool,
+    line_spacing: float,
+    fonts: FontLibrary | None,
+    author_start: bool,
+    words_bold: bool,
+    anchor: bool,
+    max_steps: int | None,
+) -> FitResult:
+    """Спуск по ступеням `_sizes` до первой, на которой текст встаёт (см. `fit_text`)."""
     available = usable_height_emu(box)
     line = usable_width_emu(box)
     word_bold = words_bold and not bold
@@ -286,16 +338,19 @@ def fit_table(
     *,
     dataset: Dataset | None = None,
     fonts: FontLibrary | None = None,
+    reading_floor_pt: float = READING_FLOOR_PT,
 ) -> FitResult:
     """Таблица с колонками равной ширины: высота строки — самая высокая ячейка.
 
     Поля ячейки PowerPoint по умолчанию совпадают с полями текстовой рамки, поэтому ячейка
-    меряется как рамка шириной в колонку. Кегль — от роли `body` вниз по шкале шаблона.
+    меряется как рамка шириной в колонку. Кегль — от роли `body` вниз по шкале шаблона,
+    но не ниже порога читаемости (RG35): не влезла — переполнение, и писатель пишет её
+    буллетами, которые держат тот же порог.
     """
     step = _step_for(TextRole.BODY, manifest)
     rows_count = len(table_cells(block, dataset))
     size, lines, required = step.size_pt, 0, 0
-    for size in _sizes(manifest, step.size_pt, allow_shrink=True):
+    for size in _sizes(manifest, step.size_pt, allow_shrink=True, min_pt=reading_floor_pt):
         rows = _table_rows(block, box, manifest, size, dataset, fonts)
         lines = sum(n for n, _ in rows)
         required = sum(h for _, h in rows)
@@ -445,7 +500,10 @@ def fit_smartart(
     в строку целиком.
 
     Плитка — из каталога дизайн-системы (`design.tile()`), без неё — из манифеста, как
-    было: запись pptx и html берут её из того же места, иначе рамки подписей разошлись бы."""
+    было: запись pptx и html берут её из того же места, иначе рамки подписей разошлись бы.
+
+    Ниже порога читаемости (RG35) подписи не спускаются: не влезли — переполнение, и узел
+    `fit` пишет схему списком тех же пунктов."""
     step = _step_for(TextRole.BODY, manifest)
     font = _font_of(step, manifest)
     tile = design.tile() if design is not None else manifest.component(ComponentKind.TILE)
@@ -469,8 +527,9 @@ def fit_smartart(
         )
         return required <= available and whole_words, lines, required
 
+    floor = design.reading_floor_pt if design is not None else READING_FLOOR_PT
     size, lines, required = step.size_pt, 0, 0
-    for size in _sizes(manifest, step.size_pt, allow_shrink=True):
+    for size in _sizes(manifest, step.size_pt, allow_shrink=True, min_pt=floor):
         fits, lines, required = measured(size)
         if fits:
             return _grown_labels(
@@ -528,6 +587,7 @@ def fit_boxed(
     сам текст и строку автора у цитаты. `final_size_pt` — кегль текста; подпись вида
     идёт тем же кеглем, строка автора — кеглем подписи, но не крупнее текста.
     Не растёт: кегль цитаты — решение дизайн-системы, а место вокруг неё — воздух.
+    Ниже порога читаемости (RG35) не спускается: не влезло — сокращение в узле `fit`.
     """
     style = style_of(block, design)
     step = _step_for(style.role, manifest)
@@ -548,7 +608,9 @@ def fit_boxed(
         return lines, required
 
     size, lines, required = style.text_pt, 0, 0
-    for size in _sizes(manifest, style.text_pt, allow_shrink=True):
+    for size in _sizes(
+        manifest, style.text_pt, allow_shrink=True, min_pt=design.reading_floor_pt
+    ):
         lines, required = measured(size)
         if required <= available:
             return _fits(size, style.text_pt, lines, required)
@@ -568,6 +630,7 @@ def fit_icon_list(
     Колонка зависит от кегля (сторона иконки — один em), поэтому рамка считается заново
     на каждой ступени. Правила те же, что у свободного списка (`fit_block`): вниз по шкале,
     пока не влезет, и вверх до ступени под заголовком, пока занята меньше половины рамки.
+    Вниз — не ниже порога читаемости (RG35): не влезло — сокращение пунктов и хвоста в узле.
     """
     step = _step_for(block.role, manifest)
     font = _font_of(step, manifest)
@@ -585,7 +648,7 @@ def fit_icon_list(
 
     start = block.size_pt or step.size_pt
     size, lines, required = start, 0, 0
-    for size in _sizes(manifest, start, allow_shrink=True):
+    for size in _sizes(manifest, start, allow_shrink=True, min_pt=design.reading_floor_pt):
         lines, required = measured(size)
         if required <= available:
             break
@@ -669,25 +732,21 @@ def _text_of(block: TextBlock | BulletsBlock) -> str:
 
 
 def _floor_of(
-    block: TextBlock | BulletsBlock,
-    box: BBox,
-    step: TypographyStep,
-    manifest: TemplateManifest,
-    reading_floor_pt: float,
-) -> float:
-    """Ниже какого кегля блок не спускается: наибольшее из порога читаемости и пола заголовка.
+    block: TextBlock | BulletsBlock, box: BBox, step: TypographyStep, manifest: TemplateManifest
+) -> float | None:
+    """Ниже какого кегля заголовок не спускается; `None` — спуск по всей шкале.
 
     Заголовок уступает кегль, но по-разному. Полоса ниже строки кеглем роли — спуск
     по всей шкале (так было до A9: сокращать в таком заголовке нечего). Полоса, которая
     держит строку, но не две, — спуск до кегля тела и не ниже.
 
-    Порог читаемости (RG35) — для любого блока: ступень ниже него не берётся, текст
-    сокращается. Кегль старта он не поднимает (`_sizes`): кегль автора ниже порога остаётся
+    Порог читаемости (RG35) — не здесь: `fit_text` берёт наибольшее из него и этого пола.
+    Кегль старта ни один из них не поднимает (`_sizes`): кегль автора ниже порога остаётся
     кеглем автора и дальше не спускается.
     """
     if block.role is TextRole.TITLE and _band_holds_the_role_size(box, step):
-        return max(reading_floor_pt, _title_size_floor(manifest, step))
-    return reading_floor_pt
+        return _title_size_floor(manifest, step)
+    return None
 
 
 def fit_block(
@@ -857,8 +916,8 @@ def _fit_text_block(
     а не коробка (D02, §11): ограничивает только ширина. Мерить её по высоте — снять
     весь текст, который у автора в ней растёт вниз (карточки VK Tech, рамки 12–13 pt).
     Спуск кегля в зоне — не дальше `_ZONE_STEPS_DOWN` ступеней, дальше — сокращение.
-    И в зоне, и вне её — не ниже порога читаемости (`_floor_of`, RG35): ступень под ним
-    не берётся, текст сокращается.
+    И в зоне, и вне её — не ниже порога читаемости (RG35): ступень под ним не берётся,
+    текст сокращается; исключение — блок, который сокращение свело бы к нулю (D06, `fit_text`).
     """
     step = _step_for(block.role, manifest)
     zone_pt = zone.size_pt if zone is not None else None
@@ -868,7 +927,8 @@ def _fit_text_block(
         manifest=manifest,
         start_size_pt=block.size_pt or zone_pt or step.size_pt,
         font_family=(zone.font_family if zone is not None else None) or _font_of(step, manifest),
-        min_size_pt=_floor_of(block, box, step, manifest, reading_floor_pt),
+        min_size_pt=_floor_of(block, box, step, manifest),
+        reading_floor_pt=reading_floor_pt,
         bold=step.bold,
         italic=step.italic,
         line_spacing=step.line_spacing or 1.0,
@@ -946,7 +1006,8 @@ def fit_slide(
                     else None
                 )
                 report[block.block_id] = fit_table(
-                    block, box, manifest, dataset=dataset, fonts=fonts
+                    block, box, manifest, dataset=dataset, fonts=fonts,
+                    reading_floor_pt=rules.reading_floor_pt,
                 )
             else:
                 report[block.block_id] = fit_kpi(

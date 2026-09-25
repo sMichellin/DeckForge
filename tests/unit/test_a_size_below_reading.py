@@ -22,12 +22,27 @@ import pytest
 
 from deckforge.designsystem import derive
 from deckforge.designsystem.models import Recipe, RecipeKind, TypeLevel, Zone
+from deckforge.domain.base import BBox
 from deckforge.domain.content import Brief, ContentPackage
-from deckforge.domain.enums import ColorRef, FontRef, TextRole
-from deckforge.domain.slide import SlideIR, TextBlock
+from deckforge.domain.enums import ColorRef, FontRef, ListStyle, SmartArtPattern, TextRole
+from deckforge.domain.slide import (
+    BulletItem,
+    BulletsBlock,
+    QuoteBlock,
+    SlideIR,
+    SmartArtBlock,
+    TableBlock,
+    TextBlock,
+)
 from deckforge.domain.template import TemplateManifest, TypographyStep
 from deckforge.layout.by_design import DesignRules
-from deckforge.layout.fitting import fit_slide
+from deckforge.layout.fitting import (
+    fit_boxed,
+    fit_icon_list,
+    fit_slide,
+    fit_smartart,
+    fit_table,
+)
 from deckforge.layout.fonts import FontLibrary
 from deckforge.pipeline.nodes.fit import _fit_shortening
 from tests.unit.test_layout_fonts import make_font
@@ -164,3 +179,150 @@ def test_a_placeholder_block_does_not_go_below_reading_either(
 
     fit = fitted.fit_report["p0"]
     assert (fit.final_size_pt, fit.overflow, fit.strategy) == (12, True, "shorten")
+
+
+# --- Остальные пути спуска кегля: тот же пол, свой исход переполнения ------------------------
+#
+# Одна строка текста «Выручка» по высоте: при 18 pt — 274 320 EMU, при 12 pt — 182 880, при 7,8 pt —
+# 118 872 (1,2 кегля · 12 700). Поля рамки сверху и снизу — 91 440 EMU. Рамка высотой 241 440 EMU
+# держит строку 7,8 pt (210 312 с полями) и не держит строку 12 pt (274 320 с полями): прежде кегль
+# уходил на 7,8 pt, теперь стоит на 12 pt — наименьшей ступени не ниже порога — с переполнением.
+ONE_LINE_AT_LOW = 241_440
+ONE_LINE_AT_18 = 365_760
+WIDE = 6_000_000
+
+
+def icon_list() -> BulletsBlock:
+    return BulletsBlock(
+        block_id="b", items=[BulletItem(text="Выручка", icon="chart-line")],
+        style=ListStyle.ICON, x=0, y=0, cx=WIDE, cy=ONE_LINE_AT_LOW,
+    )
+
+
+@pytest.mark.parametrize(
+    ("cy", "expected"),
+    [(ONE_LINE_AT_18, (18, False, "as_is")), (ONE_LINE_AT_LOW, (12, True, "shorten"))],
+)
+def test_an_icon_list_does_not_go_below_reading(
+    low: TemplateManifest, fonts: FontLibrary, cy: int, expected: tuple[float, bool, str]
+) -> None:
+    """Иконочный список: влезает на 18 pt — исход прежний; строка встаёт только на 7,8 pt —
+    12 pt и сокращение (узел `fit` сокращает пункты и отбрасывает хвост)."""
+    block = icon_list().model_copy(update={"cy": cy})
+    fit = fit_icon_list(block, block.bbox, low, DesignRules(low), fonts=fonts)  # type: ignore[arg-type]
+
+    assert (fit.final_size_pt, fit.overflow, fit.strategy) == expected
+
+
+@pytest.mark.parametrize(
+    ("cy", "expected"),
+    [(ONE_LINE_AT_18, (18, False, "as_is")), (ONE_LINE_AT_LOW, (12, True, "shorten"))],
+)
+def test_a_table_does_not_go_below_reading(
+    low: TemplateManifest, fonts: FontLibrary, cy: int, expected: tuple[float, bool, str]
+) -> None:
+    """Таблица в одну ячейку: строка таблицы — строка текста плюс поля 91 440 EMU, меряется
+    против полной высоты рамки. Не влезла на пороге — переполнение: писатель пишет её
+    буллетами («таблица → буллеты (не влезла)»), а буллеты держат тот же порог."""
+    block = TableBlock(block_id="t", rows=[["Выручка"]], first_row_header=False)
+    fit = fit_table(block, BBox(x=0, y=0, cx=WIDE, cy=cy), low, fonts=fonts)
+
+    assert (fit.final_size_pt, fit.overflow, fit.strategy) == expected
+
+
+@pytest.mark.parametrize(
+    ("cy", "expected"), [(470_000, (24, False, "as_is")), (250_000, (12, True, "shorten"))]
+)
+def test_a_quote_does_not_go_below_reading(
+    low: TemplateManifest, fonts: FontLibrary, cy: int, expected: tuple[float, bool, str]
+) -> None:
+    """Цитата стартует с 24 pt (ступень дизайн-системы). Рамка 250 000 EMU (за вычетом
+    отбивок) держит строку 7,8 pt и не держит строку 12 pt — теперь 12 pt и сокращение
+    (узел `fit` сокращает цитату, не влезла и так — снимает с заметкой)."""
+    block = QuoteBlock(block_id="q", text="Выручка выросла")
+    fit = fit_boxed(block, BBox(x=0, y=0, cx=WIDE, cy=cy), low, DesignRules(low), fonts=fonts)
+
+    assert (fit.final_size_pt, fit.overflow, fit.strategy) == expected
+
+
+@pytest.mark.parametrize(
+    ("cy", "expected"), [(500_000, (18, False, "as_is")), (300_000, (12, True, "shorten"))]
+)
+def test_a_diagram_does_not_go_below_reading(
+    low: TemplateManifest, fonts: FontLibrary, cy: int, expected: tuple[float, bool, str]
+) -> None:
+    """Схема из трёх шагов в полосе 8 000 000 EMU: при высоте 300 000 подписи встают только
+    на 7,8 pt. Теперь 12 pt и переполнение — узел `fit` пишет схему списком тех же пунктов."""
+    block = SmartArtBlock(
+        block_id="s", pattern=SmartArtPattern.PROCESS, items=["Сбор", "Анализ", "Отчёт"]
+    )
+    box = BBox(x=0, y=0, cx=8_000_000, cy=cy)
+    fit = fit_smartart(block, box, low, fonts=fonts, design=DesignRules(low))
+
+    assert (fit.final_size_pt, fit.overflow, fit.strategy) == expected
+
+
+# --- D06: порог не снимает текст, который иначе встал бы ------------------------------------
+#
+# Зона 627 380 EMU шириной: строка 444 500 EMU = 35 pt. «Анализ» (6 знаков, полужирная мерка) —
+# 64,8 pt при 18, 43,2 pt при 12, 28,08 pt при 7,8: встаёт только на ступени ниже порога.
+# Сокращать одно слово некуда — на пороге блок был бы снят целиком (VK WorkSpace s08, ex008).
+NARROW_CX = 627_380
+BELOW_READING = "below_reading"
+
+
+def test_a_block_that_shortening_would_empty_stays_below_reading(
+    low: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Ни одно слово не встаёт ни на одной ступени не ниже порога — блок остаётся на
+    наибольшей ступени под порогом, где встаёт (7,8 pt, в пределах двух ступеней), текст цел,
+    и вписывание помечает это стратегией `below_reading` (для заметки в узле `fit`)."""
+    design = rules(low, zone(18, cx=NARROW_CX))
+    fitted, _ = _fit_shortening(by_recipe("Анализ"), low, fonts, CONTENT, design)
+
+    fit = fitted.fit_report["p0"]
+    assert (fit.final_size_pt, fit.overflow, fit.strategy) == (LOW_STEP, False, BELOW_READING)
+    assert [block.text for block in fitted.blocks] == ["Анализ"]  # type: ignore[union-attr]
+
+
+def test_an_explicit_size_snapped_below_reading_is_checked(
+    low: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Явный кегль 11 pt вне шкалы привязывается к 7,8 pt — это ступень ниже порога, и она
+    проходит ту же проверку: ступеней не ниже порога у блока нет, сокращение оставило бы
+    ноль — ступень под порогом берётся по правилу D06 и помечается, а не молча."""
+    block = TextBlock(
+        block_id="p0", role=TextRole.BODY, text="Выручка", size_pt=11,
+        x=914_400, y=914_400, cx=WIDE, cy=ONE_LINE_AT_18,
+    )
+    slide = SlideIR(slide_id="s03", layout_id="L07", variant="A", blocks=[block])
+
+    fit = fit_slide(slide, low, fonts=fonts).fit_report["p0"]
+
+    assert (fit.final_size_pt, fit.strategy) == (LOW_STEP, BELOW_READING)
+
+
+def test_the_floor_is_the_greater_of_reading_and_the_title_floor(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Шкала 40 / 9,1 / 7,8, тело 7,8: пол заголовка — ближайшая ступень крупнее тела, 9,1 pt,
+    ниже порога. Полоса 701 040 EMU держит строку 40 pt (609 600 + поля). «Выручка выросла на
+    треть за год» (31 знак) при 40 pt — 744 pt, в строке 458 pt: две строки, не влезает; при 9,1 —
+    одна. Пол — наибольшее из 10 и 9,1: ступень 9,1 не берётся, заголовок сокращается на 40 pt."""
+    scale = [
+        TypographyStep(role=TextRole.TITLE, size_pt=40, font_ref=FontRef.MAJOR_LATIN,
+                       bold=True, color_ref=ColorRef.DK1),
+        TypographyStep(role=TextRole.SUBTITLE, size_pt=9.1, font_ref=FontRef.MINOR_LATIN,
+                       color_ref=ColorRef.DK2),
+        TypographyStep(role=TextRole.BODY, size_pt=LOW_STEP, font_ref=FontRef.MINOR_LATIN,
+                       color_ref=ColorRef.DK1),
+    ]
+    small = manifest.model_copy(update={"typography_scale": scale})
+    title = TextBlock(
+        block_id="t", role=TextRole.TITLE, text=TEXT, x=914_400, y=914_400, cx=WIDE, cy=701_040
+    )
+    slide = SlideIR(slide_id="s03", layout_id="L07", variant="A", blocks=[title])
+
+    fit = fit_slide(slide, small, fonts=fonts).fit_report["t"]
+
+    assert (fit.final_size_pt, fit.overflow, fit.strategy) == (40, True, "shorten")
