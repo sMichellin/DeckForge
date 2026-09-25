@@ -654,6 +654,12 @@ Html больше не падает, а верстает слайд по рец�
 (запрос потоку A); оговорки в `degradations` нет — `export_html` их не отдаёт (запрос
 тимлиду, RG17). Подробно — `openspec/changes/html-export-keeps-the-zone-text/proposal.md`.
 
+### `recipe-zone-takes-the-fitted-size` (RG29, писатель) — готово (живого прогона не было)
+
+Писатель слайда по рецепту ставит каждому прогону зоны `sz` из `fit_report` блока, если
+запись есть; записи нет — оформление автора примера байт в байт. В файле кегль появится
+вместе с `fitting-does-not-skip-the-recipe`. `openspec/changes/recipe-zone-takes-the-fitted-size/proposal.md`.
+
 ---
 
 ## Поток C — «Проверка»: аудит и сервис
