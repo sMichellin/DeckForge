@@ -846,9 +846,18 @@ def _fit_text_block(
     а не коробка (D02, §11): ограничивает только ширина. Мерить её по высоте — снять
     весь текст, который у автора в ней растёт вниз (карточки VK Tech, рамки 12–13 pt).
     Спуск кегля в зоне — не дальше `_ZONE_STEPS_DOWN` ступеней, дальше — сокращение.
+
+    Заголовку якорь даёт одну строку, а не рост вниз (D03, §12): высота его якорной рамки —
+    ровно строка собственного кегля зоны. Заголовок в две строки на 60 pt в рамке ниже
+    строки (VK Education, 18 зон) ложился на тело; ему место — ступень ниже, в одну строку.
     """
     step = _step_for(block.role, manifest)
     zone_pt = zone.size_pt if zone is not None else None
+    anchor = zone_pt is not None and not _holds_a_line(box, zone_pt, step.line_spacing)
+    if anchor and zone_pt is not None and block.role is TextRole.TITLE:
+        line = round(line_height_emu(zone_pt, step.line_spacing or 1.0))
+        box = box.model_copy(update={"cy": line + 2 * TEXT_FRAME_INSET_Y_EMU})
+        anchor = False
     return fit_text(
         _text_of(block),
         box=box,
@@ -862,7 +871,7 @@ def _fit_text_block(
         fonts=fonts,
         author_start=block.size_pt is None and zone_pt is not None,
         words_bold=zone is not None,
-        anchor=zone_pt is not None and not _holds_a_line(box, zone_pt, step.line_spacing),
+        anchor=anchor,
         max_steps=_ZONE_STEPS_DOWN if zone is not None else None,
     )
 

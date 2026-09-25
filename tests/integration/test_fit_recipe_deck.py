@@ -161,3 +161,52 @@ def test_a_card_in_a_frame_lower_than_its_line_keeps_its_text(recipe_id: str) ->
     assert len(blocks) >= 3
     assert [b.text for b in fitted.blocks if isinstance(b, TextBlock)] == [CARD] * len(blocks)
     assert not any(" снят — " in note or "сокращён" in note for note in notes), notes
+
+
+#: Заголовок в две строки на кегле зоны 60 pt и в одну — ступенью ниже (VK Education).
+LONG_TITLE = "Результаты пилота и следующие шаги"
+
+
+def _education_title(text: str) -> tuple[SlideIR, list[str]]:
+    """Заголовок в зоне 60 pt с рамкой 644 241 EMU — таких у VK Education 18 (ex007 и др.)."""
+    manifest = TemplateParser().parse(
+        case_template("Шаблон презентации VK Education.pptx"), use_cache=False
+    )
+    ds = derive(manifest)
+    recipe = next(
+        r for r in ds.recipes
+        if any(z.role is TypeLevel.SLIDE_TITLE and z.size_pt == 60 and z.cy == 644_241
+               for z in r.zones)
+    )
+    zone = next(z for z in recipe.zones if z.role is TypeLevel.SLIDE_TITLE)
+    slide = SlideIR(
+        slide_id="s04", layout_id=manifest.layouts[0].layout_id, variant="A",
+        recipe_id=recipe.recipe_id,
+        blocks=[TextBlock(block_id="t", role=TextRole.TITLE, text=text, zone_id=zone.zone_id)],
+    )
+    return _fit_shortening(slide, manifest, None, CONTENT, DesignRules(manifest, ds))
+
+
+@pytest.mark.slow
+def test_a_long_title_in_an_anchor_frame_yields_its_size_to_stay_one_line() -> None:
+    """D03 (§12, T14): якорь заголовка — одна строка собственного кегля зоны.
+
+    Рамка 644 241 EMU ниже строки 60 pt (914 400). Без предела строк заголовок оставался
+    60 pt в две строки и ложился на тело; сценарий дельты «Длинный заголовок» — кегль
+    опускается по шкале, заголовок цел.
+    """
+    fitted, _ = _education_title(LONG_TITLE)
+
+    fit = fitted.fit_report["t"]
+    assert fit.final_size_pt < 60
+    assert (fit.lines, fit.overflow) == (1, False)
+    assert fitted.blocks[0].text == LONG_TITLE
+
+
+@pytest.mark.slow
+def test_a_short_title_in_an_anchor_frame_keeps_its_size() -> None:
+    """Норма к D03: заголовок в одну строку на кегле зоны — 60 pt, как у автора."""
+    fitted, _ = _education_title("Итоги")
+
+    fit = fitted.fit_report["t"]
+    assert (fit.final_size_pt, fit.lines) == (60, 1)
