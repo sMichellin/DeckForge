@@ -340,12 +340,18 @@ class SlideComposer:
         # Композиция шаблона под этот слайд (таск 05b). Вид назвал план, пример выбрал
         # счёт; модель о рецепте не знает — ей уходят только лимиты его зон, теми же
         # словами «вместимость», что и у плейсхолдеров.
+        facts = [fact for ref in slide.fact_refs if (fact := content.fact(ref)) is not None]
+        #: Сколько знаков слайду есть сказать: заголовок и факты, которые он показывает.
+        #: Оценка сверху — модель перепишет факты короче, — но единственная, какая есть
+        #: до ответа модели (RG23).
+        needs_chars = len(slide.headline) + sum(len(fact.text) for fact in facts)
         recipe = (
             pick_recipe(
                 slide,
                 design_system.recipes,
                 previous_recipe,
                 has_asset=bool(slide.asset_refs),
+                needs_chars=needs_chars,
                 # Откат структурного слайда на родственный вид называется в отчёте
                 # прогона (RG8, `closing-slide-has-a-recipe`).
                 notes=self.notes,
@@ -353,7 +359,6 @@ class SlideComposer:
             if design_system is not None
             else None
         )
-        facts = [fact for ref in slide.fact_refs if (fact := content.fact(ref)) is not None]
         dataset = content.dataset(slide.dataset_ref) if slide.dataset_ref else None
         chart_type = select_chart(dataset) if dataset is not None else None
 
@@ -424,7 +429,9 @@ class SlideComposer:
         # Рецепт применяется последним: сначала слайд собирается как обычно, потом его
         # текст раскладывается по зонам шаблона. Так слайд без рецепта не меняется
         # ни на строку, а слайд с рецептом теряет координаты — рамку ему даёт автор.
-        return bind_to_recipe(composed, recipe) if recipe is not None else composed
+        return (
+            bind_to_recipe(composed, recipe, self.notes) if recipe is not None else composed
+        )
 
     def _trim_headline(
         self, block: TextBlock, layout: LayoutSpec, manifest: TemplateManifest, slide_id: str
