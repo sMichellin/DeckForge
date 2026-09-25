@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any
 
 from deckforge.domain.base import BBox
@@ -36,7 +37,7 @@ from deckforge.domain.template import (
     TemplateManifest,
     TypographyStep,
 )
-from deckforge.domain.units import TEXT_FRAME_INSET_Y_EMU
+from deckforge.domain.units import EMU_PER_PT, TEXT_FRAME_INSET_Y_EMU
 from deckforge.layout.boxed import BoxedBlock, paragraphs, style_of, text_frame
 from deckforge.layout.by_design import DesignRules, KpiSizes
 from deckforge.layout.diagram import SUPPORTED_PATTERNS, diagram_geometry
@@ -45,9 +46,11 @@ from deckforge.layout.fonts import FontLibrary
 from deckforge.layout.lists import draws_icons, icon_column, icon_text_frame
 from deckforge.layout.metrics import (
     line_height_emu,
+    longest_word_em,
     measure_text,
     split_paragraphs,
     usable_height_emu,
+    usable_width_emu,
 )
 from deckforge.layout.tabular import table_cells, table_has_header
 
@@ -80,27 +83,48 @@ GROW = "grow"
 #: высотой двенадцать сантиметров — слайд выглядит пустым, хотя переполнения нет.
 FREE_BLOCK_FILL_SHARE = 0.5
 
+#: На сколько ступеней шкалы кегль блока в зоне рецепта уходит от стартового, прежде чем
+#: текст сокращается (D02, §11). Приёмка RG29: тело спускалось 16 → 7,8 pt — текст цел,
+#: но читать его уже нельзя, и это хуже сокращения. Число — как у уступки заголовка
+#: (`_TITLE_STEPS_DOWN` узла `fit`): одно правило «сколько кегля отдаём ради текста».
+#: Политика вёрстки, а не свойство шаблона.
+_ZONE_STEPS_DOWN = 2
+
 
 def _sizes(
     manifest: TemplateManifest,
     start_pt: float,
     allow_shrink: bool,
     min_pt: float | None = None,
+    *,
+    keep_start: bool = False,
+    max_steps: int | None = None,
 ) -> Iterator[float]:
     """Кегли для перебора: старт, привязанный к шкале шаблона, и ступени вниз.
 
     `min_pt` — предел, ниже которого спуск не идёт. Стартовый кегль он не поднимает:
     кто задал блоку кегль явно, тот уже принял решение (см. `_titles_yield_size`).
+
+    `keep_start` — старт не привязывается к шкале: это кегль автора шаблона из его же
+    фигуры (зона рецепта, RG29), как кегль плейсхолдера. Привяжи его — и текст, который
+    на своём кегле помещается, всё равно менял бы кегль на каждой зоне с кеглем не из
+    шкалы. Ступени вниз — по-прежнему только по шкале (правило 6).
+
+    `max_steps` — сколько ступеней вниз от старта допустимо (`_ZONE_STEPS_DOWN`). Старт вне
+    шкалы, приведённый к ней, — уже ступень: кегль от этого меньше, чем назначил автор.
     """
     ladder = manifest.size_ladder_pt
     size: float | None = start_pt
-    if ladder and start_pt not in ladder:
+    steps = 0
+    if ladder and start_pt not in ladder and not keep_start:
         # Кегль вне шкалы шаблона не используется даже как стартовый (ADR-002).
         size = next_size_down(manifest, start_pt) or min(ladder)
+        steps = 1
     while size is not None:
         yield size
-        if not allow_shrink:
+        if not allow_shrink or (max_steps is not None and steps >= max_steps):
             return
+        steps += 1
         size = next_size_down(manifest, size)
         if size is not None and min_pt is not None and size < min_pt:
             return
@@ -142,17 +166,59 @@ def fit_text(
     italic: bool = False,
     line_spacing: float = 1.0,
     fonts: FontLibrary | None = None,
+    author_start: bool = False,
+    words_bold: bool = False,
+    anchor: bool = False,
+    max_steps: int | None = None,
 ) -> FitResult:
-    """Подбирает кегль по шкале шаблона; не влезло на нижней ступени — назначает стратегию."""
+    """Подбирает кегль по шкале шаблона; не влезло на нижней ступени — назначает стратегию.
+
+    Кегль вмещается, когда хватает высоты **и** самое длинное слово уже строки рамки.
+    Второе — отдельное условие, не следствие площади (RG29): слово шире строки PowerPoint
+    рвёт по знакам, строк от этого прибавляется, но на s05 VK WorkSpace место было —
+    и на превью стояло «извлечен / ие» при 54 pt в рамке 3 879 511 EMU.
+
+    `author_start` — старт есть кегль автора шаблона в его же рамке (зона рецепта): он
+    не привязывается к шкале (D01, §10в).
+
+    `words_bold` — ширина слов меряется полужирным: начертание рамки неизвестно, а обычное
+    недооценивает ровно тот разрыв слова, ради которого условие заведено (§10б).
+
+    `anchor` — рамка есть якорь текста, а не коробка: высота не ограничивает, кегль
+    вмещается, как только самое длинное слово уже строки (D02, §11). Так у автора набраны
+    карточки VK Tech: рамка ниже строки своего кегля, текст из неё растёт вниз. Это
+    обобщает строку автора (§10в): полей и интервала фигуры мы не знаем, и модель строки
+    «не вписала» бы текст примера в его собственную рамку — титул 144 pt, заголовки 36 pt
+    в полосе 626 869 EMU. Рамка, которая строку своего кегля держит, меряется по высоте:
+    одна строка в ней встаёт и так.
+
+    `max_steps` — предел спуска по шкале от стартового кегля (см. `_sizes`); не влезло
+    в пределе — стратегия сокращения, как на нижней ступени.
+    """
     available = usable_height_emu(box)
+    line = usable_width_emu(box)
+    word_bold = words_bold and not bold
+    # Слово шире от кегля линейно: полужирная ширина в em меряется один раз, без переноса.
+    word_em = (
+        longest_word_em(text, font_family=font_family, bold=True, italic=italic, fonts=fonts)
+        if word_bold
+        else None
+    )
+
     size, lines, required = start_size_pt, 0, 0
-    for size in _sizes(manifest, start_size_pt, allow_shrink, min_size_pt):
+    for size in _sizes(
+        manifest, start_size_pt, allow_shrink, min_size_pt,
+        keep_start=author_start, max_steps=max_steps,
+    ):
         m = measure_text(
             text, font_family=font_family, size_pt=size, box=box,
             line_spacing=line_spacing, bold=bold, italic=italic, fonts=fonts,
         )
         lines, required = m.lines, m.height_emu
-        if required <= available:
+        word = m.longest_word_emu if word_em is None else round(word_em * size * EMU_PER_PT)
+        if word > line:
+            continue
+        if required <= available or anchor:
             return _fits(size, start_size_pt, lines, required)
     splittable = allow_shrink and len(split_paragraphs(text)) > 1
     return _overflow(size, lines, required, available, splittable)
@@ -561,6 +627,11 @@ def _box_for(block: TextBlock | BulletsBlock, layout: LayoutSpec) -> BBox:
     return placeholder.bbox
 
 
+def _holds_a_line(box: BBox, size_pt: float, line_spacing: float | None) -> bool:
+    """Помещается ли в рамку по высоте хотя бы одна строка этого кегля."""
+    return usable_height_emu(box) >= round(line_height_emu(size_pt, line_spacing or 1.0))
+
+
 def _band_holds_the_role_size(box: BBox, step: TypographyStep) -> bool:
     """Помещается ли в рамку хотя бы одна строка кеглем роли.
 
@@ -569,8 +640,7 @@ def _band_holds_the_role_size(box: BBox, step: TypographyStep) -> bool:
     а не текст — полоса заголовка ниже одной строки, — сокращать нечего: на VK WorkSpace
     так обрезались многоточием 7 заголовков из 12 (прогон 80e7af41ab54).
     """
-    line = round(line_height_emu(step.size_pt) * (step.line_spacing or 1.0))
-    return usable_height_emu(box) >= line
+    return _holds_a_line(box, step.size_pt, step.line_spacing)
 
 
 def _title_size_floor(manifest: TemplateManifest, step: TypographyStep) -> float:
@@ -594,6 +664,24 @@ def _title_size_floor(manifest: TemplateManifest, step: TypographyStep) -> float
     return min(above) if above else step.size_pt
 
 
+def _text_of(block: TextBlock | BulletsBlock) -> str:
+    return block.text if isinstance(block, TextBlock) else "\n".join(i.text for i in block.items)
+
+
+def _floor_of(
+    block: TextBlock | BulletsBlock, box: BBox, step: TypographyStep, manifest: TemplateManifest
+) -> float | None:
+    """Ниже какого кегля блок не спускается; `None` — спуск по всей шкале.
+
+    Заголовок уступает кегль, но по-разному. Полоса ниже строки кеглем роли — спуск
+    по всей шкале (так было до A9: сокращать в таком заголовке нечего). Полоса, которая
+    держит строку, но не две, — спуск до кегля тела и не ниже.
+    """
+    if block.role is TextRole.TITLE and _band_holds_the_role_size(box, step):
+        return _title_size_floor(manifest, step)
+    return None
+
+
 def fit_block(
     block: TextBlock | BulletsBlock,
     layout: LayoutSpec,
@@ -612,41 +700,18 @@ def fit_block(
             design if design is not None else DesignRules(manifest), fonts=fonts,
         )
     step = _step_for(block.role, manifest)
-    text = block.text if isinstance(block, TextBlock) else "\n".join(i.text for i in block.items)
     box = _box_for(block, layout)
-    # Заголовок уступает кегль, но по-разному. Полоса ниже строки кеглем роли — спуск
-    # по всей шкале (так было до A9: сокращать в таком заголовке нечего). Полоса, которая
-    # держит строку, но не две, — спуск до кегля тела и не ниже.
-    floor = (
-        _title_size_floor(manifest, step)
-        if block.role is TextRole.TITLE and _band_holds_the_role_size(box, step)
-        else None
-    )
-    font_family = _font_of(step, manifest)
-    line_spacing = step.line_spacing or 1.0
-    result = fit_text(
-        text,
-        box=box,
-        manifest=manifest,
-        start_size_pt=block.size_pt or step.size_pt,
-        font_family=font_family,
-        allow_shrink=True,
-        min_size_pt=floor,
-        bold=step.bold,
-        italic=step.italic,
-        line_spacing=line_spacing,
-        fonts=fonts,
-    )
+    result = _fit_text_block(block, box, manifest, fonts=fonts)
     if _grows_to_its_space(block, result):
         return _grown(
             result,
-            text=text,
+            text=_text_of(block),
             box=box,
             manifest=manifest,
-            font_family=font_family,
+            font_family=_font_of(step, manifest),
             bold=step.bold,
             italic=step.italic,
-            line_spacing=line_spacing,
+            line_spacing=step.line_spacing or 1.0,
             fonts=fonts,
         )
     return result
@@ -716,6 +781,92 @@ def _grown(
     return best
 
 
+@dataclass(frozen=True, slots=True)
+class _ZoneFrame:
+    """Что о зоне рецепта известно вписыванию: размер рамки, кегль и гарнитура примера."""
+
+    box: BBox
+    size_pt: float | None
+    font_family: str | None
+
+
+def _zone_frames(
+    slide: SlideIR, manifest: TemplateManifest, rules: DesignRules
+) -> dict[str, _ZoneFrame]:
+    """Зоны рецепта слайда, у которых рамка известна целиком.
+
+    Меряется только размер рамки: где она стоит на слайде, вписыванию не важно, а `x`, `y`
+    у фигуры примера бывают отрицательными (заведена за край) — `BBox` таких не держит.
+    Рамка при этом не копируется ни в блок, ни в зону: её задал автор шаблона.
+    Рецепта нет в каталоге или у зоны нет рамки (каталог до RG18) — зоны нет в ответе.
+
+    Гарнитура — у фигуры-примера по `Zone.xml_id` (D01, §10а): зона набрана так, как её
+    набрал автор, а не так, как набрана роль. Фигуры не нашлось — гарнитура роли.
+    """
+    recipe = next((r for r in rules.ds.recipes if r.recipe_id == slide.recipe_id), None)
+    if recipe is None:
+        return {}
+    example = next(
+        (e for e in manifest.examples if e.slide_index == recipe.example_index), None
+    )
+    fonts = {
+        shape.xml_id: shape.font_family
+        for shape in (example.shapes if example is not None else [])
+        if shape.xml_id is not None
+    }
+    frames: dict[str, _ZoneFrame] = {}
+    for zone in recipe.zones:
+        if zone.has_frame and zone.cx is not None and zone.cy is not None:
+            frames[zone.zone_id] = _ZoneFrame(
+                box=BBox(x=0, y=0, cx=zone.cx, cy=zone.cy),
+                size_pt=zone.size_pt,
+                font_family=fonts.get(zone.xml_id) if zone.xml_id is not None else None,
+            )
+    return frames
+
+
+def _fit_text_block(
+    block: TextBlock | BulletsBlock,
+    box: BBox,
+    manifest: TemplateManifest,
+    *,
+    fonts: FontLibrary | None,
+    zone: _ZoneFrame | None = None,
+) -> FitResult:
+    """Текстовый блок в своей рамке — плейсхолдера, координат или зоны рецепта.
+
+    Кегль блока (его ставит `_titles_yield_size`) главнее всего; дальше — кегль зоны,
+    дальше — кегль роли. Кегль зоны — значение автора из файла, как у плейсхолдера:
+    стартует как есть, даже вне шкалы, и строка этого кегля в рамке — его решение
+    (`author_start`). Ступени вниз — только по шкале. Заголовок уступает кегль по одному
+    правилу и в плейсхолдере, и в зоне (`_floor_of`). Рост — не здесь: зона не растёт
+    вовсе, её размер и кегль задал автор шаблона (см. `fit_block` и `_grown`).
+
+    Рамка зоны, в которую не встаёт ни одна строка **её собственного** кегля, — якорь,
+    а не коробка (D02, §11): ограничивает только ширина. Мерить её по высоте — снять
+    весь текст, который у автора в ней растёт вниз (карточки VK Tech, рамки 12–13 pt).
+    Спуск кегля в зоне — не дальше `_ZONE_STEPS_DOWN` ступеней, дальше — сокращение.
+    """
+    step = _step_for(block.role, manifest)
+    zone_pt = zone.size_pt if zone is not None else None
+    return fit_text(
+        _text_of(block),
+        box=box,
+        manifest=manifest,
+        start_size_pt=block.size_pt or zone_pt or step.size_pt,
+        font_family=(zone.font_family if zone is not None else None) or _font_of(step, manifest),
+        min_size_pt=_floor_of(block, box, step, manifest),
+        bold=step.bold,
+        italic=step.italic,
+        line_spacing=step.line_spacing or 1.0,
+        fonts=fonts,
+        author_start=block.size_pt is None and zone_pt is not None,
+        words_bold=zone is not None,
+        anchor=zone_pt is not None and not _holds_a_line(box, zone_pt, step.line_spacing),
+        max_steps=_ZONE_STEPS_DOWN if zone is not None else None,
+    )
+
+
 def fit_slide(
     slide: SlideIR,
     manifest: TemplateManifest,
@@ -729,13 +880,31 @@ def fit_slide(
     писатель заменит его буллетами и впишет их сам.
 
     `design` — ответы дизайн-системы (DG3). Узел `fit` передаёт их из состояния графа;
-    без них они считаются из манифеста здесь же."""
+    без них они считаются из манифеста здесь же.
+
+    Блок с `zone_id` меряется по рамке своей зоны из рецепта слайда (`design.ds.recipes`,
+    RG29): рамки слайду по рецепту задаёт рецепт, а не макет. Зона не нашлась или без
+    рамки — блок без записи в `fit_report`, как было до RG29: старые каталоги и чекпойнты
+    читаются. Макет нужен только блокам вне зон — слайд по рецепту
+    (`SlideIR.by_recipe`, все блоки в зонах) вписывается и без него."""
+    rules = design if design is not None else DesignRules(manifest)
+    report: dict[str, FitResult] = {}
+    frames = _zone_frames(slide, manifest, rules)
+    for block in slide.blocks:
+        if block.zone_id is None or not isinstance(block, TextBlock | BulletsBlock):
+            continue
+        if (zone := frames.get(block.zone_id)) is not None:
+            report[block.block_id] = _fit_text_block(
+                block, zone.box, manifest, fonts=fonts, zone=zone
+            )
+
+    if slide.by_recipe:
+        return slide.model_copy(update={"fit_report": report})
     layout = manifest.layout(slide.layout_id)
     if layout is None:
         raise LayoutFitError(f"слайд {slide.slide_id}: макета {slide.layout_id} нет в манифесте")
-    rules = design if design is not None else DesignRules(manifest)
-    report: dict[str, FitResult] = {}
-    for block in slide.blocks:
+    outside = [block for block in slide.blocks if block.zone_id is None]
+    for block in outside:
         if isinstance(block, TextBlock | BulletsBlock):
             report[block.block_id] = fit_block(
                 block, layout, manifest, fonts=fonts, design=rules
