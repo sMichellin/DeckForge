@@ -118,15 +118,35 @@ def _title_zone(recipe: Recipe) -> Zone | None:
     return None
 
 
+def _usable(zone: Zone) -> bool:
+    """Зона, в которую есть смысл писать.
+
+    Вместимость ноль значит одно из двух. Посчитать не удалось — у фигуры примера нет
+    кегля (`size_pt` пуст) или нет рамки; это незнание, и зона остаётся кандидатом:
+    отсеять её из-за собственной слепоты хуже, чем попробовать.
+
+    Или рамка измерена и не держит ни строки. Это уже факт, а не незнание: у VK Tech
+    зона высотой 0,46 см при отступах текстового поля оставляет 0,2 см полезной
+    высоты — ноль строк двенадцатым кеглем. Текст в такой зоне уезжает выше рамки,
+    и три находки читаемости прогона 25.09 — ровно она. Местом она не считается.
+    """
+    return zone.capacity_chars > 0 or zone.size_pt is None or not zone.has_frame
+
+
 def _zones_of_repeat(recipe: Recipe, index: int, *, skip: Zone | None = None) -> list[Zone]:
     """Зоны одного повтора, от заголовка карточки к её тексту."""
-    same = [zone for zone in recipe.zones if zone.repeat == index and zone is not skip]
+    same = [
+        zone
+        for zone in recipe.zones
+        if zone.repeat == index and zone is not skip and _usable(zone)
+    ]
     return sorted(same, key=lambda zone: (zone.role not in CARD_TITLES, zone.zone_id))
 
 
 def _free_zones(recipe: Recipe) -> list[Zone]:
-    """Зоны вне повторов. Порядок им не нужен: зону под блок выбирает `_zone_for`."""
-    return [zone for zone in recipe.zones if zone.repeat is None]
+    """Зоны вне повторов, куда есть смысл писать. Порядок им не нужен: зону под блок
+    выбирает `_zone_for`."""
+    return [zone for zone in recipe.zones if zone.repeat is None and _usable(zone)]
 
 
 def body_seats(recipe: Recipe) -> int:

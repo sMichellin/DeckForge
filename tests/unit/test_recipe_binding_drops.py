@@ -398,6 +398,24 @@ def test_a_framed_zone_is_left_to_the_fitting() -> None:
     assert not [note for note in notes if "обрезан" in note]
 
 
+def test_a_zone_that_holds_no_line_is_not_a_seat() -> None:
+    """Зона с измеренной рамкой и нулевой вместимостью — не место.
+
+    У VK Tech зона высотой 0,46 см оставляет 0,2 см полезной высоты: ноль строк
+    двенадцатым кеглем. Текст в ней уезжает выше рамки — три находки читаемости
+    прогона 25.09. А зона без кегля — это незнание, а не факт, и её мы не отсеиваем.
+    """
+    measured = zone("z2", TypeLevel.BODY, chars=0, framed=True)
+    measured = measured.model_copy(update={"size_pt": 12.0})
+    unknown = zone("z3", TypeLevel.BODY, chars=0, framed=True)
+
+    dead = recipe(1, zones=[zone("z1", TypeLevel.SLIDE_TITLE, framed=True), measured])
+    blind = recipe(2, zones=[zone("z1", TypeLevel.SLIDE_TITLE, framed=True), unknown])
+
+    assert body_seats(dead) == 0
+    assert body_seats(blind) == 1
+
+
 def test_a_framed_zone_still_has_a_limit() -> None:
     """Норма обратной стороны: запас под вписывание не бесконечен.
 
