@@ -29,6 +29,7 @@ from deckforge.audit import deterministic as _deterministic  # noqa: F401  ре�
 from deckforge.audit import semantic as _semantic  # noqa: F401  регистрация
 from deckforge.audit.context import AuditContext
 from deckforge.audit.registry import REGISTRY, CheckUnavailable, RegisteredCheck
+from deckforge.designsystem import DesignSystem
 from deckforge.domain.audit import AuditReport, AuditSummary, Finding
 from deckforge.domain.content import ContentPackage
 from deckforge.domain.enums import Severity
@@ -68,6 +69,7 @@ class AuditRunner:
         vlm: object | None = None,
         layout_previews: dict[str, bytes] | None = None,
         example_previews: list[bytes] | None = None,
+        design_system: DesignSystem | None = None,
     ) -> AuditReport:
         started = time.perf_counter()
         specs = {spec.check_id: spec for spec in load_check_specs().checks}
@@ -80,6 +82,7 @@ class AuditRunner:
             example_previews=example_previews or [],
             deck_path=deck_path,
             vlm=vlm,
+            design_system=design_system,
         )
 
         findings: list[Finding] = []
