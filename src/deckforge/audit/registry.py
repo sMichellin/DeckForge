@@ -47,6 +47,11 @@ class CheckContext(Protocol):
     def vlm(self) -> Any: ...
     @property
     def params(self) -> dict[str, Any]: ...
+    @property
+    def design_system(self) -> Any:
+        """Дизайн-система шаблона из графа или `None` — тогда каталог считается из
+        манифеста (`audit.recipes.catalogue`, RG27)."""
+        ...
 
     def param(self, name: str, default: float) -> float:
         """Числовой порог из `configs/audit_checks.yaml`."""

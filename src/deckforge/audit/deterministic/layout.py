@@ -25,11 +25,12 @@ from deckforge.audit.geometry import (
     positioned_blocks,
     self_positioned_blocks,
 )
+from deckforge.audit.recipes import catalogue, zone_of
 from deckforge.audit.registry import CheckContext, CheckUnavailable, check
 from deckforge.domain.audit import Finding
 from deckforge.domain.base import BBox
 from deckforge.domain.enums import AutoFix, Severity, TextRole
-from deckforge.domain.slide import BulletsBlock, TextBlock
+from deckforge.domain.slide import BulletsBlock, SlideIR, TextBlock
 from deckforge.domain.template import ShapeKind
 from deckforge.domain.units import emu_to_cm
 
@@ -144,7 +145,13 @@ def overlap(ctx: CheckContext) -> Iterable[Finding]:
     title="Текст не помещается в свою рамку",
 )
 def text_overflow(ctx: CheckContext) -> Iterable[Finding]:
-    """Текст не помещается в свою рамку."""
+    """Текст не помещается в свою рамку.
+
+    Предел — замер вёрстки, если он есть; иначе вместимость зоны рецепта, если блок стоит
+    в зоне (RG27): у слайда по рецепту рамку дал автор шаблона, а не макет из плана;
+    иначе — вместимость макета.
+    """
+    recipes = catalogue(ctx)
     for slide in ctx.deck.slides:
         layout = layout_of(slide, ctx.manifest)
         for block in slide.blocks:
@@ -169,6 +176,11 @@ def text_overflow(ctx: CheckContext) -> Iterable[Finding]:
                     )
                 continue
 
+            zone = zone_of(slide, block, recipes)
+            if zone is not None:
+                yield from _zone_overflow(slide, block, zone.zone_id, zone.capacity_chars)
+                continue
+
             if layout is None:
                 continue
             limit = (
@@ -191,6 +203,31 @@ def text_overflow(ctx: CheckContext) -> Iterable[Finding]:
                 ),
                 evidence={"source": "capacity", "chars": str(length), "limit": str(limit)},
             )
+
+
+def _zone_overflow(
+    slide: SlideIR, block: TextBlock | BulletsBlock, zone_id: str, limit: int
+) -> Iterable[Finding]:
+    """Переполнение по вместимости зоны рецепта. Ноль — посчитать не удалось, не судим."""
+    length = len(block_text(block))
+    if limit <= 0 or length <= limit:
+        return
+    yield make_finding(
+        check_id="layout.text_overflow",
+        slide_id=slide.slide_id,
+        block_id=block.block_id,
+        reason="zone_capacity",
+        message=(
+            f"Текст блока {block.block_id}: {length} знаков при вместимости "
+            f"зоны {zone_id} {limit}"
+        ),
+        evidence={
+            "source": "zone_capacity",
+            "zone_id": zone_id,
+            "chars": str(length),
+            "limit": str(limit),
+        },
+    )
 
 
 @check(

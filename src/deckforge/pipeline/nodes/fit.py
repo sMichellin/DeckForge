@@ -143,8 +143,6 @@ def _fit_shortening(
     `fit_report`, а писатель брал из него кегль прямым обращением — `KeyError` на стадии
     `render` (пять прогонов 24.09).
     """
-    if slide.by_recipe:
-        return slide, []
     fitted = fit_slide(
         _into_placeholders(slide), manifest, fonts=fonts, content=content, design=design
     )

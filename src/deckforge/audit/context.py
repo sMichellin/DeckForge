@@ -16,6 +16,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from deckforge.designsystem import DesignSystem
 from deckforge.domain.content import ContentPackage
 from deckforge.domain.slide import DeckIR
 from deckforge.domain.template import TemplateManifest
@@ -43,6 +44,11 @@ class AuditContext:
     vlm: Any | None = None
 
     params: dict[str, Any] = field(default_factory=dict)
+
+    #: Дизайн-система шаблона — та же, что у композиции и писателя (RG27). По ней проверка
+    #: узнаёт рецепт слайда, его макет и его зоны. Нет — `audit.recipes` считает каталог
+    #: из манифеста тем же `derive`: вызов вне графа и старый чекпойнт не ломаются.
+    design_system: DesignSystem | None = None
 
     def with_params(self, params: dict[str, Any]) -> AuditContext:
         """Копия с порогами конкретной проверки из `configs/audit_checks.yaml`."""
