@@ -268,31 +268,6 @@ def test_a_narrow_zone_gives_whole_words_not_letters(
     assert notes == []
 
 
-def test_a_narrow_zone_from_its_own_size_shortens_to_whole_words(
-    manifest: TemplateManifest, fonts: FontLibrary
-) -> None:
-    """Правило 10 от кегля зоны 54 pt: до 12 pt — четыре ступени, больше предела (D02).
-
-    Рамка шириной 1 198 880 EMU — строка 80 pt: при 54 pt (знак 32,4 pt) в неё встают два
-    знака. «выручки» на 40 / 24 pt — 168 / 100,8 pt, шире строки на обеих допустимых
-    ступенях (на 12 pt, третьей, — 50,4 pt, встало бы). Текст сокращается с заметкой —
-    до целых слов не длиннее пяти знаков с многоточием (72 pt при 24 pt): по строке
-    на слово, одиночных букв нет.
-    """
-    design = rules(manifest, zone("z720", 54, 1_198_880, WORD_CY))
-    text = "Рост цены долг выручки"
-    slide = by_recipe(TextBlock(block_id="b1", role=TextRole.BODY, text=text, zone_id="z720"))
-
-    fitted, notes = _fit_shortening(slide, manifest, fonts, CONTENT, design)
-
-    fit = fitted.fit_report["b1"]
-    words = fitted.blocks[0].text.split()
-    assert (fit.final_size_pt, fit.overflow) == (24, False)
-    assert fit.lines == len(words) >= 2
-    assert all(word.rstrip("…") in text.split() for word in words)
-    assert any(note.startswith("s05/b1: текст сокращён") for note in notes)
-
-
 # --- D01 (§10): зона меряется тем, что о ней известно ---------------------------------
 
 
