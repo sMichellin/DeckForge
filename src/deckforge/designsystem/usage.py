@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from deckforge.designsystem.models import DesignSystem
-from deckforge.domain.enums import ListStyle
+from deckforge.domain.enums import ListStyle, TextRole
 from deckforge.domain.slide import (
     Block,
     BulletsBlock,
@@ -74,6 +74,19 @@ def slide_elements(slide: SlideIR) -> list[str]:
     return found
 
 
+def title_only(slide: SlideIR) -> bool:
+    """На слайде только заголовок: тела нет ни одного блока.
+
+    Мерило RG28. Аудит такой слайд считает (`integrity.empty_slide`), но среди десятков
+    находок его не видно, а `scripts/check_deck_readable.py` не видит вовсе: он меряет
+    геометрию того, что на слайде есть, и о том, чего там нет, сказать не может.
+    В прогоне 25.09 таких слайдов было семь из тридцати, и нашлись они глазами.
+    """
+    return not [
+        block for block in slide.blocks if getattr(block, "role", None) is not TextRole.TITLE
+    ]
+
+
 def available(ds: DesignSystem) -> list[str]:
     """Элементы, которые ДС этого шаблона умеет рисовать. Порядок — порядок `_SYNTH_KIND`."""
     kinds = {item.kind for item in ds.synthesized}
@@ -109,6 +122,9 @@ def usage(deck: DeckIR, ds: DesignSystem | None) -> dict[str, object]:
         "slides_with_elements": with_elements,
         "share": round(with_elements / total, 3) if total else 0.0,
         "slides_by_recipe": by_recipe,
+        # Сколько слайдов несут один заголовок (RG28). Одно число, по которому колоду
+        # можно принять или не принять, не читая находок и не открывая файл.
+        "slides_title_only": sum(1 for slide in deck.slides if title_only(slide)),
         "recipe_share": round(by_recipe / total, 3) if total else 0.0,
         "elements": {name: counts[name] for name in sorted(counts)},
         "unused": [name for name in can if name not in counts],
