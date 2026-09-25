@@ -12,6 +12,7 @@ from pptx.oxml.ns import qn
 from pptx.util import Emu, Pt
 
 from deckforge.domain.slide import TableBlock
+from deckforge.rendering.units import size_hundredths
 
 _TABLE_STYLES_REL = "/tableStyles"
 
@@ -67,7 +68,7 @@ def add_table(
             for paragraph in text_frame.paragraphs:
                 # Пустая ячейка прогонов не имеет: высоту строки PowerPoint берёт из
                 # endParaRPr, и без кегля там она считалась бы от 18 pt по умолчанию.
-                paragraph._p.get_or_add_endParaRPr().set("sz", str(round(size_pt * 100)))
+                paragraph._p.get_or_add_endParaRPr().set("sz", size_hundredths(size_pt))
                 for run in paragraph.runs:
                     # Кегль — вписанный `layout`; цвет и жирность шапки — от стиля шаблона.
                     run.font.size = Pt(size_pt)
