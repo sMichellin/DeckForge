@@ -21,9 +21,8 @@ from typing import Any
 from lxml import etree
 from pptx.oxml.ns import qn
 
-from deckforge.designsystem.models import Recipe, TypeLevel
-from deckforge.domain.slide import Block, BulletsBlock, SlideIR, TextBlock
-from deckforge.layout.fitting import AS_IS
+from deckforge.designsystem.models import Recipe, TypeLevel, Zone
+from deckforge.domain.slide import Block, BulletsBlock, FitResult, SlideIR, TextBlock
 from deckforge.rendering.units import size_hundredths
 
 #: Атрибуты, которыми фигура ссылается на связь своей части: картинка, диаграмма, ссылка.
@@ -185,14 +184,20 @@ def write_zone(shape: Any, lines: list[str], size_pt: float | None = None) -> No
     что в шаблоне (правило 5 — в IR их нет вовсе). Кегль — тоже автора, пока вписывание
     не нашло свой (`size_pt`, change `recipe-zone-takes-the-fitted-size`): кегль примера
     стоял под короткое слово примера, и наш текст на нём рвёт слова и выходит за рамку.
-    Найденный кегль ставится каждому прогону, `rPr` без него создаётся; без `size_pt`
-    зона пишется как раньше, байт в байт. Кегль автора писатель только опускает, но не
-    поднимает (D02): `sz = min(size_pt, sz прогона примера)`; у прогона без `sz` — `size_pt`.
+    Кегль автора писатель только опускает (D02): каждому прогону
+    `sz = min(size_pt, sz прогона примера)`. Прогон примера без `sz` не трогается (D04):
+    его кегль унаследован из макета, настоящего числа писатель не знает, и `size_pt`,
+    поставленный вслепую, мог бы кегль и уронить, и поднять. Без `size_pt` зона пишется
+    как раньше, байт в байт.
     """
     body = shape.find(qn("p:txBody"))
     if body is None:
         return
     run_props, par_props = _first_run_props(shape), _paragraph_props(shape)
+    if size_pt is not None and run_props is not None:
+        fitted, authors = size_hundredths(size_pt), run_props.get("sz")
+        if authors is not None and int(fitted) < int(authors):
+            run_props.set("sz", fitted)
     for paragraph in body.findall(qn("a:p")):
         body.remove(paragraph)
     for line in lines or [""]:
@@ -202,13 +207,6 @@ def write_zone(shape: Any, lines: list[str], size_pt: float | None = None) -> No
         run = etree.SubElement(paragraph, qn("a:r"))
         if run_props is not None:
             run.append(copy.deepcopy(run_props))
-        if size_pt is not None:
-            props = run.find(qn("a:rPr"))
-            if props is None:
-                props = etree.SubElement(run, qn("a:rPr"))
-            fitted, authors = size_hundredths(size_pt), props.get("sz")
-            if authors is None or int(fitted) < int(authors):
-                props.set("sz", fitted)
         text = etree.SubElement(run, qn("a:t"))
         text.text = line
 
@@ -225,6 +223,22 @@ def _used_repeats(recipe: Recipe, blocks: list[Block]) -> int:
     return max(used) + 1 if used else 0
 
 
+def _lowered_size(zone: Zone, fitted: FitResult | None) -> float | None:
+    """Кегль вписывания по рамке зоны (RG29) — если вписывание его опустило, иначе `None`.
+
+    Записи нет — зона без рамки или старый чекпойнт: остаётся кегль автора примера.
+    «Опустило» значит ниже кегля зоны в каталоге, с которого вписывание стартует, а не
+    `strategy`: заголовок, уступивший кегль, вписывается заново и приходит как `as_is`
+    (D03). Не ниже — оформление автора байт в байт: старт каталога не всегда равен кеглю
+    прогона примера, и писать его значило бы поднять заголовок 36 → 60 pt (D02).
+    """
+    if fitted is None:
+        return None
+    if zone.size_pt is not None and fitted.final_size_pt >= zone.size_pt:
+        return None
+    return fitted.final_size_pt
+
+
 def clone_recipe(prs: Any, recipe: Recipe, slide_ir: SlideIR) -> Any:
     """Слайд колоды по рецепту: копия примера, наш текст по зонам, лишнее удалено."""
     slide = clone_slide(prs, recipe)
@@ -238,15 +252,10 @@ def clone_recipe(prs: Any, recipe: Recipe, slide_ir: SlideIR) -> Any:
         zone = next((z for z in recipe.zones if z.zone_id == zone_id), None)
         if zone is None or zone.xml_id is None or zone.xml_id not in shapes:
             continue
-        #: Кегль вписывания по рамке зоны (RG29). Записи нет — зона без рамки или старый
-        #: чекпойнт: остаётся кегль автора примера, как до вписывания слайдов по рецепту.
-        #: Вписывание ничего не меняло (`as_is`) — тоже: его стартовый кегль берётся
-        #: из каталога и не всегда равен кеглю прогона примера (D02).
-        fitted = slide_ir.fit_report.get(block.block_id)
         write_zone(
             shapes[zone.xml_id],
             _lines_of(block),
-            fitted.final_size_pt if fitted is not None and fitted.strategy != AS_IS else None,
+            _lowered_size(zone, slide_ir.fit_report.get(block.block_id)),
         )
         filled.add(zone_id)
 

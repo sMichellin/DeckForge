@@ -78,9 +78,9 @@ def fragment(xml: str) -> Any:
     return etree.fromstring(f'<a:root xmlns:a="{A}">{xml}</a:root>')[0]
 
 
-def example():
+def example(size_pt: float | None = None):
     """Пример из двух надписей: у первой прогон без `rPr`, у второй — `pPr` и `rPr` автора
-    и два абзаца."""
+    и два абзаца. `size_pt` — кегль обеих зон в каталоге, с него вписывание стартует."""
     prs = Presentation()
     source = prs.slides.add_slide(prs.slide_layouts[6])
     bare = source.shapes.add_textbox(Emu(100), Emu(100), Emu(3000), Emu(1000))
@@ -96,8 +96,20 @@ def example():
         part_name=str(source.part.partname),
         kind=RecipeKind.TEXT,
         zones=[
-            Zone(zone_id="zb", xml_id=bare.shape_id, role=TypeLevel.BODY, capacity_chars=80),
-            Zone(zone_id="zs", xml_id=styled.shape_id, role=TypeLevel.CAPTION, capacity_chars=80),
+            Zone(
+                zone_id="zb",
+                xml_id=bare.shape_id,
+                role=TypeLevel.BODY,
+                capacity_chars=80,
+                size_pt=size_pt,
+            ),
+            Zone(
+                zone_id="zs",
+                xml_id=styled.shape_id,
+                role=TypeLevel.CAPTION,
+                capacity_chars=80,
+                size_pt=size_pt,
+            ),
         ],
     )
     return prs, recipe, bare.shape_id, styled.shape_id
@@ -128,26 +140,13 @@ def slide_ir(recipe: Recipe, fit_report: dict[str, FitResult]) -> SlideIR:
 
 
 def test_every_run_of_the_zone_takes_the_fitted_size() -> None:
-    """Запись есть — у каждого прогона зоны `sz` из `fit_report`, в сотых пункта.
-    `rPr` у прогона примера не было — он создаётся; оформление автора не теряется."""
-    prs, recipe, bare, styled = example()
-    ir = slide_ir(
-        recipe,
-        {
-            "b0": FitResult(final_size_pt=18, strategy="shrink"),
-            "b1": FitResult(final_size_pt=13.5, strategy="shrink"),
-        },
-    )
+    """Кегль опущен — у каждого прогона зоны `sz` из `fit_report`, в сотых пункта;
+    оформление автора не теряется. Прогон без `sz` в примере не трогается (D04) —
+    это `test_a_run_without_the_authors_size_is_left_alone`."""
+    prs, recipe, _bare, styled = example()
+    ir = slide_ir(recipe, {"b1": FitResult(final_size_pt=13.5, strategy="shrink")})
 
     slide = clone_recipe(prs, recipe, ir)
-
-    listed = runs(shape_by_id(slide, bare))
-    assert len(listed) == 2, "по прогону на пункт списка"
-    assert [props_of(run) is not None and props_of(run).get("sz") for run in listed] == [
-        "1800",
-        "1800",
-    ], "кегль вписывания не дошёл до прогонов зоны без rPr"
-    assert all(run.index(props_of(run)) == 0 for run in listed), "rPr обязан стоять перед a:t"
 
     captions = runs(shape_by_id(slide, styled))
     assert len(captions) == 2
@@ -205,39 +204,77 @@ def test_without_a_record_the_zone_is_written_as_before() -> None:
         assert canonical(shape_by_id(slide, xml_id).find(qn("p:txBody"))) == body
 
 
-def test_a_zone_the_fitting_left_as_is_keeps_the_authors_look() -> None:
-    """D02: вписывание ничего не меняло (`as_is`) — зона та же, что без записи, байт в байт,
-    даже если `final_size_pt` больше кегля автора. Так заголовки VK Education выросли
-    36 → 60 pt: `Zone.size_pt` каталога не равен кеглю прогона примера."""
-    prs, recipe, bare, styled = example()
+@pytest.mark.parametrize(
+    ("final_size_pt", "strategy"),
+    [(60, "as_is"), (24, "as_is"), (24, "shrink")],
+    ids=["as_is-above-the-zone", "as_is-equal", "shrink-equal"],
+)
+def test_a_zone_the_fitting_did_not_lower_keeps_the_authors_look(
+    final_size_pt: float, strategy: str
+) -> None:
+    """D02/D03: кегль не опущен — `final_size_pt` не ниже кегля зоны в каталоге (24 pt),
+    с какой бы `strategy` ни пришла запись. Зона та же, что без записи, байт в байт:
+    у прогона без `rPr` в примере его нет и в файле. Так заголовки VK Education
+    выросли 36 → 60 pt: `Zone.size_pt` каталога не равен кеглю прогона примера."""
+    prs, recipe, bare, styled = example(size_pt=24)
     expected = authors_bodies(prs, bare, styled)
-    as_is = FitResult(final_size_pt=60, strategy="as_is")
+    record = FitResult(final_size_pt=final_size_pt, strategy=strategy)
 
-    slide = clone_recipe(prs, recipe, slide_ir(recipe, {"b0": as_is, "b1": as_is}))
+    slide = clone_recipe(prs, recipe, slide_ir(recipe, {"b0": record, "b1": record}))
 
     for xml_id, body in expected.items():
         assert canonical(shape_by_id(slide, xml_id).find(qn("p:txBody"))) == body, (
-            "запись as_is изменила оформление автора"
+            "кегль не опущен, а оформление автора изменилось"
         )
 
 
 def test_the_fitted_size_never_exceeds_the_authors() -> None:
-    """D02: вписывание опустило кегль, но не ниже авторского (старт каталога был выше
-    кегля прогона примера) — у прогона остаётся `sz` автора, 24 pt, а не 30. Прогон,
-    у которого в примере `sz` не было, получает кегль вписывания: сравнивать не с чем."""
-    prs, recipe, bare, styled = example()
+    """D02: вписывание опустило кегль (30 pt при зоне каталога в 60 pt), но не ниже
+    авторского — у прогона остаётся `sz` автора, 24 pt, а не 30."""
+    prs, recipe, bare, styled = example(size_pt=60)
     expected = authors_bodies(prs, bare, styled)[styled]
     shrunk = FitResult(final_size_pt=30, strategy="shrink")
 
-    slide = clone_recipe(prs, recipe, slide_ir(recipe, {"b0": shrunk, "b1": shrunk}))
+    slide = clone_recipe(prs, recipe, slide_ir(recipe, {"b1": shrunk}))
 
     assert canonical(shape_by_id(slide, styled).find(qn("p:txBody"))) == expected, (
         "кегль вписывания больше авторского попал в файл"
     )
-    assert [props_of(run).get("sz") for run in runs(shape_by_id(slide, bare))] == [
-        "3000",
-        "3000",
-    ]
+
+
+def test_a_title_that_yielded_its_size_is_written_lowered() -> None:
+    """D03: заголовок уступил кегль (`_titles_yield_size` ставит блоку `size_pt` и вписывает
+    заново), и запись приходит как `as_is` — 20 pt при зоне каталога в 60 pt. Кегль опущен,
+    значит у прогонов `sz` 20, а не авторские 60 (VK Education ex015/ex017/ex030/ex033)."""
+    prs, recipe, _bare, styled = example(size_pt=60)
+    for run in runs(shape_by_id(prs.slides[0], styled)):
+        props_of(run).set("sz", "6000")
+    yielded = FitResult(final_size_pt=20, strategy="as_is")
+
+    slide = clone_recipe(prs, recipe, slide_ir(recipe, {"b1": yielded}))
+
+    assert [
+        None if props_of(run) is None else props_of(run).get("sz")
+        for run in runs(shape_by_id(slide, styled))
+    ] == ["2000", "2000"], "опущенный кегль с записью as_is не дошёл до файла"
+    assert all(props_of(run).get("b") == "1" for run in runs(shape_by_id(slide, styled)))
+
+
+@pytest.mark.parametrize("strategy", ["shrink", "as_is"])
+def test_a_run_without_the_authors_size_is_left_alone(strategy: str) -> None:
+    """D04: у прогона примера нет `sz` — кегль унаследован из макета, и настоящего числа
+    писатель не знает (`Zone.size_pt` с ним не совпадает). Кегль опущен (20 pt при зоне
+    в 60 pt), а зона всё равно та же, что у автора: `sz` не пишется, `rPr` не создаётся.
+    Иначе VK Tech s03 падал 16 → 7,8 pt, а VK Education s04/s11 рос 36 → 39."""
+    prs, recipe, bare, styled = example(size_pt=60)
+    expected = authors_bodies(prs, bare, styled)[bare]
+    lowered = FitResult(final_size_pt=20, strategy=strategy)
+
+    slide = clone_recipe(prs, recipe, slide_ir(recipe, {"b0": lowered}))
+
+    assert canonical(shape_by_id(slide, bare).find(qn("p:txBody"))) == expected, (
+        "прогону без sz автора писатель поставил кегль вслепую"
+    )
 
 
 # --- настоящий шаблон ---------------------------------------------------------------
@@ -280,8 +317,8 @@ def test_the_written_file_carries_the_fitted_size(tmp_path: Path) -> None:
     recipe, zones = found
     fitted, kept = zones[0], zones[1]
     authors_size = int(authors_props(path, recipe, fitted.xml_id).get("sz"))
-    #: Ниже кегля автора: выше писатель его не поднимает (D02).
-    size_pt = authors_size / 200
+    #: Ниже кегля автора и кегля зоны в каталоге: иначе кегль не опущен (D02, D03).
+    size_pt = min(authors_size / 100, fitted.size_pt or authors_size / 100) / 2
 
     example = next(e for e in manifest.examples if e.slide_index == recipe.example_index)
     ir = SlideIR(
