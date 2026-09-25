@@ -83,6 +83,13 @@ GROW = "grow"
 #: высотой двенадцать сантиметров — слайд выглядит пустым, хотя переполнения нет.
 FREE_BLOCK_FILL_SHARE = 0.5
 
+#: На сколько ступеней шкалы кегль блока в зоне рецепта уходит от стартового, прежде чем
+#: текст сокращается (D02, §11). Приёмка RG29: тело спускалось 16 → 7,8 pt — текст цел,
+#: но читать его уже нельзя, и это хуже сокращения. Число — как у уступки заголовка
+#: (`_TITLE_STEPS_DOWN` узла `fit`): одно правило «сколько кегля отдаём ради текста».
+#: Политика вёрстки, а не свойство шаблона.
+_ZONE_STEPS_DOWN = 2
+
 
 def _sizes(
     manifest: TemplateManifest,
@@ -91,6 +98,7 @@ def _sizes(
     min_pt: float | None = None,
     *,
     keep_start: bool = False,
+    max_steps: int | None = None,
 ) -> Iterator[float]:
     """Кегли для перебора: старт, привязанный к шкале шаблона, и ступени вниз.
 
@@ -101,16 +109,22 @@ def _sizes(
     фигуры (зона рецепта, RG29), как кегль плейсхолдера. Привяжи его — и текст, который
     на своём кегле помещается, всё равно менял бы кегль на каждой зоне с кеглем не из
     шкалы. Ступени вниз — по-прежнему только по шкале (правило 6).
+
+    `max_steps` — сколько ступеней вниз от старта допустимо (`_ZONE_STEPS_DOWN`). Старт вне
+    шкалы, приведённый к ней, — уже ступень: кегль от этого меньше, чем назначил автор.
     """
     ladder = manifest.size_ladder_pt
     size: float | None = start_pt
+    steps = 0
     if ladder and start_pt not in ladder and not keep_start:
         # Кегль вне шкалы шаблона не используется даже как стартовый (ADR-002).
         size = next_size_down(manifest, start_pt) or min(ladder)
+        steps = 1
     while size is not None:
         yield size
-        if not allow_shrink:
+        if not allow_shrink or (max_steps is not None and steps >= max_steps):
             return
+        steps += 1
         size = next_size_down(manifest, size)
         if size is not None and min_pt is not None and size < min_pt:
             return
@@ -154,6 +168,8 @@ def fit_text(
     fonts: FontLibrary | None = None,
     author_start: bool = False,
     words_bold: bool = False,
+    anchor: bool = False,
+    max_steps: int | None = None,
 ) -> FitResult:
     """Подбирает кегль по шкале шаблона; не влезло на нижней ступени — назначает стратегию.
 
@@ -163,14 +179,21 @@ def fit_text(
     и на превью стояло «извлечен / ие» при 54 pt в рамке 3 879 511 EMU.
 
     `author_start` — старт есть кегль автора шаблона в его же рамке (зона рецепта): он
-    не привязывается к шкале, и текст, вставший на нём в одну строку по ширине, по высоте
-    не проверяется — строку этого кегля в эту рамку поставил сам автор (D01, §10в). Полей
-    и интервала фигуры мы не знаем, и модель строки «не вписала» бы текст примера в его
-    собственную рамку: титул 144 pt, заголовки 36 pt в полосе 626 869 EMU.
+    не привязывается к шкале (D01, §10в).
 
     `words_bold` — ширина слов меряется полужирным: начертание рамки неизвестно, а обычное
-    недооценивает ровно тот разрыв слова, ради которого условие заведено (§10б). Строка
-    автора тогда считается тем же начертанием: полужирным она может уйти на вторую.
+    недооценивает ровно тот разрыв слова, ради которого условие заведено (§10б).
+
+    `anchor` — рамка есть якорь текста, а не коробка: высота не ограничивает, кегль
+    вмещается, как только самое длинное слово уже строки (D02, §11). Так у автора набраны
+    карточки VK Tech: рамка ниже строки своего кегля, текст из неё растёт вниз. Это
+    обобщает строку автора (§10в): полей и интервала фигуры мы не знаем, и модель строки
+    «не вписала» бы текст примера в его собственную рамку — титул 144 pt, заголовки 36 pt
+    в полосе 626 869 EMU. Рамка, которая строку своего кегля держит, меряется по высоте:
+    одна строка в ней встаёт и так.
+
+    `max_steps` — предел спуска по шкале от стартового кегля (см. `_sizes`); не влезло
+    в пределе — стратегия сокращения, как на нижней ступени.
     """
     available = usable_height_emu(box)
     line = usable_width_emu(box)
@@ -182,18 +205,10 @@ def fit_text(
         else None
     )
 
-    def one_line(size_pt: float, lines: int) -> bool:
-        """Текст — одна строка по ширине тем начертанием, которым меряется слово."""
-        if not word_bold:
-            return lines == 1
-        return measure_text(
-            text, font_family=font_family, size_pt=size_pt, box=box,
-            line_spacing=line_spacing, bold=True, italic=italic, fonts=fonts,
-        ).lines == 1
-
     size, lines, required = start_size_pt, 0, 0
     for size in _sizes(
-        manifest, start_size_pt, allow_shrink, min_size_pt, keep_start=author_start
+        manifest, start_size_pt, allow_shrink, min_size_pt,
+        keep_start=author_start, max_steps=max_steps,
     ):
         m = measure_text(
             text, font_family=font_family, size_pt=size, box=box,
@@ -203,9 +218,7 @@ def fit_text(
         word = m.longest_word_emu if word_em is None else round(word_em * size * EMU_PER_PT)
         if word > line:
             continue
-        if required <= available or (
-            author_start and size == start_size_pt and one_line(size, lines)
-        ):
+        if required <= available or anchor:
             return _fits(size, start_size_pt, lines, required)
     splittable = allow_shrink and len(split_paragraphs(text)) > 1
     return _overflow(size, lines, required, available, splittable)
@@ -614,6 +627,11 @@ def _box_for(block: TextBlock | BulletsBlock, layout: LayoutSpec) -> BBox:
     return placeholder.bbox
 
 
+def _holds_a_line(box: BBox, size_pt: float, line_spacing: float | None) -> bool:
+    """Помещается ли в рамку по высоте хотя бы одна строка этого кегля."""
+    return usable_height_emu(box) >= round(line_height_emu(size_pt, line_spacing or 1.0))
+
+
 def _band_holds_the_role_size(box: BBox, step: TypographyStep) -> bool:
     """Помещается ли в рамку хотя бы одна строка кеглем роли.
 
@@ -622,8 +640,7 @@ def _band_holds_the_role_size(box: BBox, step: TypographyStep) -> bool:
     а не текст — полоса заголовка ниже одной строки, — сокращать нечего: на VK WorkSpace
     так обрезались многоточием 7 заголовков из 12 (прогон 80e7af41ab54).
     """
-    line = round(line_height_emu(step.size_pt) * (step.line_spacing or 1.0))
-    return usable_height_emu(box) >= line
+    return _holds_a_line(box, step.size_pt, step.line_spacing)
 
 
 def _title_size_floor(manifest: TemplateManifest, step: TypographyStep) -> float:
@@ -824,6 +841,11 @@ def _fit_text_block(
     (`author_start`). Ступени вниз — только по шкале. Заголовок уступает кегль по одному
     правилу и в плейсхолдере, и в зоне (`_floor_of`). Рост — не здесь: зона не растёт
     вовсе, её размер и кегль задал автор шаблона (см. `fit_block` и `_grown`).
+
+    Рамка зоны, в которую не встаёт ни одна строка **её собственного** кегля, — якорь,
+    а не коробка (D02, §11): ограничивает только ширина. Мерить её по высоте — снять
+    весь текст, который у автора в ней растёт вниз (карточки VK Tech, рамки 12–13 pt).
+    Спуск кегля в зоне — не дальше `_ZONE_STEPS_DOWN` ступеней, дальше — сокращение.
     """
     step = _step_for(block.role, manifest)
     zone_pt = zone.size_pt if zone is not None else None
@@ -840,6 +862,8 @@ def _fit_text_block(
         fonts=fonts,
         author_start=block.size_pt is None and zone_pt is not None,
         words_bold=zone is not None,
+        anchor=zone_pt is not None and not _holds_a_line(box, zone_pt, step.line_spacing),
+        max_steps=_ZONE_STEPS_DOWN if zone is not None else None,
     )
 
 

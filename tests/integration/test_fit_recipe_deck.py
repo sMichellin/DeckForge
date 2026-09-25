@@ -124,3 +124,40 @@ def test_a_deck_by_recipes_is_fitted_zone_by_zone(name: str) -> None:
 @pytest.mark.parametrize("template", cold_templates(), ids=lambda p: p.name)
 def test_a_deck_by_recipes_is_fitted_on_a_cold_template(template: Path) -> None:
     _fits_every_framed_zone(template)
+
+
+#: Текст карточки из приёмки RG29 (VK Tech s07–s09): на превью снят целиком.
+CARD = "Анализ шаблона и извлечение дизайн-системы"
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("recipe_id", ["ex014", "ex026", "ex048"])
+def test_a_card_in_a_frame_lower_than_its_line_keeps_its_text(recipe_id: str) -> None:
+    """D02 (§11, T14): рамка зоны ниже одной строки собственного кегля — якорь, не коробка.
+
+    У карточек VK Tech рамки высотой 12–13 pt при кегле зоны 10,5–18 pt: ни одна строка
+    своего кегля в них не встаёт, а текст у автора растёт вниз. Мерить такую рамку
+    по высоте — значит не вписать ничего: приёмка сняла все карточки s07–s09.
+    Текст в каждой зоне первой ступени каждого повтора, узел `fit` целиком.
+    """
+    manifest = TemplateParser().parse(case_template("VK Tech шаблон.pptx"), use_cache=False)
+    ds = derive(manifest)
+    recipe = next(r for r in ds.recipes if r.recipe_id == recipe_id)
+    firsts = {}
+    for zone in recipe.zones:
+        if zone.repeat is not None and zone.has_frame:
+            firsts.setdefault(zone.repeat, zone)
+    blocks = [
+        TextBlock(block_id=f"b{repeat}", role=TextRole.BODY, text=CARD, zone_id=zone.zone_id)
+        for repeat, zone in sorted(firsts.items())
+    ]
+    slide = SlideIR(
+        slide_id="s07", layout_id=manifest.layouts[0].layout_id, variant="A",
+        recipe_id=recipe_id, blocks=blocks,
+    )
+
+    fitted, notes = _fit_shortening(slide, manifest, None, CONTENT, DesignRules(manifest, ds))
+
+    assert len(blocks) >= 3
+    assert [b.text for b in fitted.blocks if isinstance(b, TextBlock)] == [CARD] * len(blocks)
+    assert not any(" снят — " in note or "сокращён" in note for note in notes), notes

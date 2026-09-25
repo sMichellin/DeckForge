@@ -215,10 +215,11 @@ def test_text_that_fits_no_step_is_shortened_with_a_note(
 ) -> None:
     """Сценарий «Текст не вмещается и после спуска»: сокращение последним, с заметкой.
 
-    Рамка 3 000 000 × 274 320 EMU: одна строка 12 pt (182 880 EMU) шириной 221,8 pt.
-    31 знак при 12 pt — 223,2 pt: две строки ни на одной ступени.
+    Рамка 3 000 000 × 365 760 EMU: одна строка 18 pt (274 320 EMU) — рамка не якорь (D02),
+    высота считается. Строка шириной 221,8 pt; 31 знак при 12 pt — 223,2 pt: две строки
+    (365 760 EMU) выше рамки ни на одной ступени.
     """
-    design = rules(manifest, zone("z720", 18, 3_000_000, 274_320))
+    design = rules(manifest, zone("z720", 18, 3_000_000, 365_760))
     text = "Выручка выросла на треть за год"
     slide = by_recipe(TextBlock(block_id="b1", role=TextRole.BODY, text=text, zone_id="z720"))
 
@@ -250,11 +251,12 @@ def test_a_narrow_zone_gives_whole_words_not_letters(
 ) -> None:
     """Правило 10: на холодном шаблоне `cb04bb47fc47` зоны узкие, `capacity_chars` = 2.
 
-    Рамка шириной 1 000 000 EMU — строка 64,3 pt: при кегле зоны 54 pt (знак 32,4 pt)
-    в неё встаёт один знак, и без вписывания «выручки» шло бы по букве в строку.
-    Спуск по шкале: «выручки» — 168 / 100,8 / 75,6 pt на 40 / 24 / 18, на 12 pt — 50,4 pt.
+    Рамка шириной 1 000 000 EMU — строка 64,3 pt: при кегле зоны 24 pt (знак 14,4 pt)
+    в неё встают четыре знака, и без вписывания «выручки» рвалось бы посередине.
+    Спуск по шкале: «выручки» — 100,8 / 75,6 pt на 24 / 18, на 12 pt — 50,4 pt; 12 — вторая
+    ступень от кегля зоны, в пределе спуска (D02).
     """
-    design = rules(manifest, zone("z720", 54, 1_000_000, WORD_CY))
+    design = rules(manifest, zone("z720", 24, 1_000_000, WORD_CY))
     text = "Рост выручки"
     slide = by_recipe(TextBlock(block_id="b1", role=TextRole.BODY, text=text, zone_id="z720"))
 
@@ -379,23 +381,23 @@ def bold_wider(tmp_path: Path, manifest: TemplateManifest) -> FontLibrary:
     return FontLibrary([tmp_path])
 
 
-def test_the_authors_line_holds_only_on_the_zone_size(
+def test_a_frame_that_holds_a_line_of_its_size_is_measured_by_height(
     manifest: TemplateManifest, fonts: FontLibrary
 ) -> None:
-    """Строка автора — только на собственном кегле зоны; ступенью ниже высота меряется.
+    """Якорь — только рамка ниже строки собственного кегля; рамка в строку меряется по высоте.
 
-    Рамка 3 992 880 × 591 440: строка 300 pt, высота 500 000 EMU. «Итоги года» при 54 pt —
-    324 pt, две строки; при 40 pt — 240 pt, одна, но строка 609 600 EMU выше рамки;
-    при 24 pt — 365 760 EMU, встаёт.
+    Рамка 3 992 880 × 914 400: строка 300 pt, высота 822 960 EMU — ровно строка 54 pt.
+    «Итоги года» при 54 pt — 324 pt, две строки (1 645 920 EMU) выше рамки; при 40 pt —
+    240 pt, одна строка 609 600 EMU, встаёт.
     """
-    design = rules(manifest, zone("z720", 54, 3_992_880, 591_440))
+    design = rules(manifest, zone("z720", 54, 3_992_880, 914_400))
     slide = by_recipe(
         TextBlock(block_id="b1", role=TextRole.BODY, text="Итоги года", zone_id="z720")
     )
 
     fit = fit_slide(slide, manifest, fonts=fonts, content=CONTENT, design=design).fit_report["b1"]
 
-    assert (fit.final_size_pt, fit.overflow) == (24, False)
+    assert (fit.final_size_pt, fit.overflow) == (40, False)
 
 
 def test_a_placeholder_word_is_measured_in_its_own_style(
@@ -420,19 +422,46 @@ def test_a_placeholder_word_is_measured_in_its_own_style(
     assert (fit.final_size_pt, fit.strategy) == (24, AS_IS)
 
 
-def test_the_authors_line_is_counted_in_bold(tmp_path: Path, manifest: TemplateManifest) -> None:
-    """Строка автора считается тем же начертанием, что и слово, — полужирным.
+# --- D02 (§11, T14): рамка-якорь и предел спуска ------------------------------------
 
-    Рамка 4 627 880 × 791 440: строка 350 pt, высота 700 000 EMU. «Итоги года» при 54 pt:
-    обычным — 324 pt, одна строка; полужирным — 378 pt, две. Строки автора нет, а одна
-    строка 54 pt (822 960 EMU) выше рамки — кегль уходит на 40 (609 600 EMU).
+
+def test_an_anchor_frame_steps_down_only_for_the_word(
+    tmp_path: Path, manifest: TemplateManifest
+) -> None:
+    """Рамка ниже строки своего кегля — якорь: кегль уступает только ширине слова.
+
+    Рамка 4 627 880 × 391 440: строка 350 pt, высота 300 000 EMU — ниже строки 54 pt
+    (822 960). «извлечение» полужирным (0,7) при 54 pt — 378 pt, шире строки; при 40 pt —
+    280 pt, встаёт. Строка 40 pt (609 600 EMU) выше рамки, но высота якоря не ограничивает:
+    прежде кегль уходил ради неё дальше, до 18 pt (274 320 EMU).
     """
     fonts = bold_wider(tmp_path, manifest)
-    design = rules(manifest, zone("z720", 54, 4_627_880, 791_440))
+    design = rules(manifest, zone("z720", 54, 4_627_880, 391_440))
     slide = by_recipe(
-        TextBlock(block_id="b1", role=TextRole.BODY, text="Итоги года", zone_id="z720")
+        TextBlock(block_id="b1", role=TextRole.BODY, text="извлечение", zone_id="z720")
     )
 
     fit = fit_slide(slide, manifest, fonts=fonts, content=CONTENT, design=design).fit_report["b1"]
 
-    assert (fit.final_size_pt, fit.overflow) == (40, False)
+    assert (fit.final_size_pt, fit.strategy, fit.overflow) == (40, SHRINK, False)
+
+
+def test_a_body_that_fits_no_step_within_the_limit_is_shortened_not_sunk(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Спуск в зоне — не больше двух ступеней шкалы: дальше сокращение с заметкой.
+
+    Приёмка RG29: тело спускалось 16 → 7,8 pt. Зона 40 pt, рамка 3 000 000 × 701 040:
+    строка 221,8 pt, высота 609 600 EMU — ровно строка 40 pt, не якорь. «Выручка выросла
+    на треть за год, а прибыль вдвое» (48 знаков): при 18 pt в строке 20 знаков — три
+    строки, 822 960 EMU; при 12 pt (третья ступень от 40) — две, 365 760, встало бы.
+    """
+    design = rules(manifest, zone("z720", 40, 3_000_000, 701_040))
+    text = "Выручка выросла на треть за год, а прибыль вдвое"
+    slide = by_recipe(TextBlock(block_id="b1", role=TextRole.BODY, text=text, zone_id="z720"))
+
+    fitted, notes = _fit_shortening(slide, manifest, fonts, CONTENT, design)
+
+    assert fitted.fit_report["b1"].final_size_pt >= 18
+    assert fitted.blocks[0].text != text
+    assert any(note.startswith("s05/b1: текст сокращён") for note in notes)
