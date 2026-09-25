@@ -490,3 +490,66 @@ def test_a_body_that_fits_no_step_within_the_limit_is_shortened_not_sunk(
     assert fitted.fit_report["b1"].final_size_pt >= 18
     assert fitted.blocks[0].text != text
     assert any(note.startswith("s05/b1: текст сокращён") for note in notes)
+
+
+def test_a_start_off_the_ladder_counts_its_first_step(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Старт вне шкалы, приведённый к ней, — уже ступень предела (D02).
+
+    Кегль блока 30 pt — не кегль автора, к шкале он приводится: 30 → 24 — первая ступень,
+    18 — вторая. Строка рамки 1 325 880 EMU — 90 pt: «извлечение» при 18 pt — 108 pt,
+    не встаёт; при 12 pt — 72 pt, встало бы, но это третья ступень. Текст сокращается:
+    «Рост цены долг…» при 24 pt — слова по 57,6–72 pt.
+    """
+    design = rules(manifest, zone("z720", 40, 1_325_880, WORD_CY))
+    text = "Рост цены долг извлечение"
+    slide = by_recipe(TextBlock(
+        block_id="b1", role=TextRole.BODY, text=text, size_pt=30, zone_id="z720",
+    ))
+
+    fitted, notes = _fit_shortening(slide, manifest, fonts, CONTENT, design)
+
+    assert fitted.fit_report["b1"].final_size_pt >= 18
+    assert "извлечение" not in fitted.blocks[0].text
+    assert any(note.startswith("s05/b1: текст сокращён") for note in notes)
+
+
+#: Рамка заголовка ниже строки 40 pt (609 600 EMU места): якорь (D03, §12).
+ANCHOR_TITLE_CY = 500_000
+
+
+def test_a_long_title_in_an_anchor_frame_goes_one_step_down_to_one_line(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Якорь заголовка — одна строка своего кегля: рамка считается высотой 609 600 EMU.
+
+    Строка 601,9 pt. «Итоги года и планы на следующий год» — 35 знаков: при 40 pt
+    (знак 24 pt) — две строки, 1 219 200 EMU, выше строки 40 pt; при 24 pt — 504 pt,
+    одна строка. Прежде якорь пускал заголовок вниз: 40 pt в две строки на тело.
+    """
+    design = rules(manifest, zone("z874", 40, TITLE_CX, ANCHOR_TITLE_CY))
+    slide = by_recipe(
+        TextBlock(block_id="t", role=TextRole.TITLE, text="Итоги года и планы на следующий год",
+                  zone_id="z874"),
+        layout_id="нет-такого-макета",
+    )
+
+    fit = fit_slide(slide, manifest, fonts=fonts, content=CONTENT, design=design).fit_report["t"]
+
+    assert (fit.final_size_pt, fit.lines, fit.overflow) == (24, 1, False)
+
+
+def test_a_short_title_in_an_anchor_frame_keeps_the_zone_size(
+    manifest: TemplateManifest, fonts: FontLibrary
+) -> None:
+    """Норма к якорю заголовка: «Итоги» при 40 pt — 120 pt, одна строка, кегль зоны."""
+    design = rules(manifest, zone("z874", 40, TITLE_CX, ANCHOR_TITLE_CY))
+    slide = by_recipe(
+        TextBlock(block_id="t", role=TextRole.TITLE, text="Итоги", zone_id="z874"),
+        layout_id="нет-такого-макета",
+    )
+
+    fit = fit_slide(slide, manifest, fonts=fonts, content=CONTENT, design=design).fit_report["t"]
+
+    assert (fit.final_size_pt, fit.lines, fit.strategy) == (40, 1, AS_IS)
