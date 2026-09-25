@@ -201,8 +201,9 @@ def test_an_order_the_template_cannot_draw_is_dropped_with_a_note(
 
 
 def test_the_active_planner_prompt_is_the_design_system_one() -> None:
+    """Меню ДС живёт в активной версии, какой бы она ни была после 1.2.0."""
     bundle = get_prompt_registry().load("deck_planner")
-    assert bundle.version == "1.2.0"
+    assert bundle.version not in {"1.0.0", "1.1.0"}
     assert "design_menu" in bundle.system_template
 
 
