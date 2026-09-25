@@ -298,17 +298,35 @@ def test_when_no_recipe_has_room_the_shortfall_is_named() -> None:
 
 
 def test_a_structural_slide_keeps_a_title_only_recipe() -> None:
-    """Норма: обложке место под тело не нужно.
+    """Норма: обложке без места под тело рецепт всё равно достаётся.
 
-    Одна крупная фраза — её законная композиция, и требовать ей тела значило бы
-    отвергать те самые рецепты, ради которых слайд берёт свой вид. На превью 25.09
-    титульный слайд WorkSpace с единственным заголовком выглядит правильно.
+    Одна крупная фраза — её законная композиция, и отказ увёл бы титульный слайд
+    с его вида: из 13 рецептов VK Education без единого места 8 — обложки.
     """
     cover = recipe(1, RecipeKind.COVER, zones=[zone("z1", TypeLevel.DISPLAY)])
 
     chosen = pick_recipe(plan(intent=SlideIntent.TITLE, fact_refs=["f1"]), [cover])
 
     assert chosen is not None and chosen.recipe_id == "ex001"
+
+
+def test_a_cover_with_a_subtitle_wins_over_one_without() -> None:
+    """Обложке нужно одно место — под подзаголовок, и рецепт с ним идёт первым.
+
+    Прогон RG28 показал обратное: обложке WorkSpace достался рецепт без единого места,
+    подзаголовок сняли, и слайд уехал в файл заголовком на чёрном поле. Место по числу
+    фактов структурному слайду не нужно, а одно — нужно.
+    """
+    bare = recipe(1, RecipeKind.COVER, zones=[zone("z1", TypeLevel.DISPLAY)])
+    with_sub = recipe(
+        2,
+        RecipeKind.COVER,
+        zones=[zone("z1", TypeLevel.DISPLAY), zone("z2", TypeLevel.SECTION_SUBTITLE)],
+    )
+
+    chosen = pick_recipe(plan(intent=SlideIntent.TITLE, fact_refs=["f1"]), [bare, with_sub])
+
+    assert chosen is not None and chosen.recipe_id == "ex002"
 
 
 # --- 3. обрезка не опережает вписывание -------------------------------------------
