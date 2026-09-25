@@ -180,6 +180,14 @@ class RunResult:
             notes.append(
                 "рецептов нет — слайды собраны из макетов"
             )
+        # Слайд с одним заголовком — пустое чёрное поле на девять десятых экрана. Его
+        # не ловит ни `check_deck_readable` (нечего мерить), ни глаз, пока колоду
+        # не открыли. Поэтому число едет первым в заметках, а не только в `usage` (RG28).
+        if usage is not None and (lonely := usage["slides_title_only"]):
+            notes.append(
+                f"слайдов только с заголовком: {lonely} из {usage['slides_total']} — "
+                "тело слайда до файла не доехало"
+            )
         return {
             "run_id": self.run_id,
             "variant": self.variant,

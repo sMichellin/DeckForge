@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from deckforge.composition.recipe_binding import KEEP_SHARE, body_seats
 from deckforge.designsystem.models import Recipe, RecipeKind, TypeLevel
 from deckforge.designsystem.recipes import kind_for_visual
 from deckforge.domain.enums import SlideIntent
@@ -31,12 +32,6 @@ INTENT_KINDS: dict[SlideIntent, RecipeKind] = {
 
 #: Виды, которые слайд получает по месту в колоде, а не по заказу.
 STRUCTURAL = frozenset(INTENT_KINDS.values())
-
-#: Доля текста, ниже которой обрезка перестаёт быть сокращением. От предложения,
-#: от которого осталось меньше половины, автора уже не остаётся: на холодном шаблоне
-#: зоны вмещали по два знака, и по слайду разъехались одиночные буквы (прогон
-#: `cb04bb47fc47`). Одна доля на оба условия отбора — заголовок и содержание целиком.
-KEEP_SHARE = 0.5
 
 #: Родственные виды структурного слайда — по порядку предпочтения. Таблица, а не
 #: эвристика: закрывающий слайд — одна крупная фраза, и по виду он ближе к разделителю,
@@ -61,6 +56,22 @@ def _title_capacity(recipe: Recipe) -> int:
     return max((zone.capacity_chars for zone in zones), default=0)
 
 
+def _says(slide: SlidePlan, needs_chars: int) -> int:
+    """Сколько знаков слайд собирается сказать на самом деле.
+
+    Содержательный — заголовок и факты, как их посчитал композитор. Структурный —
+    **только заголовок**: обложка не печатает фактов плана, и мерить ей вместимость
+    по ним значит отвергать её за то, чего на ней не будет.
+
+    Прогон RG28 показал, к чему это приводит. У VK WorkSpace одна обложка (`ex014`,
+    вместимость 32) и один разделитель (`ex028`, вместимость 0). Обложку отвергала
+    эта проверка — 32 знака против половины от всех фактов слайда, — а разделитель
+    проходил, потому что вместимость ноль означает «посчитать не удалось» и условие
+    молчит. Титульный слайд получал разделитель вместо обложки шаблона.
+    """
+    return len(slide.headline) if slide.intent in INTENT_KINDS else needs_chars
+
+
 def _holds_the_text(recipe: Recipe, slide: SlidePlan, needs_chars: int) -> bool:
     """Влезет ли в рецепт то, что слайд собирается сказать.
 
@@ -76,20 +87,77 @@ def _holds_the_text(recipe: Recipe, slide: SlidePlan, needs_chars: int) -> bool:
     if title and slide.headline and title < len(slide.headline) * KEEP_SHARE:
         return False
     holds = sum(zone.capacity_chars for zone in recipe.zones)
-    return not (holds and needs_chars and holds < needs_chars * KEEP_SHARE)
+    says = _says(slide, needs_chars)
+    return not (holds and says and holds < says * KEEP_SHARE)
 
 
-def _fits(recipe: Recipe, slide: SlidePlan, *, has_asset: bool, needs_chars: int = 0) -> bool:
+def _wanted_seats(slide: SlidePlan) -> int:
+    """Сколько мест под тело слайду нужно.
+
+    Содержательному — по числу фактов. Структурному — **одно**: обложка несёт
+    подзаголовок, разделитель — пояснение, финал — строку следующего шага, и ни одному
+    из них не нужно места по числу фактов плана.
+
+    Ноль здесь был бы неправдой, и прогон это показал: обложке WorkSpace достался
+    рецепт `ex028` без единого места, подзаголовок сняли, и слайд уехал в файл
+    заголовком на чёрном поле. Одна крупная фраза — законная композиция, поэтому
+    отказом это не становится (`_has_room`), но при выборе рецепт с подзаголовком
+    обязан быть впереди рецепта без него.
+    """
+    return 1 if slide.intent in INTENT_KINDS else _needs(slide)
+
+
+def _short(recipe: Recipe, slide: SlidePlan) -> int:
+    """Скольких мест под тело рецепту не хватает. Ноль — хватает всех (RG28).
+
+    Мест — не знаков: `_holds_the_text` считает вместимость, а рецепт с единственной
+    заголовочной зоной вмещает сколько угодно знаков в ноль мест.
+    """
+    return max(0, _wanted_seats(slide) - body_seats(recipe))
+
+
+def _has_room(recipe: Recipe, slide: SlidePlan) -> bool:
+    """Есть ли в рецепте хоть одно место под тело.
+
+    Отказ — только на нуле мест, и это намеренно. Нехватка мест не равна потере
+    содержания: список из трёх пунктов на одном свободном месте встаёт одним абзацем,
+    и текст цел. А ноль мест — это ровно `empty_slide`: тело слайда снимается целиком,
+    и остаётся заголовок на чёрном поле. Семь слайдов из тридцати в прогоне 25.09 —
+    этот случай.
+
+    Нехватка, которая не ноль, решается не отказом, а предпочтением: `_nearest` ставит
+    вмещающий рецепт впереди недостаточного, не отвергая второй.
+
+    Структурный слайд не отвергается и на нуле: из 13 рецептов VK Education без единого
+    места 8 — обложки, и отказ увёл бы титульный слайд с его вида. Подзаголовок ему
+    добывается предпочтением (`_wanted_seats`), а не запретом.
+    """
+    return slide.intent in INTENT_KINDS or body_seats(recipe) > 0
+
+
+def _fits(
+    recipe: Recipe,
+    slide: SlidePlan,
+    *,
+    has_asset: bool,
+    needs_chars: int = 0,
+    room: bool = True,
+) -> bool:
     """Вмещает ли композиция это содержание.
 
-    Четыре отказа: повторов меньше, чем пунктов; картинка без ассета; нет зон;
-    текст слайда в зоны не влезает (RG23).
+    Пять отказов: повторов меньше, чем пунктов; картинка без ассета; нет зон;
+    текст слайда в зоны не влезает (RG23); под тело нет ни одного места (RG28).
+
+    `room=False` снимает последний отказ — им пользуется `_roomiest`, когда место
+    под тело не нашлось ни у одного рецепта каталога.
     """
     if recipe.repeats and recipe.repeats < _needs(slide):
         return False
     if recipe.has_picture and not has_asset:
         return False
     if not recipe.zones:
+        return False
+    if room and not _has_room(recipe, slide):
         return False
     return _holds_the_text(recipe, slide, needs_chars)
 
@@ -128,9 +196,58 @@ def pick_recipe(
 
     wanted = kind_for_visual(slide.suggested_visual)
     named = [recipe for recipe in fitting if recipe.kind is wanted] if wanted else []
+    chosen = (
+        _nearest(named, slide, previous, has_asset=has_asset, needs_chars=needs_chars)
+        or _nearest(fitting, slide, previous, has_asset=has_asset, needs_chars=needs_chars)
+        or _roomiest(slide, recipes, previous, has_asset=has_asset, needs_chars=needs_chars)
+    )
+    if chosen is not None:
+        _note_short(notes, slide, chosen)
+    return chosen
+
+
+def _note_short(notes: list[str] | None, slide: SlidePlan, chosen: Recipe) -> None:
+    """Назвать нехватку мест у выбранного рецепта — каким бы путём он ни выбрался.
+
+    Владельцу видно, что колода собрана с потерей, до того, как он откроет файл.
+    Какие именно блоки снялись, называет `bind_to_recipe`: там это уже не оценка
+    по плану, а свершившийся факт.
+    """
+    if notes is None or not (missing := _short(chosen, slide)):
+        return
+    notes.append(
+        f"слайд {slide.slide_id}: в рецепте {chosen.recipe_id} мест под тело "
+        f"{body_seats(chosen)} при {_needs(slide)} факт(ах) — часть содержания "
+        f"на слайд не встанет (не хватает {missing})"
+    )
+
+
+def _roomiest(
+    slide: SlidePlan,
+    recipes: list[Recipe],
+    previous: str | None,
+    *,
+    has_asset: bool,
+    needs_chars: int,
+) -> Recipe | None:
+    """Наибольший из безместных — когда места под тело нет ни у одного рецепта (RG28).
+
+    Отката в «нет рецепта» здесь быть не должно: слайд на пустом макете хуже слайда,
+    с которого снят один факт. Нехватку называет `_note_short` — одной строкой
+    на все пути выбора.
+
+    Выбирает тот же `_nearest`, только без отказа по местам: иначе запасной путь терял
+    бы правило соседства, и два слайда подряд вставали бы одной композицией — зритель
+    читает такую пару как один слайд, перелистнутый назад.
+    """
     return _nearest(
-        named, slide, previous, has_asset=has_asset, needs_chars=needs_chars
-    ) or _nearest(fitting, slide, previous, has_asset=has_asset, needs_chars=needs_chars)
+        [recipe for recipe in recipes if recipe.kind not in STRUCTURAL],
+        slide,
+        previous,
+        has_asset=has_asset,
+        needs_chars=needs_chars,
+        room=False,
+    )
 
 
 def _structural(
@@ -186,8 +303,9 @@ def _nearest(
     *,
     has_asset: bool,
     needs_chars: int = 0,
+    room: bool = True,
 ) -> Recipe | None:
-    """Ближайший по числу повторов; при равенстве — не тот, что стоял на прошлом слайде.
+    """Ближайший по местам и повторам; при равенстве — не тот, что стоял на прошлом слайде.
 
     Одинаковые соседние слайды читаются как один: зритель решает, что перелистнули
     назад. Поэтому равенство разрывается не номером примера, а соседством.
@@ -195,15 +313,24 @@ def _nearest(
     usable = [
         recipe
         for recipe in recipes
-        if _fits(recipe, slide, has_asset=has_asset, needs_chars=needs_chars)
+        if _fits(recipe, slide, has_asset=has_asset, needs_chars=needs_chars, room=room)
     ]
     if not usable:
         return None
     need = _needs(slide)
-    usable.sort(key=lambda recipe: (abs(recipe.repeats - need), recipe.recipe_id))
+
+    def order(recipe: Recipe) -> tuple[int, int]:
+        """Сначала те, кому мест хватает, потом ближайшие по числу повторов (RG28).
+
+        Нехватка мест стоит первой: рецепт, с которого снимут факт, хуже рецепта,
+        отличающегося на один повтор. Прежний порядок о местах не знал.
+        """
+        return _short(recipe, slide), abs(recipe.repeats - need)
+
+    usable.sort(key=lambda recipe: (*order(recipe), recipe.recipe_id))
     if previous is not None and len(usable) > 1 and usable[0].recipe_id == previous:
         best = usable[0]
         following = usable[1]
-        if abs(following.repeats - need) == abs(best.repeats - need):
+        if order(following) == order(best):
             return following
     return usable[0]
