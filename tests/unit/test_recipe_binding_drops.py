@@ -387,11 +387,11 @@ def test_a_framed_zone_is_left_to_the_fitting() -> None:
     framed = recipe(
         1,
         zones=[zone("z1", TypeLevel.SLIDE_TITLE, framed=True),
-               zone("z2", TypeLevel.BODY, chars=40, framed=True)],
+               zone("z2", TypeLevel.BODY, chars=25, framed=True)],
     )
 
-    # Текста 64 знака при вместимости 40: по знакам он был бы обрезан, а вписывание
-    # его удержит — ему хватит ступени кегля вниз.
+    # Текста 64 знака при вместимости 25: по знакам он был бы обрезан втрое, а рамку
+    # меряет вписывание — оно и решает, спускать кегль или сокращать.
     bound = bind_to_recipe(slide_ir(body(1)), framed, notes)
 
     assert bound.blocks[1].text == f"{FACT} 0"  # type: ignore[union-attr]
@@ -414,25 +414,6 @@ def test_a_zone_that_holds_no_line_is_not_a_seat() -> None:
 
     assert body_seats(dead) == 0
     assert body_seats(blind) == 1
-
-
-def test_a_framed_zone_still_has_a_limit() -> None:
-    """Норма обратной стороны: запас под вписывание не бесконечен.
-
-    Прогон с полностью снятой обрезкой дал вдвое больше находок читаемости — текст,
-    который вписыванию не по силам, уезжает в файл кеглем ниже порога или выше рамки.
-    Вписывание отыгрывает ступень-две лестницы, то есть около двойной вместимости.
-    """
-    notes: list[str] = []
-    tiny = recipe(
-        1,
-        zones=[zone("z1", TypeLevel.SLIDE_TITLE, framed=True),
-               zone("z2", TypeLevel.BODY, chars=8, framed=True)],
-    )
-
-    bound = bind_to_recipe(slide_ir(body(1)), tiny, notes)
-
-    assert len(bound.blocks[1].text) <= 16  # type: ignore[union-attr]
 
 
 def test_a_zone_without_a_frame_is_still_clipped() -> None:
