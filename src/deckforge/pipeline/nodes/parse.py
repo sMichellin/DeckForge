@@ -11,6 +11,7 @@ from deckforge.config import get_settings
 from deckforge.designsystem import DesignSystem, derive
 from deckforge.domain.template import TemplateManifest
 from deckforge.parsing.layout_kind import LayoutClassifier
+from deckforge.parsing.layout_names import load_vocabulary, name_mismatches
 from deckforge.parsing.template import TemplateParser
 from deckforge.pipeline.deps import Deps
 from deckforge.pipeline.nodes import timed
@@ -61,6 +62,20 @@ async def parse_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     degradations: list[str] = []
     if deps.layout_vlm is None:
         notes.append("классификация макетов: без VLM, только эвристика (change 5)")
+    # Имя и состав разошлись, и решил состав (Т8): молча — значит спрятать решение.
+    mismatches = name_mismatches(
+        [(layout.name, layout.kind) for layout in manifest.layouts], load_vocabulary()
+    )
+    if mismatches:
+        shown = "; ".join(
+            f"«{name}»: по имени {named.value}, по составу {kind.value}"
+            for name, named, kind in mismatches[:5]
+        )
+        more = f" и ещё {len(mismatches) - 5}" if len(mismatches) > 5 else ""
+        notes.append(
+            f"классификация макетов: имя и состав разошлись у {len(mismatches)}, "
+            f"решил состав — {shown}{more}"
+        )
     if classifier.overdue:
         # Рычаг §15: качество разметки разменяно на время. Молчать об этом нельзя —
         # иначе откат на эвристику неотличим от согласия модели с эвристикой.

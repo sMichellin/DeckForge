@@ -47,7 +47,10 @@ def test_all_layouts_are_present_and_classified(template: Path, parser: Template
     assert kinds["Титул"] is LayoutKind.TITLE
     assert kinds["Заголовок и содержимое"] is LayoutKind.BULLETS
     assert kinds["Две колонки"] is LayoutKind.TWO_COLUMN
-    assert all(layout.kind_source == "heuristic" for layout in manifest.layouts)
+    # Без модели вид даёт эвристика — сама или с голосом имени макета (Т8).
+    assert all(
+        layout.kind_source in {"heuristic", "heuristic+name"} for layout in manifest.layouts
+    )
 
 
 def test_layout_ids_are_unique_and_addressable(template: Path, parser: TemplateParser) -> None:
@@ -198,7 +201,7 @@ def test_parser_classifies_every_layout(template: Path, parser: TemplateParser) 
     """Ни один макет не остаётся с техническим `pending` после сборки манифеста."""
     manifest = parser.parse(template)
     for layout in manifest.layouts:
-        assert layout.kind_source in {"heuristic", "vlm", "vlm+heuristic"}
+        assert layout.kind_source in {"heuristic", "heuristic+name", "vlm", "vlm+heuristic"}
         assert 0.0 < layout.kind_confidence <= 1.0
 
 
@@ -214,13 +217,13 @@ def test_parser_uses_the_injected_classifier(tmp_path: Path) -> None:
 
     # Уверенные макеты остаются за эвристикой, спорные уходят модели — и это видно.
     sources = {layout.kind_source for layout in manifest.layouts}
-    assert sources <= {"heuristic", "vlm", "vlm+heuristic"}
+    assert sources <= {"heuristic", "heuristic+name", "vlm", "vlm+heuristic"}
 
 
 def test_classifier_is_optional(template: Path) -> None:
     """Без VLM-клиента парсер обязан работать: это рабочий режим, а не деградация."""
     manifest = TemplateParser().parse(template, use_cache=False)
-    assert {layout.kind_source for layout in manifest.layouts} == {"heuristic"}
+    assert {layout.kind_source for layout in manifest.layouts} <= {"heuristic", "heuristic+name"}
 
 
 # --- адресация макета и гарнитуры, запросы потока B --------------------------

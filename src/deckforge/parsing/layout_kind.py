@@ -24,6 +24,7 @@ from deckforge.domain.template import (
 )
 from deckforge.inference.client import InferenceQuotaError
 from deckforge.inference.vlm import VlmClient
+from deckforge.parsing.layout_names import NameVocabulary, load_vocabulary
 from deckforge.parsing.layout_preview import (
     LayoutPreviewProvider,
     SchematicPreview,
@@ -267,7 +268,11 @@ class LayoutClassifier:
         profile: str | None = None,
         base_seed: int = 1337,
         budget_s: float | None = DEFAULT_VLM_BUDGET_S,
+        names: NameVocabulary | None = None,
     ) -> None:
+        #: Слова в именах макетов — дополнительный голос за вид (Т8). По умолчанию —
+        #: словарь `configs/layout_names.yaml`; пустой словарь — имена молчат.
+        self.names = names if names is not None else load_vocabulary()
         self.vlm = vlm
         self.preview = preview or SchematicPreview()
         self.votes = max(1, votes)
@@ -325,11 +330,20 @@ class LayoutClassifier:
         self, placeholders: list[PlaceholderSpec], slide_size: SlideSize, layout: LayoutSpec
     ) -> Classification:
         kind, confidence = classify_heuristic(placeholders, slide_size, layout.shapes)
+        source = "heuristic"
+        # Голос имени (Т8): неуверенная эвристика уступает имени, уверенная — нет.
+        # Имя, решившее вид или совпавшее с ним, поднимает уверенность до порога —
+        # звать модель, когда состав и имя уже сошлись, незачем.
+        named = self.names.vote(layout.name, kind)
+        if named is not None and (named is kind or confidence < self.names.name_wins_below):
+            kind = named
+            confidence = max(confidence, UNCERTAIN_BELOW)
+            source = "heuristic+name"
         if not self.enabled or self.exhausted or not needs_vlm(confidence):
-            return Classification(kind, confidence, "heuristic")
+            return Classification(kind, confidence, source)
         if self._over_budget():
             self.fell_back += 1
-            return Classification(kind, confidence, "heuristic")
+            return Classification(kind, confidence, source)
 
         signature = geometry_signature(placeholders, slide_size)
         if (cached := self._cache.get(signature)) is not None:

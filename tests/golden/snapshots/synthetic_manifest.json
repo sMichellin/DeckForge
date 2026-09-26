@@ -61,7 +61,7 @@
       "index": 0,
       "kind": "title",
       "kind_confidence": 0.9,
-      "kind_source": "heuristic",
+      "kind_source": "heuristic+name",
       "layout_id": "L00",
       "master": "M01",
       "name": "Титул",
@@ -212,7 +212,7 @@
       "shapes": []
     }
   ],
-  "parser_version": "1.9.0",
+  "parser_version": "1.10.0",
   "slide_size": {
     "aspect": "16:9",
     "cx_emu": 12192000,
