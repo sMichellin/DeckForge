@@ -488,7 +488,8 @@ def test_chart_table_and_kpi_are_native_objects(template: Path, tmp_path: Path) 
     assert sum(1 for s in shapes if s.has_chart) == 1
     assert sum(1 for s in shapes if s.has_table) == 1
     texts = [s.text_frame.text for s in shapes if s.has_text_frame]
-    assert "37 %\nрост" in texts
+    # Число и процент — неразрывно (Т4, `no-hanging-prepositions`).
+    assert "37 %\nрост" in texts
     table = next(s for s in shapes if s.has_table).table
     assert [c.text for c in table.rows[1].cells] == ["2024", "1", "0,5"]
     assert not any("srgbClr" in xml for xml in [*slide_xml(out).values(),
@@ -594,7 +595,7 @@ def test_free_text_inherits_the_layout_text_color(template: Path, tmp_path: Path
     out = PptxWriter(dark, manifest).write(deck, tmp_path / "deck.pptx")
     shapes = {s.text_frame.text: s for s in Presentation(str(out)).slides[0].shapes
               if s.has_text_frame and s.shape_type == MSO_SHAPE_TYPE.TEXT_BOX}
-    label_xml = shapes["37 %\nрост"]._element.xml
+    label_xml = shapes["37 %\nрост"]._element.xml
     assert label_xml.count('<a:schemeClr val="lt1"/>') == 1, "подпись — цветом текста макета"
     assert '<a:schemeClr val="accent1"/>' in label_xml, "значение — акцентом"
     assert '<a:schemeClr val="lt1"/>' in shapes["Сноска"]._element.xml
@@ -993,7 +994,7 @@ def test_kpi_columns_are_centred_in_their_frame(template: Path, tmp_path: Path) 
     out = PptxWriter(template, manifest).write(deck, tmp_path / "deck.pptx")
     column = next(
         s for s in Presentation(str(out)).slides[0].shapes
-        if s.has_text_frame and "37 %" in s.text_frame.text
+        if s.has_text_frame and "37 %" in s.text_frame.text
     )
 
     assert 'anchor="ctr"' in column._element.xml, "колонка показателя прижата к краю рамки"

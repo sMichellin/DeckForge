@@ -49,6 +49,7 @@ from deckforge.layout.diagram import ROUND_RECT_RADIUS, diagram_geometry
 from deckforge.layout.fonts import FontLibrary
 from deckforge.layout.lists import draws_icons, icon_list_geometry, list_style
 from deckforge.layout.metrics import LINE_HEIGHT_RATIO
+from deckforge.layout.nonbreaking import bind as nonbreaking
 from deckforge.layout.tabular import format_number, table_cells, table_has_header
 from deckforge.rendering.boxed import boxed_accent
 from deckforge.rendering.icons import ICON_STROKE_WIDTH, ICON_VIEWBOX, icon_nodes
@@ -82,6 +83,11 @@ _INVISIBLE_CONTRAST = 1.5
 _LINE_WIDTH, _MARKER_RADIUS, _POINT_RADIUS = 3, 6, 7
 
 Position = Callable[[float], float]
+
+
+def _text(text: str) -> str:
+    """Текст для html: неразрывные пробелы по тому же правилу, что pptx и замер (Т4)."""
+    return escape(nonbreaking(text))
 
 
 def _var(ref: ColorRef | None) -> str:
@@ -281,7 +287,9 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
                 + ("; font-weight: bold" if step and step.bold else "")
             )
             if isinstance(block, TextBlock):
-                paragraphs = "".join(f"<p>{escape(p)}</p>" for p in block.text.split("\n"))
+                paragraphs = "".join(
+                    f"<p>{_text(p)}</p>" for p in block.text.split("\n")
+                )
                 return f'<div class="block text" {head} style="{style}">{paragraphs}</div>'
             if draws_icons(block):
                 return (
@@ -289,7 +297,7 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
                     f"{self.icon_list(block, box, size or 0)}</div>"
                 )
             items = "".join(
-                f'<li class="level-{item.level}">{escape(item.text)}</li>' for item in block.items
+                f'<li class="level-{item.level}">{_text(item.text)}</li>' for item in block.items
             )
             # Номер — цветом акцента по роли ДС, как в pptx (`number_ink`). Иконочный
             # список в плейсхолдере рисуется маркером — как в pptx.
@@ -380,11 +388,11 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
         head = ""
         if header:
             head = (
-                "<thead><tr>" + "".join(f"<th>{escape(c)}</th>" for c in cells[0]) + "</tr></thead>"
+                "<thead><tr>" + "".join(f"<th>{_text(c)}</th>" for c in cells[0]) + "</tr></thead>"
             )
             cells = cells[1:]
         rows = "".join(
-            "<tr>" + "".join(f"<td>{escape(c)}</td>" for c in row) + "</tr>" for row in cells
+            "<tr>" + "".join(f"<td>{_text(c)}</td>" for c in row) + "</tr>" for row in cells
         )
         banded = ' class="banded"' if block.banding else ""
         return f"<table{banded}>{head}<tbody>{rows}</tbody></table>"
@@ -403,9 +411,9 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
         columns = "".join(
             "<div>"
             f'<div class="kpi-value" style="color: {_var(item.color_ref or accent)}">'
-            f"{escape(item.value)}</div>"
+            f"{_text(item.value)}</div>"
             f'<div class="kpi-label" style="color: {label_color}; '
-            f'font-size: {self.font_size(label_size)}">{escape(item.label)}</div>'
+            f'font-size: {self.font_size(label_size)}">{_text(item.label)}</div>'
             "</div>"
             for item in block.items
         )
@@ -471,12 +479,12 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
                 color = _var(text_on(fill, self.manifest))
                 parts.append(
                     f'<div class="label" style="{inside(label)}; color: {color}; {font}">'
-                    f"{escape(text)}</div>"
+                    f"{_text(text)}</div>"
                 )
             else:
                 parts.append(
                     f'<div class="label top" style="{inside(label)}; color: {on_background}; '
-                    f'{font}">{escape(text)}</div>'
+                    f'{font}">{_text(text)}</div>'
                 )
         return "".join(parts)
 
@@ -504,7 +512,7 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
             "</div>"
             for item, icon in zip(block.items, parts.icons, strict=True)
         )
-        lines = "".join(f"<p>{escape(item.text)}</p>" for item in block.items)
+        lines = "".join(f"<p>{_text(item.text)}</p>" for item in block.items)
         return f'{glyphs}<div class="frame" style="{inside(parts.frame)}">{lines}</div>'
 
     def svg_icon(self, query: str, color: ColorRef) -> str:
@@ -549,7 +557,7 @@ body {{ margin: 0; padding: 2vh 0; background: var(--dk2); font-family: {self.fa
             kind = "label" if paragraph.label else "author" if paragraph.minor else "text"
             lines.append(
                 f'<p class="{kind}" style="font-size: {self.font_size(paragraph.size_pt)}; '
-                f'font-weight: {weight}; color: {_var(color)}">{escape(paragraph.text)}</p>'
+                f'font-weight: {weight}; color: {_var(color)}">{_text(paragraph.text)}</p>'
             )
         return (
             f'<div class="bar" style="{inside(parts.bar)}; background: {_var(accent)}"></div>'

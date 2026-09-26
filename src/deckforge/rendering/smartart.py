@@ -24,6 +24,7 @@ from deckforge.domain.template import ComponentKind, TemplateManifest
 from deckforge.domain.units import EMU_PER_PT
 from deckforge.layout.by_design import DesignRules
 from deckforge.layout.diagram import diagram_geometry
+from deckforge.layout.nonbreaking import bind as nonbreaking
 from deckforge.rendering.theme_binding import apply_theme_color, theme_font_token
 
 #: Толщина коннектора в долях кегля подписей: вес линии следует за весом текста.
@@ -132,7 +133,7 @@ def _write(
     frame.auto_size = MSO_AUTO_SIZE.NONE  # type: ignore[attr-defined]
     frame.vertical_anchor = anchor  # type: ignore[attr-defined]
     paragraph = frame.paragraphs[0]  # type: ignore[attr-defined]
-    paragraph.text = text
+    paragraph.text = nonbreaking(text)
     paragraph.alignment = PP_ALIGN.CENTER
     for run in paragraph.runs:
         run.font.size = Pt(size_pt)

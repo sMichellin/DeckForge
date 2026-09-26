@@ -60,7 +60,8 @@ def test_export_does_not_fail(html: str) -> None:
 def test_every_zone_text_is_in_the_document(html: str) -> None:
     """Пропустить блок без рамки было бы дёшево — и html соврал бы про колоду."""
     for text in (TITLE, BODY, EXTRA):
-        assert text in html, f"текст зоны потерян: {text!r}"
+        # Неразрывные пробелы html ставит по правилу Т4 — текст зоны от этого не меняется.
+        assert text in html.replace(" ", " "), f"текст зоны потерян: {text!r}"
 
 
 def test_zone_blocks_go_into_one_flow_strip(html: str) -> None:

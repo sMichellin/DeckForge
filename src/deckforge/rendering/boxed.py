@@ -21,6 +21,7 @@ from deckforge.domain.slide import FitResult, QuoteBlock
 from deckforge.domain.template import TemplateManifest
 from deckforge.layout.boxed import BoxedBlock, geometry, paragraphs, style_of
 from deckforge.layout.by_design import DesignRules
+from deckforge.layout.nonbreaking import bind as nonbreaking
 from deckforge.rendering.theme_binding import apply_theme_color, theme_font_token
 
 
@@ -79,7 +80,7 @@ def add_boxed(
         paragraphs(block, style, fit.final_size_pt, bold=bool(step and step.bold))
     ):
         target = frame.paragraphs[0] if index == 0 else frame.add_paragraph()
-        target.text = paragraph.text
+        target.text = nonbreaking(paragraph.text)
         color = (
             design.accent_ink(
                 accent, background_hex, size_pt=paragraph.size_pt, bold=paragraph.bold

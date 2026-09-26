@@ -61,6 +61,7 @@ from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fitting import fit_block, fit_table, table_row_heights
 from deckforge.layout.fonts import FontLibrary
 from deckforge.layout.lists import draws_icons, icon_list_geometry, list_style
+from deckforge.layout.nonbreaking import bind as nonbreaking
 from deckforge.layout.tabular import dataset_bullets, table_cells, table_has_header
 from deckforge.parsing.ooxml.layouts import resolve_placeholders
 from deckforge.parsing.package import TemplatePackage
@@ -170,9 +171,10 @@ def _layout_text_color(layout: object) -> ColorRef | None:
 
 
 def _paragraphs(block: TextBlock | BulletsBlock) -> list[tuple[str, int]]:
+    """Абзацы блока для записи — с неразрывными пробелами, как их мерило вписывание (Т4)."""
     if isinstance(block, TextBlock):
-        return [(text, 0) for text in _PARAGRAPH_BREAK.split(block.text)]
-    return [(item.text, item.level) for item in block.items]
+        return [(nonbreaking(text), 0) for text in _PARAGRAPH_BREAK.split(block.text)]
+    return [(nonbreaking(item.text), item.level) for item in block.items]
 
 
 class SlideValidator:
@@ -868,14 +870,14 @@ class PptxWriter:
             frame.vertical_anchor = MSO_ANCHOR.MIDDLE
             frame.clear()
             value = frame.paragraphs[0]
-            value.text = item.value
+            value.text = nonbreaking(item.value)
             _style_runs(
                 value, size_pt, item.color_ref or accent,
                 theme_font_token(value_step.font_ref) if value_step else None,
                 value_step.bold if value_step else None,
             )
             label = frame.add_paragraph()
-            label.text = item.label
+            label.text = nonbreaking(item.label)
             _style_runs(
                 label,
                 label_pt,
