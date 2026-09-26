@@ -170,6 +170,7 @@ def pick_recipe(
     has_asset: bool = False,
     needs_chars: int = 0,
     notes: list[str] | None = None,
+    explain: dict[str, object] | None = None,
 ) -> Recipe | None:
     """Композиция под слайд или `None` — тогда слайд собирается прежним путём.
 
@@ -180,8 +181,14 @@ def pick_recipe(
 
     `notes` получает откат структурного слайда словами: подмена вида, о которой молчат,
     неотличима от точного совпадения.
+
+    `explain` получает путь выбора — `path`, заказанный вид `wanted`, число вмещающих
+    `fitting` (Т7): по нему отчёт прогона отвечает на вопрос «почему этот слайд».
+    Словами его собирает `why_recipe`.
     """
+    sink: dict[str, object] = explain if explain is not None else {}
     if not recipes:
+        sink.update(path="empty", wanted=None, fitting=0)
         return None
 
     fitting = [
@@ -192,15 +199,23 @@ def pick_recipe(
     ]
     own = INTENT_KINDS.get(slide.intent)
     if own is not None:
-        return _structural(slide, recipes, fitting, own, previous, has_asset, needs_chars, notes)
+        return _structural(
+            slide, recipes, fitting, own, previous, has_asset, needs_chars, notes, sink
+        )
 
     wanted = kind_for_visual(slide.suggested_visual)
     named = [recipe for recipe in fitting if recipe.kind is wanted] if wanted else []
-    chosen = (
-        _nearest(named, slide, previous, has_asset=has_asset, needs_chars=needs_chars)
-        or _nearest(fitting, slide, previous, has_asset=has_asset, needs_chars=needs_chars)
-        or _roomiest(slide, recipes, previous, has_asset=has_asset, needs_chars=needs_chars)
-    )
+    sink.update(wanted=wanted.value if wanted else None, fitting=len(fitting))
+    chosen = _nearest(named, slide, previous, has_asset=has_asset, needs_chars=needs_chars)
+    sink["path"] = "named"
+    if chosen is None:
+        chosen = _nearest(fitting, slide, previous, has_asset=has_asset, needs_chars=needs_chars)
+        sink["path"] = "fitting"
+    if chosen is None:
+        chosen = _roomiest(
+            slide, recipes, previous, has_asset=has_asset, needs_chars=needs_chars
+        )
+        sink["path"] = "roomiest" if chosen is not None else "none"
     if chosen is not None:
         _note_short(notes, slide, chosen)
     return chosen
@@ -259,6 +274,7 @@ def _structural(
     has_asset: bool,
     needs_chars: int,
     notes: list[str] | None,
+    sink: dict[str, object] | None = None,
 ) -> Recipe | None:
     """Рецепт структурного слайда: свой вид → родственный → вмещающий содержательный.
 
@@ -267,15 +283,19 @@ def _structural(
     обложке ряд карточек, карточки остались пустыми и были удалены — на слайде остались
     обрезанный заголовок и логотип. Обложка по макету лучше пустой обложки.
     """
+    explain: dict[str, object] = sink if sink is not None else {}
+    explain.update(wanted=own.value, fitting=len(fitting))
     for kind in (own, *RELATED_KINDS.get(slide.intent, ())):
         same = [recipe for recipe in recipes if recipe.kind is kind]
         chosen = _nearest(same, slide, previous, has_asset=has_asset, needs_chars=needs_chars)
         if chosen is not None:
             if kind is not own:
                 _note_fallback(notes, slide, own, chosen)
+            explain["path"] = "own" if kind is own else "related"
             return chosen
     plain = [recipe for recipe in fitting if not recipe.repeats]
     chosen = _nearest(plain, slide, previous, has_asset=has_asset, needs_chars=needs_chars)
+    explain["path"] = "plain" if chosen is not None else "none"
     if chosen is not None:
         _note_fallback(notes, slide, own, chosen)
     elif notes is not None:
@@ -334,3 +354,32 @@ def _nearest(
         if order(following) == order(best):
             return following
     return usable[0]
+
+
+#: Путь выбора → как он звучит в отчёте. Одно место, где решение подборщика становится
+#: фразой: интерфейс и `run.json` показывают её как есть (Т7).
+_WHY: dict[str, str] = {
+    "named": "вид «{wanted}» заказан планом — из {fitting} вмещающих взят ближайший по местам",
+    "own": "место в колоде задаёт вид «{wanted}» — взят рецепт этого вида",
+    "related": "своего вида «{wanted}» в шаблоне нет — взят родственный «{kind}»",
+    "plain": (
+        "своего вида «{wanted}» и родственных в шаблоне нет — взят вмещающий "
+        "содержательный без повторов"
+    ),
+    "fitting": "заказанного вида нет — из {fitting} вмещающих взят ближайший по местам",
+    "roomiest": "ни один рецепт не вмещает содержание — взят самый вместительный",
+    "none": "ни один рецепт не подошёл — слайд собран по макету",
+    "empty": "у шаблона нет каталога композиций — слайд собран по макету",
+}
+
+
+def why_recipe(explain: dict[str, object], recipe: Recipe | None) -> str:
+    """Почему слайд получил этот рецепт — одной фразой для человека (Т7)."""
+    path = str(explain.get("path", "none"))
+    template = _WHY.get(path, _WHY["none"])
+    wanted = explain.get("wanted") or "—"
+    return template.format(
+        wanted=wanted,
+        fitting=explain.get("fitting", 0),
+        kind=recipe.kind.value if recipe is not None else "—",
+    )

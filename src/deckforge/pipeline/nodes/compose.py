@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from langgraph.runtime import Runtime
 
@@ -106,11 +107,17 @@ async def compose_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     if not slides:
         raise RuntimeError(f"не собран ни один слайд из {len(plan.slides)}: {'; '.join(errors)}")
 
+    # Композитор без объяснений (подделка в тестах) — выбор просто не показывается.
+    choices: dict[str, Any] = getattr(composer, "choices", {})
     return {
         # План с заголовками под выбранные макеты: по нему дальше идут порядок колоды
         # и отчёт, и заголовок в плане не должен расходиться с заголовком на слайде.
         "plan": plan,
         "slides": slides,
+        # Почему каждый слайд собран так — в порядке плана (Т7).
+        "slide_choices": [
+            choices[slide.slide_id] for slide in plan.slides if slide.slide_id in choices
+        ],
         "stage_timings_s": timings,
         "errors": errors,
         # Что композиция поставила свободным блоком, отбросила или урезала: без этого

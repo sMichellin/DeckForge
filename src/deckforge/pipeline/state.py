@@ -66,6 +66,8 @@ class DeckState(TypedDict, total=False):
     slides_decision: dict[str, Any]
     slides: Annotated[list[SlideIR], _merge_slides]
     deck: DeckIR
+    #: Почему каждый слайд собран так: рецепт или макет и фраза для человека (Т7).
+    slide_choices: list[dict[str, Any]]
 
     pptx_path: Path
     #: `slide_id` → путь к png. Пусто, если LibreOffice недоступен.
