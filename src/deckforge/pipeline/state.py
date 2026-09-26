@@ -82,6 +82,10 @@ class DeckState(TypedDict, total=False):
     #: нечем чинить, крутился бы до предела витков вхолостую.
     fix_applied: bool
     exports: dict[str, Path]
+    #: Дизайн-система шаблона файлами в папке прогона: `html` — страница, `json` — сама
+    #: структура (Т2, change `design-system-in-the-run-folder`). Не формат колоды, поэтому
+    #: не в `exports`: там только то, что скачивают как презентацию.
+    design_system_files: dict[str, Path]
 
     stage_timings_s: Annotated[dict[str, float], _merge_timings]
     #: Что не отработало: слайд не собрался, pdf не получился, фиксов ещё нет.
