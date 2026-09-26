@@ -404,6 +404,19 @@
           "description": "Кегль, приведённый к масштабу слайда",
           "title": "Size Pt"
         },
+        "layout_size_pt": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Layout Size Pt"
+        },
         "font_family": {
           "anyOf": [
             {

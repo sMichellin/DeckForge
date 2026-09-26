@@ -177,6 +177,7 @@ def _shape(
         role=_role(idx, layout),
         text_len=len(text),
         size_pt=size_pt,
+        layout_size_pt=_layout_size_pt(frame, layout, idx),
         font_family=_font(node, theme),
         color_ref=text_ref,
         color_hex=text_hex,
@@ -264,7 +265,7 @@ def _role(idx: int | None, layout: LayoutSpec | None) -> TextRole | None:
 
 
 def _size_pt(node: etree._Element, frame: _Frame) -> float | None:
-    """Наибольший кегль фигуры, приведённый к масштабу слайда."""
+    """Свой кегль фигуры (`a:rPr/@sz`), приведённый к масштабу слайда."""
     sizes = [
         _int(props, "sz")
         for props in node.iter(f"{{{A}}}rPr")
@@ -274,6 +275,26 @@ def _size_pt(node: etree._Element, frame: _Frame) -> float | None:
         return None
     biggest = max(sizes) / 100 * frame.font_scale
     return round(biggest, 2) if biggest > 0 else None
+
+
+def _layout_size_pt(frame: _Frame, layout: LayoutSpec | None, idx: int | None) -> float | None:
+    """Кегль, который задаёт плейсхолдеру макет, — тоже число автора (RG42).
+
+    Отдельным полем, а не внутри `size_pt`, намеренно. `size_pt` участвует в разборе
+    дальше: по нему каталог выбирает ступень зоны, считает вместимость и отбирает
+    рецепты. Подмешать туда кегль макета значит сдвинуть весь каталог — на VK Tech
+    такая подмена вернула два пустых слайда и пять искажённых картинок.
+
+    Здесь нужно ровно одно: дать писателю знать настоящее число автора, чтобы он мог
+    опустить кегль там, где вписывание этого потребовало (D04, RG39).
+    """
+    if idx is None or layout is None:
+        return None
+    holder = next((ph for ph in layout.placeholders if ph.idx == idx), None)
+    if holder is None or not holder.size_pt:
+        return None
+    inherited = holder.size_pt * frame.font_scale
+    return round(inherited, 2) if inherited > 0 else None
 
 
 def _font(node: etree._Element, theme: Theme) -> str | None:

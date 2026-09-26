@@ -320,6 +320,11 @@ class ExampleShape(DomainModel):
     size_pt: float | None = Field(
         default=None, gt=0, description="Кегль, приведённый к масштабу слайда"
     )
+    #: Кегль, который задаёт этому плейсхолдеру макет. Тоже число автора, но в разборе
+    #: не участвует: `size_pt` выбирает ступень и считает вместимость, и подмешивать
+    #: туда кегль макета нельзя — сдвинется весь каталог. Нужен писателю, чтобы опустить
+    #: кегль там, где вписывание этого потребовало (D04, RG42).
+    layout_size_pt: float | None = Field(default=None, gt=0)
     font_family: str | None = Field(
         default=None, description="Гарнитура; ссылки +mj-lt/+mn-lt разрешены через тему"
     )

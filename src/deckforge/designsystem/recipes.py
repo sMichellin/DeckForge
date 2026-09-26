@@ -137,9 +137,21 @@ def _level_of(ds: DesignSystem, shape: ExampleShape) -> TypeLevel:
 
 
 def _size_of(ds: DesignSystem, shape: ExampleShape, level: TypeLevel) -> float | None:
+    """Кегль зоны: свой у фигуры, а нет — ступень лестницы для роли."""
     if shape.size_pt is not None:
         return shape.size_pt
     return next((step.size_pt for step in ds.typography.steps if step.level is level), None)
+
+
+def _author_size_of(shape: ExampleShape) -> float | None:
+    """Кегль, который **стоит у автора**: свой у фигуры или заданный ей макетом (RG42).
+
+    Не то же, что кегль зоны: тот бывает подставлен ступенью лестницы, когда числа нет
+    нигде. Ставить подстановку в файл нельзя — ею роняли VK Tech s03 с 16 до 7,8 pt
+    и поднимали VK Education s04/s11 с 36 до 39 (D04). Здесь только настоящие числа,
+    и пусто, когда числа нет.
+    """
+    return shape.size_pt if shape.size_pt is not None else shape.layout_size_pt
 
 
 def _capacity(shape: ExampleShape, size_pt: float | None) -> int:
@@ -425,6 +437,7 @@ def _zones(ds: DesignSystem, example: TemplateExample, repeats: dict[str, int]) 
                 repeat=repeats.get(shape.shape_id),
                 capacity_chars=_capacity(shape, size_pt),
                 size_pt=size_pt,
+                author_size_pt=_author_size_of(shape),
                 # Рамка фигуры примера — та, что уже приведена к слайду с масштабом
                 # группы (`ExampleShape`). Каталог её знал и выбрасывал (RG18).
                 x=shape.x,
