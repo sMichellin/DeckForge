@@ -438,6 +438,14 @@ class Recipe(DomainModel):
         default=None, description="Адрес картинки, которую подменяет ассет слайда"
     )
     origin: Origin = Origin.MEASURED
+    #: Новое поле последним и необязательно: каталог лежит в чекпойнте.
+    layout_name: str = Field(
+        default="",
+        description=(
+            "Имя макета, на котором стоит пример: по нему подборщик узнаёт пример "
+            "на титуле, разделе или финале и берёт его содержательному слайду последним (Т8)"
+        ),
+    )
 
 
 class DesignSystem(DomainModel):

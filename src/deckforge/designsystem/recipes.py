@@ -599,7 +599,15 @@ def _recipe(
         has_picture=picture is not None,
         picture_xml_id=picture.xml_id if picture is not None else None,
         origin=Origin.MEASURED,
+        layout_name=_layout_name(manifest, example),
     )
+
+
+def _layout_name(manifest: TemplateManifest, example: TemplateExample) -> str:
+    """Имя макета примера. Что оно значит, решает подборщик по словарю имён (Т8):
+    словарь живёт в слое разбора, а каталог стоит ниже него."""
+    layout = next((lt for lt in manifest.layouts if lt.layout_id == example.layout_id), None)
+    return layout.name if layout is not None else ""
 
 
 def _repeat_addresses(
