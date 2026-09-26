@@ -22,8 +22,10 @@ from deckforge.domain.slide import (
     Block,
     BulletsBlock,
     CalloutBlock,
+    KpiBlock,
     QuoteBlock,
     SlideIR,
+    SmartArtBlock,
     TextBlock,
 )
 
@@ -258,11 +260,26 @@ def _lines(block: Block) -> list[str]:
     Цитата и callout сюда входят: зона — текстовая фигура, и поставить в неё их текст
     можно, потеряв полосу и плашку. Терять оформление хуже, чем ничего, но лучше,
     чем терять слова: до RG28 такой блок уходил со слайда целиком и молча.
+
+    Схема и показатель — тоже (RG48). Их рисунок зона повторить не может, но слова
+    в них есть: у схемы это шаги, у показателя — значение с подписью. На прогоне 26.09
+    схема оказалась **единственным** содержанием слайда дважды (WorkSpace s07,
+    VK Tech s09), и снятие оставляло слайд с одним заголовком. Тот же размен уже принят
+    вписыванием по макету: `_smartart_to_bullets` превращает не влезшую схему в список
+    тех же пунктов.
     """
     if isinstance(block, BulletsBlock):
         return [item.text for item in block.items if item.text.strip()]
     if isinstance(block, TextBlock | QuoteBlock | CalloutBlock):
         return [line for line in block.text.splitlines() if line.strip()]
+    if isinstance(block, SmartArtBlock):
+        return [item for item in block.items if item.strip()]
+    if isinstance(block, KpiBlock):
+        return [
+            f"{item.value} — {item.label}".strip(" —")
+            for item in block.items
+            if item.value.strip() or item.label.strip()
+        ]
     return []
 
 
@@ -332,11 +349,10 @@ def _note_drop(
 def _note_wordless(
     notes: list[str] | None, slide: SlideIR, block: Block, recipe: Recipe
 ) -> None:
-    """Назвать блок, у которого нет текста: показатель, схему, таблицу, картинку.
+    """Назвать блок, у которого нет и слов: таблицу, диаграмму, картинку, иконку.
 
-    Зона рецепта — текстовая фигура автора, и поставить в неё показатель нечем.
-    Ставить такие блоки в зоны — отдельная работа с отдельным замером; пока они
-    снимаются, но больше не молча.
+    Зона рецепта — текстовая фигура автора, и нарисовать в ней диаграмму нечем.
+    Схема и показатель сюда больше не попадают: их слова зона принимает (`_lines`).
     """
     if notes is None or isinstance(block, TextBlock | BulletsBlock):
         return
@@ -346,16 +362,26 @@ def _note_wordless(
     )
 
 
+#: Что теряет блок, поставленный в зону простым текстом. Оформление зона повторить
+#: не может, слова — принимает; потеря называется своим именем, а не общей фразой.
+PLAIN_LOSS: dict[type[Block], str] = {
+    QuoteBlock: "полосы и отбивки цитаты",
+    CalloutBlock: "плашки callout",
+    SmartArtBlock: "рисунка схемы — остались её шаги",
+    KpiBlock: "крупного кегля показателя — остались значение и подпись",
+}
+
+
 def _note_plain(
     notes: list[str] | None, slide: SlideIR, block: Block, recipe: Recipe
 ) -> None:
-    """Назвать цитату или callout, поставленные в зону простым текстом."""
-    if notes is None or not isinstance(block, QuoteBlock | CalloutBlock):
+    """Назвать блок, поставленный в зону простым текстом, и что он при этом потерял."""
+    lost = PLAIN_LOSS.get(type(block))
+    if notes is None or lost is None:
         return
     notes.append(
         f"слайд {slide.slide_id}: блок {block.block_id} («{block.type}») поставлен "
-        f"в зону рецепта {recipe.recipe_id} простым текстом — полосу и плашку "
-        "зона не несёт"
+        f"в зону рецепта {recipe.recipe_id} простым текстом — зона не несёт {lost}"
     )
 
 
@@ -457,7 +483,12 @@ def bind_to_recipe(slide: SlideIR, recipe: Recipe, notes: list[str] | None = Non
             blocks.append(_placed(block, title_zone, lines[0], 0, slide, notes, TextRole.TITLE))
             title_zone = None
             continue
-        if isinstance(block, BulletsBlock) and recipe.repeats:
+        # Условие — **зоны повторов**, а не объявленное число повторов. У рецепта
+        # `ex018` VK Education `repeats` больше нуля, а зон с номерами повтора нет:
+        # `zip` клал ноль пунктов, и список терялся целиком (прогон `c0dc9beabec8`, s04).
+        # Нет зон повтора — список идёт общим путём и встаёт в свободную зону одним
+        # абзацем: форма хуже, содержание цело.
+        if isinstance(block, BulletsBlock) and buckets[used_repeat:]:
             free_repeats = buckets[used_repeat:]
             placed = 0
             for line, (index, zones) in zip(lines, free_repeats, strict=False):
