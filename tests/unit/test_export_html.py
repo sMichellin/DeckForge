@@ -218,7 +218,8 @@ def test_table_and_kpi(manifest: TemplateManifest, tmp_path: Path) -> None:
     html = html_of(manifest, tmp_path, table, kpi)
     assert "<th>Год</th><th>Выручка</th>" in html
     assert "<td>2025</td><td>2</td>" in html
-    assert '<div class="kpi-value" style="color: var(--accent3)">37 %</div>' in html
+    # Число и знак процента — неразрывно (Т4, `no-hanging-prepositions`).
+    assert '<div class="kpi-value" style="color: var(--accent3)">37 %</div>' in html
 
 
 def test_invalid_deck_writes_no_file(manifest: TemplateManifest, tmp_path: Path) -> None:

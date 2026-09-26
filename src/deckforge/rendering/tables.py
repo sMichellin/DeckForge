@@ -12,6 +12,7 @@ from pptx.oxml.ns import qn
 from pptx.util import Emu, Pt
 
 from deckforge.domain.slide import TableBlock
+from deckforge.layout.nonbreaking import bind as nonbreaking
 from deckforge.rendering.units import size_hundredths
 
 _TABLE_STYLES_REL = "/tableStyles"
@@ -64,7 +65,7 @@ def add_table(
     for r, row in enumerate(cells):
         for c in range(columns):
             text_frame = table.cell(r, c).text_frame
-            text_frame.text = row[c] if c < len(row) else ""
+            text_frame.text = nonbreaking(row[c]) if c < len(row) else ""
             for paragraph in text_frame.paragraphs:
                 # Пустая ячейка прогонов не имеет: высоту строки PowerPoint берёт из
                 # endParaRPr, и без кегля там она считалась бы от 18 pt по умолчанию.

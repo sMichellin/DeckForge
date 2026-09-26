@@ -420,7 +420,7 @@ def test_the_kpi_value_takes_the_role_accent(
     values = [
         node.get("val") for shape in slide.shapes if shape.has_text_frame
         for node in shape._element.iter() if node.tag.endswith("}schemeClr")
-        and "37 %" in shape.text_frame.text
+        and "37 %" in shape.text_frame.text.replace(" ", " ")
     ]
     assert "accent1" in values and "accent4" not in values
 

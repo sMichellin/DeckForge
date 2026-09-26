@@ -23,6 +23,7 @@ from pptx.oxml.ns import qn
 
 from deckforge.designsystem.models import Recipe, TypeLevel, Zone
 from deckforge.domain.slide import Block, BulletsBlock, FitResult, SlideIR, TextBlock
+from deckforge.layout.nonbreaking import bind as nonbreaking
 from deckforge.rendering.units import size_hundredths
 
 #: Атрибуты, которыми фигура ссылается на связь своей части: картинка, диаграмма, ссылка.
@@ -230,7 +231,7 @@ def write_zone(
         if run_props is not None:
             run.append(copy.deepcopy(run_props))
         text = etree.SubElement(run, qn("a:t"))
-        text.text = line
+        text.text = nonbreaking(line)
 
 
 def _used_repeats(recipe: Recipe, blocks: list[Block]) -> int:

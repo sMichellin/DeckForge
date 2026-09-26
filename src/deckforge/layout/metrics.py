@@ -16,6 +16,7 @@ from functools import cache
 from deckforge.domain.base import BBox
 from deckforge.domain.units import EMU_PER_PT, TEXT_FRAME_INSET_X_EMU, TEXT_FRAME_INSET_Y_EMU
 from deckforge.layout.fonts import FontLibrary, FontMetrics
+from deckforge.layout.nonbreaking import bind as nonbreaking
 
 #: Шаг строки при одинарном интерлиньяже в долях кегля. Правило формата, а не гарнитуры:
 #: рендер LibreOffice дал ровно 1,2 и для Arial, и для DejaVu, и для Cambria Math,
@@ -62,8 +63,12 @@ def line_height_emu(size_pt: float, line_spacing: float = 1.0) -> float:
 
 
 def split_paragraphs(text: str) -> list[str]:
-    """Абзацы и разрывы строк: `<a:br/>` приходит вертикальной табуляцией."""
-    return _PARAGRAPH_BREAK.split(text) if text else []
+    """Абзацы и разрывы строк: `<a:br/>` приходит вертикальной табуляцией.
+
+    Неразрывные пробелы ставятся здесь же (Т4): замер обязан переносить строку там же,
+    где её перенесёт PowerPoint, а писатель пишет текст через то же правило.
+    """
+    return [nonbreaking(part) for part in _PARAGRAPH_BREAK.split(text)] if text else []
 
 
 def wrap_paragraph(paragraph: str, limit_em: float, metrics: FontMetrics) -> list[float]:
