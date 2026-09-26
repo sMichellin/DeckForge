@@ -6,8 +6,10 @@
 блока в зоне с рамкой есть запись `fit_report`.
 
 Правило 10: тот же прогон на холодном корпусе (`tests/e2e/cold_corpus.py`). Шаблоны
-LibreOffice слайдов-примеров не везут, и каталог рецептов у них пуст — такой шаблон
-пропускается с названной причиной, а не зеленеет впустую.
+LibreOffice из корпуса (DNA, Focus, Piano, Portfolio) слайдов-примеров не везут, и каталог
+рецептов у них пуст — такой шаблон пропускается с названной причиной, а не зеленеет впустую.
+Шаблон с примерами в `cold/` (RG38: `Grey_Elegant`, зоны на два знака) получает в зону
+ровно то, что пропускает композиция, — вплоть до первых знаков фразы.
 """
 
 from __future__ import annotations
@@ -36,7 +38,6 @@ CASE_TEMPLATES = [
 
 CONTENT = ContentPackage(brief=Brief(purpose="report", audience="правление", target_slides=5))
 
-#: Текст зоны — по её вместимости, как его режет композиция, но не короче двух слов.
 PHRASE = (
     "Анализ шаблона, извлечение композиций и автоматическая генерация презентаций "
     "в фирменном стиле компании без ручной вёрстки"
@@ -44,13 +45,20 @@ PHRASE = (
 
 
 def _text(capacity: int) -> str:
-    all_words = PHRASE.split()
-    words = all_words[:2]
-    for word in all_words[2:]:
+    """Текст зоны — по её вместимости, как его режет композиция (`_clip`, RG38).
+
+    Слова фразы по порядку, пока влезают в `capacity`. Не влезает даже первое — первые
+    `capacity` знаков: столько композиция и пропускает в зону на два знака. Вместимость
+    ноль — посчитать не удалось, и композиция не режет: фраза целиком.
+    """
+    if capacity <= 0:
+        return PHRASE
+    words: list[str] = []
+    for word in PHRASE.split():
         if len(" ".join([*words, word])) > capacity:
             break
         words.append(word)
-    return " ".join(words)
+    return " ".join(words) or PHRASE[:capacity]
 
 
 def _deck(manifest: TemplateManifest, ds: DesignSystem) -> list[SlideIR]:
@@ -95,7 +103,7 @@ def _fits_every_framed_zone(template: Path) -> None:
                 assert block.block_id in fitted.fit_report, f"{slide.slide_id}/{block.block_id}"
         # Текст по вместимости зоны — тот, что пропускает композиция, — вписывание не снимает.
         # Сокращать может: `capacity_chars` считает знаки, а вписывание — слова полужирным
-        # и строки (VK Tech 20 из 156, VK Education 45 из 96 на замене гарнитур, см. proposal).
+        # и строки (VK Tech 20 из 180, VK Education 45 из 140 на замене гарнитур, см. proposal).
         for block in slide.blocks:
             zone = zones[slide.recipe_id][block.zone_id or ""]
             if zone.has_frame and isinstance(block, TextBlock) and (
