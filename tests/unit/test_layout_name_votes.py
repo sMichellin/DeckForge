@@ -26,6 +26,7 @@ from tests.unit.test_layout_classifier import (
     TITLE,
     FakeVlm,
     layout_of,
+    ph,
     verdict,
 )
 
@@ -76,13 +77,30 @@ def test_an_uncertain_heuristic_gives_way_to_the_name() -> None:
 
 
 def test_a_confident_heuristic_keeps_its_kind() -> None:
-    """Норма решения владельца: при расхождении решает состав."""
+    """Норма решения владельца: при расхождении с уверенным составом решает состав.
+
+    Уверенный — не ниже порога конфига (0,9 с решения 26.09): диаграмма — 0,95.
+    """
+    chart = ph(1, "CHART", 600_000, 1_800_000, 10_900_000, 4_000_000)
+    titled = layout_of(TITLE, chart, name="2_Титульный слайд")
+
+    result = LayoutClassifier(names=VOCABULARY).classify(titled.placeholders, SLIDE, titled)
+
+    assert result.kind is LayoutKind.CHART
+    assert result.source == "heuristic"
+
+
+def test_a_name_outweighs_a_list_below_the_threshold() -> None:
+    """Решение владельца 26.09, порог 0,9: макет «Титульный слайд», который по составу —
+    список с уверенностью 0,8, — титул. Так на WorkSpace «Титульные» макеты перестают
+    быть разделами."""
+    assert VOCABULARY.name_wins_below == pytest.approx(0.9)
     titled = layout_of(TITLE, BODY, name="2_Титульный слайд")
 
     result = LayoutClassifier(names=VOCABULARY).classify(titled.placeholders, SLIDE, titled)
 
-    assert result.kind is LayoutKind.BULLETS
-    assert result.source == "heuristic"
+    assert result.kind is LayoutKind.TITLE
+    assert result.source == "heuristic+name"
 
 
 def test_the_mismatch_is_named() -> None:
