@@ -200,6 +200,8 @@ class RunResult:
             "seed": self.state.get("seed"),
             "slides": len(self.state["deck"].slides) if "deck" in self.state else 0,
             "planned_slides": len(plan.slides) if plan is not None else 0,
+            # Число слайдов на выбор (Т1): задано человеком или подобрано, и почему.
+            "slides_decision": self.state.get("slides_decision"),
             "exports": {fmt: str(path) for fmt, path in self.exports.items()},
             # Дизайн-система файлами рядом с колодой (Т2): по ним проверяют, по какой
             # системе собрана колода, не запуская отдельную команду.

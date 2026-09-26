@@ -23,7 +23,8 @@ class RunRequest(BaseModel):
     variant: str = Field(default="A", pattern=r"^[A-Z]$")
     purpose: str = "report"
     audience: str = "правление"
-    target_slides: int = Field(default=12, ge=1, le=60)
+    #: Сколько слайдов; `null` — подобрать по материалу (Т1).
+    target_slides: int | None = Field(default=12, ge=1, le=60)
     language: str = "ru"
     seed: int = 1337
     #: Останавливаться ли на выборе фиксов. Выключено — граф чинит по конфигу и не ждёт.

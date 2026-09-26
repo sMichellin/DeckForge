@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
@@ -50,7 +51,62 @@ MIN_HEADLINE_CHARS = 25
 DEFAULT_HEADLINE_CHARS = 70
 
 
-def slides_for(content: ContentPackage, purpose: str, requested: int) -> int:
+#: Верх автоматического режима (Т1): целевой объём ТЗ — 10–15 слайдов. Низа нет:
+#: колода на тонком материале короче, а не добита полупустыми слайдами.
+AUTO_MAX_SLIDES = 15
+
+
+@dataclass(frozen=True)
+class SlidesDecision:
+    """Сколько слайдов в колоде и почему — для отчёта прогона и интерфейса (Т1).
+
+    `mode` — `exact`, если число задал человек, `auto`, если его подбирает план.
+    `reason` — словами, для человека: число, которое тихо разошлось с заданным,
+    выглядит как ошибка сервиса.
+    """
+
+    mode: str
+    requested: int | None
+    count: int
+    reason: str
+
+
+def decide_slides(
+    content: ContentPackage, purpose: str, requested: int | None
+) -> SlidesDecision:
+    """Число слайдов в одном из двух режимов и причина.
+
+    Задано — это потолок: материала может не хватить (см. `slides_for`), и тогда слайдов
+    меньше с названной причиной. Не задано — число по материалу: факты по
+    `FACTS_PER_SLIDE` на слайд плюс титул и финал, не больше `AUTO_MAX_SLIDES`.
+    Снизу оба режима держит каркас назначения.
+    """
+    frame = len(MANDATORY_FRAMES.get(purpose, ()))
+    facts = len(content.facts)
+    by_content = -(-facts // FACTS_PER_SLIDE) + 2
+    if requested is None:
+        count = max(frame, min(AUTO_MAX_SLIDES, by_content))
+        if count == AUTO_MAX_SLIDES and by_content > AUTO_MAX_SLIDES:
+            why = f"материала на {by_content}, взят верх ТЗ — {AUTO_MAX_SLIDES}"
+        elif count == frame and by_content < frame:
+            why = f"материала на {by_content}, но каркас назначения требует {frame}"
+        else:
+            why = f"{facts} фактов по {FACTS_PER_SLIDE} на слайд, плюс титул и финал"
+        return SlidesDecision("auto", None, count, f"подобрано автоматически: {count} — {why}")
+    count = max(frame, min(requested, by_content))
+    if count < requested:
+        why = (
+            f"задано {requested}, но материала ({facts} фактов) хватает на {count}: "
+            "остальные вышли бы полупустыми"
+        )
+    elif count > requested:
+        why = f"задано {requested}, но каркас назначения требует {count}"
+    else:
+        why = f"как задано: {count}"
+    return SlidesDecision("exact", requested, count, why)
+
+
+def slides_for(content: ContentPackage, purpose: str, requested: int | None) -> int:
     """Сколько слайдов выдержит материал.
 
     Целевое число из брифа — это **потолок**, а не план: на двадцати четырёх фактах
@@ -58,10 +114,7 @@ def slides_for(content: ContentPackage, purpose: str, requested: int) -> int:
     (прогон d573740bddd3: занято 10 % площади при норме 25–75). Снизу ограничивает
     каркас назначения: меньше его слайдов — это уже не презентация этого жанра.
     """
-    frame = MANDATORY_FRAMES.get(purpose, ())
-    structural = 2  # титул и финал: фактов не несут
-    by_content = -(-len(content.facts) // FACTS_PER_SLIDE) + structural
-    return max(len(frame), min(requested, by_content))
+    return decide_slides(content, purpose, requested).count
 
 
 def headline_chars(manifest: TemplateManifest) -> int:
@@ -112,15 +165,21 @@ class DeckPlanner:
         сколько из 261 с планирования приходится на размышление.
         """
         bundle = get_prompt_registry().load("deck_planner", profile=self.profile)
+        brief = content.brief
+        target = slides_for(content, brief.purpose, brief.target_slides)
+        if brief.target_slides is None:
+            # Автоматический режим (Т1): промпт называет число, которое подобрал счёт,
+            # а не пустое место — «добирай до None штук» модель прочла бы как угодно.
+            brief = brief.model_copy(update={"target_slides": target})
         system, user = bundle.render(
-            brief=content.brief,
+            brief=brief,
             facts=content.facts,
             datasets=content.datasets,
             variant=variant,
             seed=seed,
             language=content.brief.language,
             available_kinds=sorted({layout.kind.value for layout in manifest.layouts}),
-            slides_target=slides_for(content, content.brief.purpose, content.brief.target_slides),
+            slides_target=target,
             facts_per_slide=FACTS_PER_SLIDE,
             headline_chars=headline_limit or headline_chars(manifest),
             visual_vocabulary=visual_vocabulary(design_system),

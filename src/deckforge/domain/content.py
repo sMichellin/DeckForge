@@ -57,7 +57,12 @@ class Asset(DomainModel):
 class Brief(DomainModel):
     purpose: str = Field(description="feature | product | project | initiative | report")
     audience: str
-    target_slides: int = Field(ge=1, le=60)
+    target_slides: int | None = Field(
+        default=None,
+        ge=1,
+        le=60,
+        description="Сколько слайдов; не задано — число подбирает план по материалу (Т1)",
+    )
     language: str = Field(default="ru", min_length=2, max_length=5)
     tone: str | None = None
     key_message: str | None = None

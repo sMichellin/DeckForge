@@ -77,6 +77,12 @@ def sidebar() -> dict[str, Any]:
         "variant": st.radio("Вариант вёрстки", ["A", "B", "C"], horizontal=True),
         "purpose": st.text_input("Зачем колода", value="report"),
         "audience": st.text_input("Кому", value="правление"),
+        "slides_mode": st.radio(
+            "Число слайдов",
+            [SLIDES_AUTO, SLIDES_EXACT],
+            horizontal=True,
+            help="Авто — число подбирает план по объёму материала (до 15)",
+        ),
         "target_slides": st.number_input("Слайдов", min_value=1, max_value=60, value=12),
         "language": st.selectbox("Язык", ["ru", "en"]),
         "seed": st.number_input("Seed", value=1337, help="Один и тот же seed даёт ту же колоду"),
@@ -146,6 +152,17 @@ def upload_form(settings: dict[str, Any]) -> None:
     st.rerun()
 
 
+SLIDES_AUTO = "Подобрать автоматически"
+SLIDES_EXACT = "Задать"
+
+
+def chosen_slides(settings: dict[str, Any]) -> int | None:
+    """Число слайдов для запроса: `None` — автоматический режим (Т1)."""
+    if settings.get("slides_mode") == SLIDES_AUTO:
+        return None
+    return int(settings["target_slides"])
+
+
 def send(settings: dict[str, Any], template: Any, materials: list[Any]) -> str:
     """Создать прогон, загрузить файлы, запустить. Порядок важен: старт — последним."""
     api = client()
@@ -153,7 +170,7 @@ def send(settings: dict[str, Any], template: Any, materials: list[Any]) -> str:
         variant=str(settings["variant"]),
         purpose=str(settings["purpose"]),
         audience=str(settings["audience"]),
-        target_slides=int(settings["target_slides"]),
+        target_slides=chosen_slides(settings),
         language=str(settings["language"]),
         seed=int(settings["seed"]),
         interactive=bool(settings["interactive"]),
@@ -286,6 +303,10 @@ def summary(report: dict[str, Any]) -> None:
     audit = report.get("audit") or {}
     numbers = st.columns(4)
     numbers[0].metric("Слайдов", report.get("slides", 0))
+    decision = report.get("slides_decision") or {}
+    if decision.get("reason"):
+        # Число слайдов, разошедшееся с заданным, без причины выглядит как сбой (Т1).
+        st.caption(f"Число слайдов: {decision['reason']}")
     numbers[1].metric("Время, с", report.get("total_s", 0))
     numbers[2].metric("Ошибок аудита", audit.get("errors", 0))
     numbers[3].metric("Предупреждений", audit.get("warnings", 0))
