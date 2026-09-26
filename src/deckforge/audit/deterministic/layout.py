@@ -349,6 +349,13 @@ def image_aspect_distorted(ctx: CheckContext) -> Iterable[Finding]:
 
     Ловить растяжение надо **до** экспорта в pdf и png: после растеризации любая
     картинка выглядит честной, мыло уже запечено внутрь.
+
+    Сравнивается **видимая часть** исходника, а не весь файл (RG49). Кадрирование
+    (`a:srcRect`) — законный способ вписать картинку в чужую пропорцию, и он же
+    приезжает из шаблона: у VK Education фигура примера скопирована вместе с авторским
+    кадром, видимая часть — 0,3045 ширины на 0,45676 высоты, и её пропорция ровно
+    квадратная, как рамка. Проверка, не знающая о кадре, обвиняла нас в растяжении,
+    которого нет, — две ошибки из пяти на прогоне `2eb47aa89571`.
     """
     path = ctx.deck_path
     if path is None:
@@ -376,7 +383,10 @@ def image_aspect_distorted(ctx: CheckContext) -> Iterable[Finding]:
             native_cx, native_cy = image.size
             if not native_cx or not native_cy:
                 continue
-            natural = native_cx / native_cy
+            visible_cx, visible_cy = _visible(shape, native_cx, native_cy)
+            if not visible_cx or not visible_cy:
+                continue
+            natural = visible_cx / visible_cy
             drawn = shape.width / shape.height
             delta = abs(drawn - natural) / natural
             if delta <= max_delta:
@@ -397,3 +407,31 @@ def image_aspect_distorted(ctx: CheckContext) -> Iterable[Finding]:
                 ),
                 evidence={"natural": f"{natural:.3f}", "drawn": f"{drawn:.3f}"},
             )
+
+
+#: Доли `a:srcRect` записаны в тысячных долях процента: 54601 — это 54,601 %.
+#: Сто процентов, записанных ими, — вот столько. Не размер и не EMU: множитель формата.
+_SRC_RECT_SCALE = 100 * 1000
+
+
+def _visible(shape: object, native_cx: int, native_cy: int) -> tuple[float, float]:
+    """Размер видимой части исходника с учётом кадрирования фигуры.
+
+    Кадра нет — видно весь файл. Стороны кадра заданы долями, которые **отрезаны**
+    с каждого края, поэтому видимая доля — единица минус сумма противоположных.
+    """
+    from pptx.oxml.ns import qn
+
+    # Кадр ищется без оглядки на родителя: у картинки это `p:blipFill`, у заливки
+    # фигуры — `a:blipFill`, и пространство имён у них разное.
+    element = getattr(shape, "_element", None)
+    rect = element.find(f".//{qn('a:srcRect')}") if element is not None else None
+    if rect is None:
+        return float(native_cx), float(native_cy)
+
+    def cut(*names: str) -> float:
+        return sum(int(rect.get(name) or 0) for name in names) / _SRC_RECT_SCALE
+
+    width = max(0.0, 1.0 - cut("l", "r"))
+    height = max(0.0, 1.0 - cut("t", "b"))
+    return native_cx * width, native_cy * height
