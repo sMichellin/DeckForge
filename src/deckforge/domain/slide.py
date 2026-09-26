@@ -224,7 +224,10 @@ class FitResult(DomainModel):
     lines: int | None = Field(default=None, ge=0)
     required_cy_emu: int | None = Field(default=None, ge=0)
     strategy: str | None = Field(
-        default=None, description="as_is | shrink | grow | shorten | split"
+        default=None,
+        description="as_is | shrink | grow | shorten | split | below_reading; "
+        "below_reading — кегль под порогом читаемости: зона уже одного слова "
+        "на пороге, и текст оставлен вместо снятия (D06, RG35)",
     )
 
 

@@ -17,7 +17,7 @@
 * самое длинное слово шире своей рамки;
 * кегль ниже читаемого;
 * два текста наезжают друг на друга (RG39);
-* на слайде осталась пустая текстовая рамка (RG40).
+* на слайде осталась пустая рамка **от нашего текста** (RG40).
 
 Последние две добавлены 26.09, и обе — оттого, что на слайды вернулось содержание
 (RG28). Пока слайд был пуст, наезжать было нечему и пустая карточка терялась среди
@@ -56,10 +56,6 @@ from deckforge.layout.metrics import LINE_HEIGHT_RATIO, measure_text
 #: доведённое до нечитаемости, меняет один брак на другой.
 DEFAULT_SIZE_FLOOR_PT = 10.0
 
-#: Кегль, которым считаем строку фигуры, у которой он унаследован от макета: нужен
-#: только для порога наложения, и заниженный порог здесь строже, а не мягче.
-_UNNAMED_SIZE_PT = 12.0
-
 #: Гарнитура, которой считаем, когда шрифт фигуры в файле не назван. Имя ни к чему
 #: не привязывает: `FontLibrary` всё равно отдаст замену и пометит замер неточным.
 _UNNAMED_FAMILY = "Arial"
@@ -86,6 +82,10 @@ class DeckReport:
     unmeasured: int = 0
     #: Фигуры, посчитанные пессимистичной заменой шрифта.
     inexact_font: int = 0
+    #: Фигуры, не попавшие в проверку наложения: кегль унаследован, текст не померить.
+    unmeasured_place: int = 0
+    #: Пустые рамки, пустые и в самом шаблоне: композиция автора, а не наш брак.
+    blank_in_template: int = 0
     left_edges: Counter[int] = None  # type: ignore[assignment]
     notes: int = 0
 
@@ -239,7 +239,33 @@ def _runs(shape: object) -> list[tuple[str, float | None, str | None, bool]]:
     return found
 
 
-def check_deck(path: Path, *, size_floor_pt: float, library: FontLibrary) -> DeckReport:
+def filled_in_template(template: Path | None) -> set[str]:
+    """Имена фигур шаблона, в которых **есть** текст автора.
+
+    Нужны, чтобы не обвинять шаблон в своих мерках. Пустая рамка на готовом слайде
+    значит одно из двух: автор оставил её пустой под заполнение (у VK Tech в примере 18
+    таких рамок девятнадцать, у WorkSpace в примере 29 — две) или текст в ней был
+    и стёрли его мы. Брак — только второе, и отличить их можно лишь по шаблону.
+
+    Ключ — имя фигуры: писатель копирует её вместе с именем, и оно переживает запись.
+    """
+    if template is None:
+        return set()
+    return {
+        str(shape.name)
+        for slide in Presentation(str(template)).slides
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False) and shape.text_frame.text.strip()
+    }
+
+
+def check_deck(
+    path: Path,
+    *,
+    size_floor_pt: float,
+    library: FontLibrary,
+    filled: set[str] | None = None,
+) -> DeckReport:
     """Замер одной колоды. Ничего не пишет и файла не трогает."""
     presentation = Presentation(str(path))
     slide_cx = int(presentation.slide_width or 0)
@@ -256,17 +282,21 @@ def check_deck(path: Path, *, size_floor_pt: float, library: FontLibrary) -> Dec
             if not getattr(shape, "has_text_frame", False):
                 continue
             if not shape.text_frame.text.strip():
-                # Пустая текстовая рамка (RG40): карточка рецепта, в которую ничего
-                # не встало. Текста в ней нет, но плашка и знак списка на слайде есть.
-                if _has_frame(shape):
+                # Пустая рамка (RG40). Находка — только там, где текст в шаблоне был:
+                # значит, стёрли его мы. Пустая у автора рамка остаётся справкой:
+                # это его композиция, и удалять её — не наше дело (RG36).
+                if not _has_frame(shape):
+                    continue
+                name = str(getattr(shape, "name", "?"))
+                if filled and name in filled:
                     report.findings.append(
                         Finding(
-                            number,
-                            str(getattr(shape, "name", "?")),
-                            "пустая рамка",
-                            "текстовая фигура осталась на слайде без текста",
+                            number, name, "пустая рамка",
+                            "текст автора стёрт, а нашего не встало",
                         )
                     )
+                else:
+                    report.blank_in_template += 1
                 continue
             name = str(getattr(shape, "name", "?"))
             if shape.left is not None:
@@ -282,12 +312,17 @@ def check_deck(path: Path, *, size_floor_pt: float, library: FontLibrary) -> Dec
             runs = _runs(shape)
             known = next((size for _, size, _, _ in runs if size is not None), None)
             family = next((fam for _, size, fam, _ in runs if size is not None), None)
-            place = _occupied(
-                shape,
-                _text_height(shape, family, known, library) if known is not None else None,
-            )
-            if place is not None:
-                taken.append((name, place, known or _UNNAMED_SIZE_PT))
+            # Место под наложение считается только у фигуры с известным кеглем: у чужой
+            # рамки текст не померить, а перекрытие самих рамок — не брак. Рамки зон
+            # в шаблонах перекрываются сплошь и рядом (у WorkSpace заголовок заходит
+            # на 349 055 EMU под зону тела), и автору это не мешало: его текст короче
+            # рамки. Судить надо по тексту, иначе замер обвиняет шаблон.
+            if known is None:
+                report.unmeasured_place += 1
+            else:
+                place = _occupied(shape, _text_height(shape, family, known, library))
+                if place is not None:
+                    taken.append((name, place, known))
             first = next(
                 ((size, family, bold) for _, size, family, bold in runs if size is not None),
                 None,
@@ -386,6 +421,16 @@ def _print(report: DeckReport) -> None:
         print(f"  не измерено: {report.unmeasured} прогонов — кегль унаследован от макета")
     if report.inexact_font:
         print(f"  считано заменой шрифта: {report.inexact_font} прогонов — гарнитуры нет в системе")
+    if report.blank_in_template:
+        print(
+            f"  пустых рамок автора: {report.blank_in_template} — пусты и в шаблоне, "
+            "это его композиция"
+        )
+    if report.unmeasured_place:
+        print(
+            f"  вне проверки наложения: {report.unmeasured_place} фигур — "
+            "кегль унаследован, высоту текста не померить"
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -393,6 +438,13 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument("decks", nargs="+", type=Path, help="готовые .pptx")
+    parser.add_argument(
+        "--template",
+        type=Path,
+        default=None,
+        help="шаблон, из которого собрана колода: без него пустые рамки нельзя "
+        "отличить от пустых рамок автора, и они уходят в справку",
+    )
     parser.add_argument(
         "--size-floor-pt",
         type=float,
@@ -403,9 +455,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     library = _library()
+    filled = filled_in_template(args.template)
     total = 0
     for path in args.decks:
-        report = check_deck(path, size_floor_pt=args.size_floor_pt, library=library)
+        report = check_deck(
+            path, size_floor_pt=args.size_floor_pt, library=library, filled=filled
+        )
         _print(report)
         total += len(report.findings)
 
