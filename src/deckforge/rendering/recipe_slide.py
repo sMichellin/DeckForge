@@ -38,6 +38,16 @@ OWN_NODES = (qn("p:nvGrpSpPr"), qn("p:grpSpPr"))
 #: примеров (`parsing/ooxml/examples._collect`): группы раскрываются, сами не адресуются.
 SHAPE_TAGS = (qn("p:sp"), qn("p:pic"), qn("p:cxnSp"), qn("p:graphicFrame"))
 GROUP = qn("p:grpSp")
+GRAPHIC_FRAME = qn("p:graphicFrame")
+
+#: Пространство имён связей: `r:id`, `r:embed`, а у SmartArt ещё `r:dm`, `r:lo`, `r:qs`,
+#: `r:cs`. Снятая рамка уносит свои связи — любые из них.
+_R_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+
+#: Части, на которые ссылается рамка: диаграмма, схема SmartArt, встроенный объект.
+#: Снимается только такая связь — связь с макетом или заметками слайда трогать нельзя,
+#: а идентификаторы `rId` у копии и у примера совпадают по случайности.
+_FRAME_PARTS = ("/chart", "/diagram", "/package", "/oleObject")
 
 
 class RecipeError(ValueError):
@@ -285,6 +295,7 @@ def clone_recipe(prs: Any, recipe: Recipe, slide_ir: SlideIR) -> Any:
 
     _drop_spare_repeats(recipe, _used_repeats(recipe, list(slide_ir.blocks)), shapes)
     _drop_empty_zones(recipe, filled, shapes)
+    _drop_unfilled_frames(recipe, slide)
     return slide
 
 
@@ -329,3 +340,44 @@ def _drop_empty_zones(recipe: Recipe, filled: set[str], shapes: dict[int, Any]) 
             write_zone(shapes[zone.xml_id], [])
             continue
         _remove(shapes[zone.xml_id])
+
+
+def _relation_ids(node: Any) -> set[str]:
+    """Все идентификаторы связей, на которые ссылается узел и его потомки."""
+    return {
+        value
+        for element in node.iter()
+        for attr, value in element.attrib.items()
+        if attr.startswith(_R_NS)
+    }
+
+
+def _drop_unfilled_frames(recipe: Recipe, slide: Any) -> None:
+    """Таблица, диаграмма и SmartArt примера, которых мы ничем не заполнили, уходят (RG45).
+
+    Зонами каталог делает только текстовые фигуры, поэтому `p:graphicFrame` примера писатель
+    копирует целиком — вместе с таблицей автора и её текстом. На титуле VK WorkSpace (`ex014`)
+    так в колоду уезжала таблица «Заголовок / Текст», и это была последняя ошибка аудита
+    (`template.sample_text_left`). Правило то же, что у пустой зоны: незаполненное — чужое.
+    Рамка, которую рецепт адресует, остаётся — её судьбу решает тот, кто её адресовал.
+
+    Связи снятых рамок снимаются следом, если на них больше никто не ссылается: иначе
+    в пакете осталась бы диаграмма автора, которую PowerPoint не покажет, но сохранит.
+    """
+    addressed = _addressed(recipe)
+    frames = [
+        node
+        for node in _shapes_in(_shapes_tree(slide))
+        if node.tag == GRAPHIC_FRAME and _xml_id(node) not in addressed
+    ]
+    if not frames:
+        return
+    released = set().union(*(_relation_ids(frame) for frame in frames))
+    for frame in frames:
+        _remove(frame)
+    still_used = _relation_ids(slide.part._element)
+    rels = slide.part.rels
+    for rid in sorted(released - still_used):
+        rel = rels.get(rid)
+        if rel is not None and any(kind in rel.reltype for kind in _FRAME_PARTS):
+            rels.pop(rid)
