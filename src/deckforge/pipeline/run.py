@@ -202,6 +202,8 @@ class RunResult:
             "planned_slides": len(plan.slides) if plan is not None else 0,
             # Число слайдов на выбор (Т1): задано человеком или подобрано, и почему.
             "slides_decision": self.state.get("slides_decision"),
+            # Почему каждый слайд собран так (Т7): рецепт или макет, путь выбора.
+            "slide_choices": list(self.state.get("slide_choices") or []),
             "exports": {fmt: str(path) for fmt, path in self.exports.items()},
             # Дизайн-система файлами рядом с колодой (Т2): по ним проверяют, по какой
             # системе собрана колода, не запуская отдельную команду.

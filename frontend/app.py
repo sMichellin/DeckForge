@@ -322,6 +322,13 @@ def summary(report: dict[str, Any]) -> None:
         # Пропуск не равен прохождению — это правило аудита, и интерфейс его держит.
         st.info(f"Проверок пропущено: {len(skipped)} — {', '.join(skipped)}")
 
+    choices = report.get("slide_choices") or []
+    if choices:
+        # Выбор слайда под содержание без объяснения выглядит случайным (Т7).
+        with st.expander("Почему такие слайды"):
+            for choice in choices:
+                used = choice.get("recipe_id") or f"макет {choice.get('layout_id')}"
+                st.markdown(f"**{choice.get('slide_id')}** · {used} — {choice.get('why')}")
     with st.expander("Отчёт прогона целиком"):
         st.json(report)
 

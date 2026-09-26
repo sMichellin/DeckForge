@@ -23,7 +23,7 @@ from deckforge.composition.free_space import (
 )
 from deckforge.composition.layout_picker import pick_layout
 from deckforge.composition.recipe_binding import bind_to_recipe
-from deckforge.composition.recipe_picker import pick_recipe
+from deckforge.composition.recipe_picker import pick_recipe, why_recipe
 from deckforge.composition.visual_selector import select_chart
 from deckforge.designsystem import DesignSystem
 from deckforge.designsystem.models import Recipe
@@ -305,6 +305,9 @@ class SlideComposer:
         self.profile = profile
         #: Что композиция изменила или выбросила. Забирает узел графа в отчёт прогона.
         self.notes: list[str] = []
+        #: Почему слайд собран так (Т7): рецепт или макет, путь выбора, фраза для человека.
+        #: По `slide_id`: слайды компонуются параллельно, порядок наводит узел графа.
+        self.choices: dict[str, dict[str, object]] = {}
 
     async def compose(
         self,
@@ -345,6 +348,7 @@ class SlideComposer:
         #: Оценка сверху — модель перепишет факты короче, — но единственная, какая есть
         #: до ответа модели (RG23).
         needs_chars = len(slide.headline) + sum(len(fact.text) for fact in facts)
+        explain: dict[str, object] = {}
         recipe = (
             pick_recipe(
                 slide,
@@ -355,10 +359,23 @@ class SlideComposer:
                 # Откат структурного слайда на родственный вид называется в отчёте
                 # прогона (RG8, `closing-slide-has-a-recipe`).
                 notes=self.notes,
+                explain=explain,
             )
             if design_system is not None
             else None
         )
+        self.choices[slide.slide_id] = {
+            "slide_id": slide.slide_id,
+            "intent": slide.intent.value,
+            "visual": slide.suggested_visual,
+            "recipe_id": recipe.recipe_id if recipe is not None else None,
+            "recipe_kind": recipe.kind.value if recipe is not None else None,
+            "layout_id": layout.layout_id,
+            "layout_kind": layout.kind.value,
+            "why": why_recipe(explain, recipe)
+            if design_system is not None
+            else "дизайн-системы нет — слайд собран по макету",
+        }
         dataset = content.dataset(slide.dataset_ref) if slide.dataset_ref else None
         chart_type = select_chart(dataset) if dataset is not None else None
 
