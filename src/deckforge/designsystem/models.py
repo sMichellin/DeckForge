@@ -401,6 +401,11 @@ class Zone(DomainModel):
     size_pt: float | None = Field(default=None, gt=0)
     #: Новые поля идут последними и необязательны: дизайн-система лежит в чекпойнте,
     #: и ДС, сохранённая до этого change, обязана читаться без правок.
+    #: Кегль зоны — число автора (свой кегль прогона или кегль плейсхолдера из макета),
+    #: а не наша подстановка ступени лестницы. Различие нужно писателю: кегль, который
+    #: мы вычислили сами, ставить в файл нельзя — этим уже роняли VK Tech s03 с 16
+    #: до 7,8 pt и поднимали VK Education s04/s11 с 36 до 39 (D04, RG42).
+    size_is_own: bool = False
     x: int | None = Field(default=None, description="Левый край рамки зоны, EMU от края слайда")
     y: int | None = Field(default=None, description="Верхний край рамки зоны, EMU от края слайда")
     cx: int | None = Field(default=None, gt=0, description="Ширина рамки зоны, EMU")

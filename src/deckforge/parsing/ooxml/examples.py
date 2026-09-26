@@ -161,7 +161,7 @@ def _shape(
     x, y, cx, cy = box
     text = _text_of(node)
     idx = _placeholder_idx(node)
-    size_pt = _size_pt(node, frame)
+    size_pt = _size_pt(node, frame, layout, idx)
     text_ref, text_hex = _text_colour(node, theme)
     fill_ref, fill_hex = _fill_colour(node, theme)
     return ExampleShape(
@@ -263,17 +263,39 @@ def _role(idx: int | None, layout: LayoutSpec | None) -> TextRole | None:
     return placeholder.role if placeholder is not None else None
 
 
-def _size_pt(node: etree._Element, frame: _Frame) -> float | None:
-    """Наибольший кегль фигуры, приведённый к масштабу слайда."""
+def _size_pt(
+    node: etree._Element, frame: _Frame, layout: LayoutSpec | None, idx: int | None
+) -> float | None:
+    """Кегль фигуры — число **автора**, приведённое к масштабу слайда, или `None`.
+
+    Два источника, и оба авторские. Свой кегль прогона (`a:rPr/@sz`) — самый частый.
+    А у плейсхолдера кегля в слайде может не быть вовсе: его задаёт макет, и это
+    по-прежнему решение автора, а не наша догадка. Заголовок VK WorkSpace — ровно
+    такой случай: `<p:ph type="title"/>` без единого `sz` в фигуре (RG42).
+
+    Разница важна дальше по конвейеру. Пока кегль плейсхолдера сюда не доходил,
+    каталог подставлял ступень лестницы для роли (`recipes._size_of`), писатель такому
+    числу не верил и справедливо (D04) — а заголовок в итоге уезжал в файл кеглем,
+    который вписывание уже отвергло.
+
+    `None` — не нашли нигде: пусть выше по конвейеру знают, что числа нет, и не выдают
+    догадку за факт.
+    """
     sizes = [
         _int(props, "sz")
         for props in node.iter(f"{{{A}}}rPr")
         if props.get("sz") is not None
     ]
-    if not sizes:
+    if sizes:
+        biggest = max(sizes) / 100 * frame.font_scale
+        return round(biggest, 2) if biggest > 0 else None
+    if idx is None or layout is None:
         return None
-    biggest = max(sizes) / 100 * frame.font_scale
-    return round(biggest, 2) if biggest > 0 else None
+    holder = next((ph for ph in layout.placeholders if ph.idx == idx), None)
+    if holder is None or not holder.size_pt:
+        return None
+    inherited = holder.size_pt * frame.font_scale
+    return round(inherited, 2) if inherited > 0 else None
 
 
 def _font(node: etree._Element, theme: Theme) -> str | None:

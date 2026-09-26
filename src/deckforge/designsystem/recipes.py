@@ -136,10 +136,18 @@ def _level_of(ds: DesignSystem, shape: ExampleShape) -> TypeLevel:
     return nearest.level
 
 
-def _size_of(ds: DesignSystem, shape: ExampleShape, level: TypeLevel) -> float | None:
+def _size_of(ds: DesignSystem, shape: ExampleShape, level: TypeLevel) -> tuple[float | None, bool]:
+    """Кегль зоны и своё ли это число.
+
+    Своё — то, что стоит у автора: кегль прогона или кегль плейсхолдера из макета
+    (`ExampleShape.size_pt`, RG42). Нет такого — берём ступень лестницы для роли,
+    чтобы было чем считать вместимость, но **помечаем догадкой**: ставить её в файл
+    нельзя, и писатель этого не сделает (D04).
+    """
     if shape.size_pt is not None:
-        return shape.size_pt
-    return next((step.size_pt for step in ds.typography.steps if step.level is level), None)
+        return shape.size_pt, True
+    guess = next((step.size_pt for step in ds.typography.steps if step.level is level), None)
+    return guess, False
 
 
 def _capacity(shape: ExampleShape, size_pt: float | None) -> int:
@@ -416,7 +424,7 @@ def _zones(ds: DesignSystem, example: TemplateExample, repeats: dict[str, int]) 
         if not _is_text(shape):
             continue
         level = _level_of(ds, shape)
-        size_pt = _size_of(ds, shape, level)
+        size_pt, size_is_own = _size_of(ds, shape, level)
         out.append(
             Zone(
                 zone_id=f"z{shape.xml_id}" if shape.xml_id is not None else shape.shape_id,
@@ -425,6 +433,7 @@ def _zones(ds: DesignSystem, example: TemplateExample, repeats: dict[str, int]) 
                 repeat=repeats.get(shape.shape_id),
                 capacity_chars=_capacity(shape, size_pt),
                 size_pt=size_pt,
+                size_is_own=size_is_own,
                 # Рамка фигуры примера — та, что уже приведена к слайду с масштабом
                 # группы (`ExampleShape`). Каталог её знал и выбрасывал (RG18).
                 x=shape.x,

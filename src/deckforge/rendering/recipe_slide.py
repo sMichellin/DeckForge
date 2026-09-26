@@ -177,7 +177,12 @@ def _lines_of(block: Block) -> list[str]:
     return []
 
 
-def write_zone(shape: Any, lines: list[str], size_pt: float | None = None) -> None:
+def write_zone(
+    shape: Any,
+    lines: list[str],
+    size_pt: float | None = None,
+    author_pt: float | None = None,
+) -> None:
     """Заменить текст зоны нашим, сохранив оформление автора.
 
     Берутся свойства первого прогона и первого абзаца: гарнитура и цвет остаются теми,
@@ -185,18 +190,35 @@ def write_zone(shape: Any, lines: list[str], size_pt: float | None = None) -> No
     не нашло свой (`size_pt`, change `recipe-zone-takes-the-fitted-size`): кегль примера
     стоял под короткое слово примера, и наш текст на нём рвёт слова и выходит за рамку.
     Кегль автора писатель только опускает (D02): каждому прогону
-    `sz = min(size_pt, sz прогона примера)`. Прогон примера без `sz` не трогается (D04):
-    его кегль унаследован из макета, настоящего числа писатель не знает, и `size_pt`,
-    поставленный вслепую, мог бы кегль и уронить, и поднять. Без `size_pt` зона пишется
-    как раньше, байт в байт.
+    `sz = min(size_pt, sz прогона примера)`.
+
+    **D04 уточнён (RG42).** Прогон примера без `sz` не трогался вовсе: «настоящего числа
+    писатель не знает». Осторожность верная, но причина была шире правды: у плейсхолдера
+    число знает макет, и парсер его теперь достаёт (`ExampleShape.size_pt`), а каталог
+    помечает, своё оно или подставлено ступенью лестницы (`Zone.size_is_own`). Своё
+    приходит сюда как `author_pt` — и от него кегль можно опустить.
+
+    Молчание осталось там, где ему место: число вычислили мы (`author_pt` пуст) —
+    писатель не трогает ничего. Именно подстановка ступени роняла VK Tech s03
+    с 16 до 7,8 pt и поднимала VK Education s04/s11 с 36 до 39.
+
+    Цена прежнего поведения: у VK WorkSpace заголовок s05 — плейсхолдер без `sz`,
+    вписывание опустило его 36 → 23,4 pt, писатель это проигнорировал, и заголовок
+    в две строки лёг на первую строку тела.
+
+    Без `size_pt` зона пишется как раньше, байт в байт.
     """
     body = shape.find(qn("p:txBody"))
     if body is None:
         return
     run_props, par_props = _first_run_props(shape), _paragraph_props(shape)
     if size_pt is not None and run_props is not None:
-        fitted, authors = size_hundredths(size_pt), run_props.get("sz")
-        if authors is not None and int(fitted) < int(authors):
+        fitted = size_hundredths(size_pt)
+        own = run_props.get("sz")
+        authors = int(own) if own is not None else (
+            int(size_hundredths(author_pt)) if author_pt else None
+        )
+        if authors is not None and int(fitted) < authors:
             run_props.set("sz", fitted)
     for paragraph in body.findall(qn("a:p")):
         body.remove(paragraph)
@@ -256,6 +278,7 @@ def clone_recipe(prs: Any, recipe: Recipe, slide_ir: SlideIR) -> Any:
             shapes[zone.xml_id],
             _lines_of(block),
             _lowered_size(zone, slide_ir.fit_report.get(block.block_id)),
+            zone.size_pt if zone.size_is_own else None,
         )
         filled.add(zone_id)
 
