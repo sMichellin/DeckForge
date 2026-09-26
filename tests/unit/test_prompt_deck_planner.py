@@ -59,9 +59,14 @@ def content() -> ContentPackage:
 
 
 def test_the_active_planner_asks_for_a_speaker_note() -> None:
+    """Активная версия просит заметку — какой бы номер у неё ни был.
+
+    Номер здесь был закреплён на `1.3.0` и покраснел на `1.3.1` (RG44), хотя правило
+    никуда не делось. Тест, привязанный к номеру, проверяет реестр, а не поведение,
+    и краснеет на каждой соседней правке промпта — так уже было в #154.
+    """
     bundle = get_prompt_registry().load("deck_planner")
 
-    assert bundle.version == "1.3.0"
     assert "speaker_note" in bundle.system_template
     assert NOTE_RULE in bundle.system_template
     assert "speaker_note" in bundle.user_template, "в самопроверке задания пункта нет"
@@ -74,9 +79,16 @@ def test_the_previous_planner_did_not_ask_for_it() -> None:
 
 
 def test_the_response_schema_did_not_change() -> None:
-    """Поле уже было в схеме ответа: 1.3.0 меняет просьбу, а не контракт."""
+    """Поле уже было в схеме ответа: просьбу меняем, контракт — нет.
+
+    Сверяется с активной версией, а не с номером: каждая следующая правка промпта
+    обязана оставлять схему ответа прежней, иначе это смена контракта, а не промпта.
+    """
+    bundle = get_prompt_registry().load("deck_planner")
     old = (PROMPTS_DIR / "deck_planner" / "1.2.0" / "schema.json").read_text(encoding="utf-8")
-    new = (PROMPTS_DIR / "deck_planner" / "1.3.0" / "schema.json").read_text(encoding="utf-8")
+    new = (
+        PROMPTS_DIR / "deck_planner" / bundle.version / "schema.json"
+    ).read_text(encoding="utf-8")
     assert old == new
     assert "speaker_note" in new
 

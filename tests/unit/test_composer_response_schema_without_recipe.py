@@ -46,8 +46,17 @@ def test_active_schema_does_not_ask_for_catalogue_fields() -> None:
 
 
 def test_the_active_version_is_the_one_without_them() -> None:
-    """Версия без полей, лежащая рядом с активированной старой, ничего не меняет."""
-    assert get_prompt_registry().load("slide_composer").version == "1.4.0"
+    """Активная версия не просит у модели полей каталога — какой бы номер у неё ни был.
+
+    Номер здесь был закреплён, и это мина: правка соседнего промпта краснит тест,
+    который о ней ничего не знает (так и вышло с `deck_planner` на RG44). Проверять
+    надо поведение активной версии, а не совпадение строки с реестром.
+    """
+    bundle = get_prompt_registry().load("slide_composer")
+
+    asked = _properties(bundle.response_schema) & set(CATALOGUE_FIELDS)
+
+    assert not asked, f"активная версия {bundle.version} просит {sorted(asked)}"
 
 
 def test_the_check_would_have_caught_the_regression() -> None:

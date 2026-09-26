@@ -165,27 +165,79 @@ def body_seats(recipe: Recipe) -> int:
     return len(free) + len(_buckets(recipe, heading))
 
 
+#: Сколько слов текста зона обязана удержать, чтобы вообще считаться для него местом.
+#: Два — тот же порог, на котором вписывание перестаёт сокращать и снимает блок
+#: (`_text_last_resort`): зона, куда не встают и два слова, всё равно кончится снятием.
+MIN_WORDS = 2
+
+
+def _holds_the_start(zone: Zone, text: str) -> bool:
+    """Удержит ли зона хотя бы начало текста — первые два слова (RG43).
+
+    Вместимость ноль — её не посчитали, и тогда не судим: отсеять зону из-за
+    собственного незнания хуже, чем попробовать.
+    """
+    if not zone.capacity_chars or not text:
+        return True
+    return zone.capacity_chars >= len(" ".join(text.split()[:MIN_WORDS]))
+
+
 def _zone_for(
     block: Block,
     zones: list[Zone],
     recipe: Recipe,
     slide: SlideIR,
     notes: list[str] | None,
+    text: str = "",
 ) -> Zone | None:
-    """Свободная зона под блок: своей ступени, а нет её — ближайшей, с заметкой."""
+    """Свободная зона под блок: своей ступени и вмещающая, а нет — ближайшей, с заметкой.
+
+    Вместимость спрашивается **раньше** ступени (RG43). До этого зона выбиралась только
+    по роли, и на VK Education три факта уходили в зоны `card_title` вместимостью
+    два знака, пока рядом стояли свободные `caption` на сорок четыре. Вписывание честно
+    сообщало, что текст не помещается и в два слова, снимало его — и слайд оставался
+    с одним заголовком (прогон `e4a9c09bf3a5`, s03 и s07).
+
+    Ступень при этом не отменяется, а уступает: среди вмещающих зон по-прежнему берётся
+    зона своей ступени, а из чужих — ближайшая. Уступка называется в `notes`: подмена
+    ступени, о которой молчат, неотличима от точного совпадения.
+    """
     role = _role_of(block)
     levels = _levels(role, recipe)
-    zone = _own_zone(zones, levels)
+    roomy = [zone for zone in zones if _holds_the_start(zone, text)]
+
+    zone = _own_zone(roomy, levels)
     if zone is not None:
         return zone
-    zone = _nearest_zone(zones, levels)
-    if zone is not None and notes is not None:
-        notes.append(
-            f"слайд {slide.slide_id}: блок {block.block_id} ({role.value}) — зоны своей "
-            f"ступени ({', '.join(level.value for level in levels)}) в рецепте "
-            f"{recipe.recipe_id} нет, взята {zone.zone_id} ({zone.role.value})"
-        )
+    zone = _nearest_zone(roomy, levels)
+    if zone is not None:
+        _note_level(notes, slide, block, recipe, zone, levels, role)
+        return zone
+    # Вмещающих нет вовсе — берём как раньше, по ступени: текст потеряет вписывание,
+    # но слайд хотя бы получит блок, а заметка назовёт и это.
+    zone = _own_zone(zones, levels) or _nearest_zone(zones, levels)
+    if zone is not None:
+        _note_level(notes, slide, block, recipe, zone, levels, role)
     return zone
+
+
+def _note_level(
+    notes: list[str] | None,
+    slide: SlideIR,
+    block: Block,
+    recipe: Recipe,
+    zone: Zone,
+    levels: tuple[TypeLevel, ...],
+    role: TextRole,
+) -> None:
+    if notes is None or zone.role in levels:
+        return
+    notes.append(
+        f"слайд {slide.slide_id}: блок {block.block_id} ({role.value}) — зоны своей "
+        f"ступени ({', '.join(level.value for level in levels)}) в рецепте "
+        f"{recipe.recipe_id} нет, взята {zone.zone_id} ({zone.role.value}, "
+        f"вместимость {zone.capacity_chars})"
+    )
 
 
 def _buckets(recipe: Recipe, heading: Zone | None) -> list[tuple[int, list[Zone]]]:
@@ -381,7 +433,7 @@ def bind_to_recipe(slide: SlideIR, recipe: Recipe, notes: list[str] | None = Non
     blocks: list[Block] = []
     used_repeat = 0
 
-    def take_repeat() -> tuple[int, Zone] | None:
+    def take_repeat(text: str = "") -> tuple[int, Zone] | None:
         """Следующий свободный повтор — абзацу, когда свободных зон не осталось.
 
         Повтор — это карточка ряда, и абзац в ней стоит законно: модель написала два
@@ -394,7 +446,7 @@ def bind_to_recipe(slide: SlideIR, recipe: Recipe, notes: list[str] | None = Non
             return None
         index, zones = buckets[used_repeat]
         used_repeat += 1
-        return index, zones[0]
+        return index, next((zone for zone in zones if _holds_the_start(zone, text)), zones[0])
 
     for block in slide.blocks:
         lines = _lines(block)
@@ -409,14 +461,19 @@ def bind_to_recipe(slide: SlideIR, recipe: Recipe, notes: list[str] | None = Non
             free_repeats = buckets[used_repeat:]
             placed = 0
             for line, (index, zones) in zip(lines, free_repeats, strict=False):
-                blocks.append(_placed(block, zones[0], line, index, slide, notes))
+                # Внутри повтора зоны идут от названия карточки к её тексту, и пункт
+                # списка до RG43 всегда попадал в название — у VK Education это две
+                # буквы при подписи на сорок четыре знака рядом. Берём первую, которая
+                # держит хотя бы начало пункта.
+                card = next((zone for zone in zones if _holds_the_start(zone, line)), zones[0])
+                blocks.append(_placed(block, card, line, index, slide, notes))
                 used_repeat += 1
                 placed += 1
             if placed < len(lines):
                 _note_lost_lines(notes, slide, block, recipe, placed, len(lines))
             continue
         joined = " ".join(lines)
-        zone = _zone_for(block, rest, recipe, slide, notes)
+        zone = _zone_for(block, rest, recipe, slide, notes, joined)
         if zone is not None:
             rest.remove(zone)
             _note_plain(notes, slide, block, recipe)
@@ -424,7 +481,7 @@ def bind_to_recipe(slide: SlideIR, recipe: Recipe, notes: list[str] | None = Non
             continue
         # Свободных зон не осталось — идём в повтор, пока он есть: пустая карточка
         # рядом со снятым абзацем хуже карточки с абзацем.
-        if (taken := take_repeat()) is not None:
+        if (taken := take_repeat(joined)) is not None:
             index, card = taken
             _note_plain(notes, slide, block, recipe)
             blocks.append(_placed(block, card, joined, index, slide, notes))
