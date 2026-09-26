@@ -16,8 +16,8 @@ from typing import Any
 from deckforge.config import RunConfig, load_yaml
 from deckforge.designsystem import DesignSystem
 from deckforge.designsystem.usage import usage as design_system_usage
-from deckforge.domain.enums import Severity
 from deckforge.domain.content import Brief
+from deckforge.domain.enums import Severity
 from deckforge.domain.variants import VariantProfile
 from deckforge.layout.fonts import FontLibrary
 from deckforge.pipeline.budget import BudgetTracker
