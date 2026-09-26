@@ -47,31 +47,38 @@ def zones_of(path: Path) -> dict[str, Any]:
 def test_a_placeholders_size_comes_from_the_layout() -> None:
     """Нарушитель: у заголовка-плейсхолдера нет своего `sz`, и кегль знает макет.
 
-    Раньше `ExampleShape.size_pt` был `None`, а каталог подставлял ступень лестницы —
-    число совпадало случайно и помечено как своё не было.
+    До правки этого числа не было нигде: `ExampleShape.size_pt` пуст, каталог
+    подставлял ступень лестницы, а писатель подстановке не верил — и правильно.
     """
     manifest = TemplateParser().parse(case_template(CASE), use_cache=False)
     holders = [
         shape
         for example in manifest.examples
         for shape in example.shapes
-        if shape.placeholder_idx is not None and shape.text_len
+        if shape.placeholder_idx is not None and shape.text_len and shape.size_pt is None
     ]
 
-    assert holders, "в примерах шаблона нет ни одного текстового плейсхолдера"
-    assert [shape for shape in holders if shape.size_pt is not None], (
+    assert holders, "в примерах шаблона нет плейсхолдера с унаследованным кеглем"
+    assert [shape for shape in holders if shape.layout_size_pt is not None], (
         "кегль плейсхолдера не достали из макета"
     )
 
 
-def test_a_zone_says_whether_the_size_is_its_own() -> None:
-    """Зона отличает авторское число от подставленного — и таких зон большинство."""
-    zones = zones_of(case_template(CASE))
-    own = [zone for zone in zones.values() if zone.size_is_own]
+def test_the_zone_size_itself_does_not_change() -> None:
+    """Норма: кегль зоны остался прежним — каталог правка не сдвигает.
 
-    assert own, "ни одна зона не назвала кегль своим"
-    assert all(zone.size_pt is not None for zone in own)
-    assert len(own) > len(zones) / 2, "своих кеглей меньше половины — похоже на догадку"
+    Подмешать кегль макета в `size_pt` значило бы поменять ступени, вместимости
+    и отбор рецептов: на VK Tech такая подмена вернула два пустых слайда и пять
+    искажённых картинок. Авторское число едет отдельным полем.
+    """
+    zones = zones_of(case_template(CASE))
+    guessed = [z for z in zones.values() if z.author_size_pt is None]
+    known = [z for z in zones.values() if z.author_size_pt is not None]
+
+    assert known, "ни у одной зоны нет авторского кегля"
+    assert all(z.size_pt is not None for z in guessed), (
+        "зона без авторского числа осталась и без кегля — считать вместимость нечем"
+    )
 
 
 # --- писатель ---------------------------------------------------------------------

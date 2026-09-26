@@ -161,7 +161,7 @@ def _shape(
     x, y, cx, cy = box
     text = _text_of(node)
     idx = _placeholder_idx(node)
-    size_pt = _size_pt(node, frame, layout, idx)
+    size_pt = _size_pt(node, frame)
     text_ref, text_hex = _text_colour(node, theme)
     fill_ref, fill_hex = _fill_colour(node, theme)
     return ExampleShape(
@@ -177,6 +177,7 @@ def _shape(
         role=_role(idx, layout),
         text_len=len(text),
         size_pt=size_pt,
+        layout_size_pt=_layout_size_pt(frame, layout, idx),
         font_family=_font(node, theme),
         color_ref=text_ref,
         color_hex=text_hex,
@@ -263,32 +264,30 @@ def _role(idx: int | None, layout: LayoutSpec | None) -> TextRole | None:
     return placeholder.role if placeholder is not None else None
 
 
-def _size_pt(
-    node: etree._Element, frame: _Frame, layout: LayoutSpec | None, idx: int | None
-) -> float | None:
-    """Кегль фигуры — число **автора**, приведённое к масштабу слайда, или `None`.
-
-    Два источника, и оба авторские. Свой кегль прогона (`a:rPr/@sz`) — самый частый.
-    А у плейсхолдера кегля в слайде может не быть вовсе: его задаёт макет, и это
-    по-прежнему решение автора, а не наша догадка. Заголовок VK WorkSpace — ровно
-    такой случай: `<p:ph type="title"/>` без единого `sz` в фигуре (RG42).
-
-    Разница важна дальше по конвейеру. Пока кегль плейсхолдера сюда не доходил,
-    каталог подставлял ступень лестницы для роли (`recipes._size_of`), писатель такому
-    числу не верил и справедливо (D04) — а заголовок в итоге уезжал в файл кеглем,
-    который вписывание уже отвергло.
-
-    `None` — не нашли нигде: пусть выше по конвейеру знают, что числа нет, и не выдают
-    догадку за факт.
-    """
+def _size_pt(node: etree._Element, frame: _Frame) -> float | None:
+    """Свой кегль фигуры (`a:rPr/@sz`), приведённый к масштабу слайда."""
     sizes = [
         _int(props, "sz")
         for props in node.iter(f"{{{A}}}rPr")
         if props.get("sz") is not None
     ]
-    if sizes:
-        biggest = max(sizes) / 100 * frame.font_scale
-        return round(biggest, 2) if biggest > 0 else None
+    if not sizes:
+        return None
+    biggest = max(sizes) / 100 * frame.font_scale
+    return round(biggest, 2) if biggest > 0 else None
+
+
+def _layout_size_pt(frame: _Frame, layout: LayoutSpec | None, idx: int | None) -> float | None:
+    """Кегль, который задаёт плейсхолдеру макет, — тоже число автора (RG42).
+
+    Отдельным полем, а не внутри `size_pt`, намеренно. `size_pt` участвует в разборе
+    дальше: по нему каталог выбирает ступень зоны, считает вместимость и отбирает
+    рецепты. Подмешать туда кегль макета значит сдвинуть весь каталог — на VK Tech
+    такая подмена вернула два пустых слайда и пять искажённых картинок.
+
+    Здесь нужно ровно одно: дать писателю знать настоящее число автора, чтобы он мог
+    опустить кегль там, где вписывание этого потребовало (D04, RG39).
+    """
     if idx is None or layout is None:
         return None
     holder = next((ph for ph in layout.placeholders if ph.idx == idx), None)

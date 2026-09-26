@@ -278,7 +278,7 @@ def clone_recipe(prs: Any, recipe: Recipe, slide_ir: SlideIR) -> Any:
             shapes[zone.xml_id],
             _lines_of(block),
             _lowered_size(zone, slide_ir.fit_report.get(block.block_id)),
-            zone.size_pt if zone.size_is_own else None,
+            zone.author_size_pt,
         )
         filled.add(zone_id)
 

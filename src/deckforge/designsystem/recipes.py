@@ -136,18 +136,22 @@ def _level_of(ds: DesignSystem, shape: ExampleShape) -> TypeLevel:
     return nearest.level
 
 
-def _size_of(ds: DesignSystem, shape: ExampleShape, level: TypeLevel) -> tuple[float | None, bool]:
-    """Кегль зоны и своё ли это число.
-
-    Своё — то, что стоит у автора: кегль прогона или кегль плейсхолдера из макета
-    (`ExampleShape.size_pt`, RG42). Нет такого — берём ступень лестницы для роли,
-    чтобы было чем считать вместимость, но **помечаем догадкой**: ставить её в файл
-    нельзя, и писатель этого не сделает (D04).
-    """
+def _size_of(ds: DesignSystem, shape: ExampleShape, level: TypeLevel) -> float | None:
+    """Кегль зоны: свой у фигуры, а нет — ступень лестницы для роли."""
     if shape.size_pt is not None:
-        return shape.size_pt, True
-    guess = next((step.size_pt for step in ds.typography.steps if step.level is level), None)
-    return guess, False
+        return shape.size_pt
+    return next((step.size_pt for step in ds.typography.steps if step.level is level), None)
+
+
+def _author_size_of(shape: ExampleShape) -> float | None:
+    """Кегль, который **стоит у автора**: свой у фигуры или заданный ей макетом (RG42).
+
+    Не то же, что кегль зоны: тот бывает подставлен ступенью лестницы, когда числа нет
+    нигде. Ставить подстановку в файл нельзя — ею роняли VK Tech s03 с 16 до 7,8 pt
+    и поднимали VK Education s04/s11 с 36 до 39 (D04). Здесь только настоящие числа,
+    и пусто, когда числа нет.
+    """
+    return shape.size_pt if shape.size_pt is not None else shape.layout_size_pt
 
 
 def _capacity(shape: ExampleShape, size_pt: float | None) -> int:
@@ -424,7 +428,7 @@ def _zones(ds: DesignSystem, example: TemplateExample, repeats: dict[str, int]) 
         if not _is_text(shape):
             continue
         level = _level_of(ds, shape)
-        size_pt, size_is_own = _size_of(ds, shape, level)
+        size_pt = _size_of(ds, shape, level)
         out.append(
             Zone(
                 zone_id=f"z{shape.xml_id}" if shape.xml_id is not None else shape.shape_id,
@@ -433,7 +437,7 @@ def _zones(ds: DesignSystem, example: TemplateExample, repeats: dict[str, int]) 
                 repeat=repeats.get(shape.shape_id),
                 capacity_chars=_capacity(shape, size_pt),
                 size_pt=size_pt,
-                size_is_own=size_is_own,
+                author_size_pt=_author_size_of(shape),
                 # Рамка фигуры примера — та, что уже приведена к слайду с масштабом
                 # группы (`ExampleShape`). Каталог её знал и выбрасывал (RG18).
                 x=shape.x,
