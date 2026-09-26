@@ -16,6 +16,7 @@ from typing import Any
 from deckforge.config import RunConfig, load_yaml
 from deckforge.designsystem import DesignSystem
 from deckforge.designsystem.usage import usage as design_system_usage
+from deckforge.domain.enums import Severity
 from deckforge.domain.content import Brief
 from deckforge.domain.variants import VariantProfile
 from deckforge.layout.fonts import FontLibrary
@@ -204,6 +205,15 @@ class RunResult:
             "total_s": round(sum(timings.values()), 3),
             "audit": audit.summary.model_dump(mode="json") if audit is not None else None,
             "findings": audit.summary.errors + audit.summary.warnings if audit else 0,
+            # Состав находок, а не только счёт (RG37). До этого в отчёте стояло число,
+            # и разобрать «какие именно ошибки остались» было нечем: чекпойнт их
+            # в читаемом виде не несёт. Владельцу на сдаче нужен состав, а не число,
+            # а починке — слайд и блок, на которые находка указывает.
+            "findings_detail": self._findings_detail(audit),
+            # Что вписывание решило по каждому блоку (RG37). Без этого дефект RG39
+            # пришлось разбирать опытом: заголовок был пересчитан на 23,4 pt, а в файл
+            # уехал кеглем макета, и увидеть расхождение было негде.
+            "fit": self._fit_detail(self.state.get("deck")),
             # Метрики оформления по каждому слайду (C7): находка есть только
             # у нарушителя, а сравнивать колоды надо по величинам, которые есть у всех.
             "design_metrics": dict(self.state.get("design_metrics") or {}),
@@ -216,6 +226,46 @@ class RunResult:
             "notes": notes,
             "errors": list(self.state.get("errors") or []),
         }
+
+    @staticmethod
+    def _findings_detail(audit: Any) -> list[dict[str, Any]]:
+        """Находки списком: важность, проверка, слайд, блок и текст.
+
+        Порядок — ошибки раньше предупреждений, внутри — по слайду: так читают отчёт,
+        а не по порядку проверок.
+        """
+        order = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
+        found = list(getattr(audit, "findings", None) or [])
+        found.sort(key=lambda f: (order.get(f.severity, 9), f.slide_id or "", f.check_id))
+        return [
+            {
+                "severity": finding.severity.value,
+                "check_id": finding.check_id,
+                "slide_id": finding.slide_id,
+                "block_id": finding.block_id,
+                "message": finding.message,
+                "auto_fix_applied": finding.auto_fix_applied,
+            }
+            for finding in found
+        ]
+
+    @staticmethod
+    def _fit_detail(deck: Any) -> dict[str, dict[str, Any]]:
+        """Решение вписывания по каждому блоку: кегль, стратегия, переполнение, строки.
+
+        Ключ — `слайд/блок`. Пустой `fit_report` у слайда — не ошибка: блок без рамки
+        вписывать не по чему, и такой слайд в ответе просто не появится.
+        """
+        detail: dict[str, dict[str, Any]] = {}
+        for slide in getattr(deck, "slides", None) or []:
+            for block_id, fit in (slide.fit_report or {}).items():
+                detail[f"{slide.slide_id}/{block_id}"] = {
+                    "size_pt": fit.final_size_pt,
+                    "strategy": fit.strategy,
+                    "overflow": fit.overflow,
+                    "lines": fit.lines,
+                }
+        return detail
 
     def write_report(self) -> Path:
         path = self.out_dir / RUN_REPORT_NAME
