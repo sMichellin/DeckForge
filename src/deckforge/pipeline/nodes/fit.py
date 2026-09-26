@@ -11,6 +11,7 @@ import asyncio
 from langgraph.runtime import Runtime
 
 from deckforge.audit.fixes.apply import shorten_to_words
+from deckforge.config import get_settings
 from deckforge.domain.content import ContentPackage
 from deckforge.domain.enums import TextRole
 from deckforge.domain.rules import next_size_down
@@ -28,7 +29,7 @@ from deckforge.domain.slide import (
 from deckforge.domain.template import TemplateManifest
 from deckforge.layout.by_design import DesignRules
 from deckforge.layout.errors import LayoutFitError
-from deckforge.layout.fitting import GROW, SHORTEN, SPLIT, fit_slide
+from deckforge.layout.fitting import BELOW_READING, GROW, SHORTEN, SPLIT, fit_slide
 from deckforge.layout.fonts import FontLibrary
 from deckforge.pipeline.deps import Deps
 from deckforge.pipeline.nodes import timed
@@ -186,6 +187,15 @@ def _fit_shortening(
         for block_id, fit in sorted(fitted.fit_report.items())
         if fit.strategy == GROW
     ]
+    # D06 (RG35): блок, который сокращение свело бы к нулю, остаётся на ступени ниже
+    # порога читаемости. Решение владельца — текст на 9 pt лучше отсутствия текста, —
+    # но молчать о нём нельзя: по отчёту должно быть видно, где колода нечитаема.
+    unreadable = [
+        f"{fitted.slide_id}/{block_id}: кегль {fit.final_size_pt:g} pt ниже порога "
+        "читаемости — зона уже одного слова на пороге"
+        for block_id, fit in sorted(fitted.fit_report.items())
+        if fit.strategy == BELOW_READING
+    ]
 
     notes = [
         f"{fitted.slide_id}/{block_id}: текст сокращён, чтобы влезть"
@@ -199,7 +209,7 @@ def _fit_shortening(
         # Снятый блок называет своя заметка (`_text_last_resort`): «сокращён» о нём — неправда.
         if block_id in fitted.fit_report
     ]
-    notes += flattened + dropped + given_up + shrunk + grown
+    notes += flattened + dropped + given_up + shrunk + grown + unreadable
     return fitted, notes
 
 
@@ -421,7 +431,14 @@ async def fit_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     deps = runtime.context
     manifest = state["manifest"]
     plan = state["plan"]
-    design = DesignRules(manifest, state.get("design_system"))
+    # Порог читаемости — из окружения, если задан: константа в коде остаётся
+    # умолчанием, а не единственным источником (запрос потока B, RG35).
+    floor = get_settings().reading_floor_pt
+    design = DesignRules(
+        manifest,
+        state.get("design_system"),
+        **({"reading_floor_pt": floor} if floor else {}),
+    )
 
     def work() -> tuple[list[SlideIR], list[str], list[str]]:
         fitted: list[SlideIR] = []
