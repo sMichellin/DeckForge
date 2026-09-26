@@ -23,6 +23,9 @@ from deckforge.domain.enums import LayoutKind
 
 VOCABULARY_PATH = CONFIGS_DIR / "layout_names.yaml"
 
+#: Виды, которые шаблон отводит под место в колоде, а не под содержание.
+STRUCTURAL_LAYOUTS = frozenset({LayoutKind.TITLE, LayoutKind.SECTION, LayoutKind.CLOSING})
+
 
 @dataclass(frozen=True)
 class NameVocabulary:
@@ -30,6 +33,19 @@ class NameVocabulary:
 
     kinds: tuple[tuple[LayoutKind, tuple[str, ...]], ...]
     name_wins_below: float
+
+    def vote(self, name: str, kind: LayoutKind) -> LayoutKind | None:
+        """Голос имени против вида по составу; `None` — имени нечего сказать.
+
+        Слова содержания («Контент», «Content») значат одно: макет **не титульный**.
+        Они снимают ложный титул, но не превращают уверенный список в «прочее»:
+        нетитульный вид по составу с таким именем уже согласен. Без этого стандартный
+        «Title and Content» при пороге 0,9 переставал быть списком (CI #218).
+        """
+        named = self.kind_of(name)
+        if named is LayoutKind.CUSTOM and kind not in STRUCTURAL_LAYOUTS:
+            return None
+        return named
 
     def kind_of(self, name: str) -> LayoutKind | None:
         """Вид по имени макета; `None` — имя ничего не говорит."""
@@ -66,7 +82,7 @@ def name_mismatches(
     """Макеты, у которых имя и итоговый вид разошлись: (имя, по имени, итоговый)."""
     out: list[tuple[str, LayoutKind, LayoutKind]] = []
     for name, kind in layouts:
-        named = vocabulary.kind_of(name)
+        named = vocabulary.vote(name, kind)
         if named is not None and named is not kind:
             out.append((name, named, kind))
     return out

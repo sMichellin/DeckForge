@@ -103,6 +103,18 @@ def test_a_name_outweighs_a_list_below_the_threshold() -> None:
     assert result.source == "heuristic+name"
 
 
+def test_a_content_name_does_not_turn_a_list_into_other() -> None:
+    """Нарушитель из CI #218: «Title and Content» (список 0,8) при пороге 0,9 стал «прочим»,
+    и шаблон остался без макета под список. Слово содержания снимает только ложный титул."""
+    listed = layout_of(TITLE, BODY, name="Title and Content")
+
+    result = LayoutClassifier(names=VOCABULARY).classify(listed.placeholders, SLIDE, listed)
+
+    assert result.kind is LayoutKind.BULLETS
+    assert VOCABULARY.vote("Title and Content", LayoutKind.BULLETS) is None
+    assert VOCABULARY.vote("12_Контент", LayoutKind.TITLE) is LayoutKind.CUSTOM
+
+
 def test_the_mismatch_is_named() -> None:
     layouts = [("2_Титульный слайд", LayoutKind.BULLETS), ("Custom Layout 14", LayoutKind.BULLETS)]
     assert name_mismatches(layouts, VOCABULARY) == [

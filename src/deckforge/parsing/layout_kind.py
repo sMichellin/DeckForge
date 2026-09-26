@@ -334,7 +334,7 @@ class LayoutClassifier:
         # Голос имени (Т8): неуверенная эвристика уступает имени, уверенная — нет.
         # Имя, решившее вид или совпавшее с ним, поднимает уверенность до порога —
         # звать модель, когда состав и имя уже сошлись, незачем.
-        named = self.names.kind_of(layout.name)
+        named = self.names.vote(layout.name, kind)
         if named is not None and (named is kind or confidence < self.names.name_wins_below):
             kind = named
             confidence = max(confidence, UNCERTAIN_BELOW)
