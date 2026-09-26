@@ -16,8 +16,8 @@ from typing import Any
 from deckforge.config import RunConfig, load_yaml
 from deckforge.designsystem import DesignSystem
 from deckforge.designsystem.usage import usage as design_system_usage
-from deckforge.domain.enums import Severity
 from deckforge.domain.content import Brief
+from deckforge.domain.enums import Severity
 from deckforge.domain.variants import VariantProfile
 from deckforge.layout.fonts import FontLibrary
 from deckforge.pipeline.budget import BudgetTracker
@@ -200,6 +200,8 @@ class RunResult:
             "seed": self.state.get("seed"),
             "slides": len(self.state["deck"].slides) if "deck" in self.state else 0,
             "planned_slides": len(plan.slides) if plan is not None else 0,
+            # Число слайдов на выбор (Т1): задано человеком или подобрано, и почему.
+            "slides_decision": self.state.get("slides_decision"),
             "exports": {fmt: str(path) for fmt, path in self.exports.items()},
             "stage_timings_s": timings,
             "total_s": round(sum(timings.values()), 3),

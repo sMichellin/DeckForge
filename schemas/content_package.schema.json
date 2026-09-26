@@ -77,10 +77,19 @@
           "type": "string"
         },
         "target_slides": {
-          "maximum": 60,
-          "minimum": 1,
-          "title": "Target Slides",
-          "type": "integer"
+          "anyOf": [
+            {
+              "maximum": 60,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Сколько слайдов; не задано — число подбирает план по материалу (Т1)",
+          "title": "Target Slides"
         },
         "language": {
           "default": "ru",
@@ -116,8 +125,7 @@
       },
       "required": [
         "purpose",
-        "audience",
-        "target_slides"
+        "audience"
       ],
       "title": "Brief",
       "type": "object"

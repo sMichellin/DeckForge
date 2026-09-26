@@ -90,6 +90,11 @@ async def _work(run_id: str, store: RunStore, *, selected: list[str] | None) -> 
     return _finish(run_id, store, result, elapsed_s=time.perf_counter() - started)
 
 
+def _slides(raw: Any) -> int | None:
+    """Число слайдов из запроса: `None` — автоматический режим."""
+    return None if raw is None else int(raw)
+
+
 def _prepare(request: dict[str, Any], paths: Any) -> tuple[Any, Any]:
     """Зависимости прогона по запросу. Живые клиенты собирает `pipeline.build_deps`.
 
@@ -102,7 +107,8 @@ def _prepare(request: dict[str, Any], paths: Any) -> tuple[Any, Any]:
     brief = Brief(
         purpose=str(request.get("purpose", "report")),
         audience=str(request.get("audience", "правление")),
-        target_slides=int(request.get("target_slides", 12)),
+        # `null` — число подбирает план (Т1); поле не передано — прежние 12.
+        target_slides=_slides(request.get("target_slides", 12)),
         language=str(request.get("language", "ru")),
     )
     profile = variants_for([str(request.get("variant", "A"))])[0]

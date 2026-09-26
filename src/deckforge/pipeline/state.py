@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 
 from deckforge.designsystem import DesignSystem
 from deckforge.domain.audit import AuditReport, Finding
@@ -61,6 +61,9 @@ class DeckState(TypedDict, total=False):
     variant: VariantProfile
 
     plan: DeckPlan
+    #: Сколько слайдов и почему: режим (`exact` / `auto`), заданное, подобранное,
+    #: сколько дал план, причина словами (Т1). Показывает интерфейс.
+    slides_decision: dict[str, Any]
     slides: Annotated[list[SlideIR], _merge_slides]
     deck: DeckIR
 

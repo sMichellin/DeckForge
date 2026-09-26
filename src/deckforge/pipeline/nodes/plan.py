@@ -18,7 +18,7 @@ from deckforge.planning.planner import (
     DEFAULT_HEADLINE_CHARS,
     MIN_HEADLINE_CHARS,
     DeckPlanner,
-    slides_for,
+    decide_slides,
 )
 
 #: Строка, на которой меряется полоса заголовка. Обычная деловая фраза по-русски:
@@ -199,16 +199,25 @@ async def plan_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     notes += [f"план: {note}" for note in rewriter.notes]
 
     # Материала может не хватить на запрошенное число слайдов. Урезать молча нельзя:
-    # автор просил двенадцать и должен узнать, почему их восемь.
+    # автор просил двенадцать и должен узнать, почему их восемь. Решение о числе
+    # едет и отдельным полем — его показывает интерфейс (Т1).
     brief = state["content"].brief
-    fits = slides_for(state["content"], brief.purpose, brief.target_slides)
-    if fits < brief.target_slides:
+    decision = decide_slides(state["content"], brief.purpose, brief.target_slides)
+    slides_decision = {
+        "mode": decision.mode,
+        "requested": decision.requested,
+        "count": decision.count,
+        "planned": len(plan.slides),
+        "reason": decision.reason,
+    }
+    if brief.target_slides is not None and decision.count < brief.target_slides:
         notes.append(
             f"план: слайдов {len(plan.slides)} вместо запрошенных {brief.target_slides} — "
             f"на {len(state['content'].facts)} фактах больше вышло бы полупустыми"
         )
     return {
         "plan": plan,
+        "slides_decision": slides_decision,
         "stage_timings_s": timings,
         "notes": notes,
         "degradations": [degraded] if degraded else [],
