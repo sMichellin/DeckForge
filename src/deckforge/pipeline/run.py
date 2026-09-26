@@ -16,8 +16,8 @@ from typing import Any
 from deckforge.config import RunConfig, load_yaml
 from deckforge.designsystem import DesignSystem
 from deckforge.designsystem.usage import usage as design_system_usage
-from deckforge.domain.enums import Severity
 from deckforge.domain.content import Brief
+from deckforge.domain.enums import Severity
 from deckforge.domain.variants import VariantProfile
 from deckforge.layout.fonts import FontLibrary
 from deckforge.pipeline.budget import BudgetTracker
@@ -201,6 +201,12 @@ class RunResult:
             "slides": len(self.state["deck"].slides) if "deck" in self.state else 0,
             "planned_slides": len(plan.slides) if plan is not None else 0,
             "exports": {fmt: str(path) for fmt, path in self.exports.items()},
+            # Дизайн-система файлами рядом с колодой (Т2): по ним проверяют, по какой
+            # системе собрана колода, не запуская отдельную команду.
+            "design_system_files": {
+                kind: str(path)
+                for kind, path in (self.state.get("design_system_files") or {}).items()
+            },
             "stage_timings_s": timings,
             "total_s": round(sum(timings.values()), 3),
             "audit": audit.summary.model_dump(mode="json") if audit is not None else None,

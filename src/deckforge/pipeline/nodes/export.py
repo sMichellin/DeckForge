@@ -12,6 +12,12 @@
 `deck.pptx` и `deck.pdf`: файлы лежали в `out/`, а прогон считался `failed`, и в
 интерфейсе «скачать» отдавало ошибку. Необязательный формат не уносит обязательный
 (change `export-node-does-not-lose-the-deck`).
+
+Рядом с колодой ложится дизайн-система шаблона — страница `design-system.html` и сама
+структура `design-system.json` (Т2, change `design-system-in-the-run-folder`): по ним
+проверяют, по какой системе собрана колода, не запуская `deckforge design-system`.
+Это не формат колоды и не обязательный артефакт: не записалась — названо в ошибках,
+колода остаётся.
 """
 
 from __future__ import annotations
@@ -22,6 +28,8 @@ from pathlib import Path
 
 from langgraph.runtime import Runtime
 
+from deckforge.designsystem import DesignSystem
+from deckforge.export.design_system_page import render as render_design_system
 from deckforge.export.html import export_html
 from deckforge.export.pdf import ExportError, export_pdf
 from deckforge.pipeline.deps import Deps
@@ -29,6 +37,22 @@ from deckforge.pipeline.nodes import timed
 from deckforge.pipeline.state import DeckState
 
 DECK_STEM = "deck"
+#: Имя файлов дизайн-системы в папке прогона — то же, что даёт команда `design-system`.
+DESIGN_SYSTEM_STEM = "design-system"
+
+
+def write_design_system(ds: DesignSystem, out_dir: Path) -> dict[str, Path]:
+    """Страница дизайн-системы и её структура в папку прогона.
+
+    Страница — та же функция, что у команды `deckforge design-system`, поэтому
+    на одном шаблоне они совпадают байт в байт. JSON — сама `DesignSystem`: его можно
+    сравнивать программой, а не глазами."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    page = out_dir / f"{DESIGN_SYSTEM_STEM}.html"
+    page.write_text(render_design_system(ds), encoding="utf-8")
+    data = out_dir / f"{DESIGN_SYSTEM_STEM}.json"
+    data.write_text(ds.model_dump_json(indent=2), encoding="utf-8")
+    return {"html": page, "json": data}
 
 
 async def export_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
@@ -83,4 +107,23 @@ async def export_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
                 continue
             errors.append(f"формат {fmt!r} не поддерживается: pptx, pdf, html")
 
-    return {"exports": exports, "stage_timings_s": timings, "errors": errors}
+        design_files: dict[str, Path] = {}
+        design = state.get("design_system")
+        if isinstance(design, DesignSystem):
+            try:
+                design_files = await asyncio.to_thread(
+                    write_design_system, design, deps.out_dir
+                )
+            except Exception as error:
+                # Та же причина широкого `except`, что у html: файл для проверки
+                # не стоит готовой колоды.
+                errors.append(
+                    f"дизайн-система не записана: {type(error).__name__}: {error}"
+                )
+
+    return {
+        "exports": exports,
+        "design_system_files": design_files,
+        "stage_timings_s": timings,
+        "errors": errors,
+    }
