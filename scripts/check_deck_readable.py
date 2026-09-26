@@ -15,7 +15,14 @@
 * фигура вылезла за край слайда;
 * текст не помещается в свою рамку по высоте;
 * самое длинное слово шире своей рамки;
-* кегль ниже читаемого.
+* кегль ниже читаемого;
+* два текста наезжают друг на друга (RG39);
+* на слайде осталась пустая текстовая рамка (RG40).
+
+Последние две добавлены 26.09, и обе — оттого, что на слайды вернулось содержание
+(RG28). Пока слайд был пуст, наезжать было нечему и пустая карточка терялась среди
+пустого слайда. Оба дефекта нашлись глазами на превью, то есть ровно тем способом,
+который этот замер и должен заменять.
 
 **Разрыв слова в XML не виден** — там слово целое, рвёт его рендер. Но предпосылка
 разрыва видна точно: слово, которое на своём кегле шире рамки, PowerPoint разорвёт
@@ -42,12 +49,16 @@ from pptx.util import Emu
 from deckforge.domain.base import BBox
 from deckforge.domain.units import EMU_PER_PT, TEXT_FRAME_INSET_X_EMU, TEXT_FRAME_INSET_Y_EMU
 from deckforge.layout.fonts import FontLibrary, FontMetrics
-from deckforge.layout.metrics import measure_text
+from deckforge.layout.metrics import LINE_HEIGHT_RATIO, measure_text
 
 #: Кегль, ниже которого текст на слайде перестаёт читаться с расстояния. Порог приёмки,
 #: а не правило формата: поток B на приёмке RG29 получил тело на 7,8 pt — вписывание,
 #: доведённое до нечитаемости, меняет один брак на другой.
 DEFAULT_SIZE_FLOOR_PT = 10.0
+
+#: Кегль, которым считаем строку фигуры, у которой он унаследован от макета: нужен
+#: только для порога наложения, и заниженный порог здесь строже, а не мягче.
+_UNNAMED_SIZE_PT = 12.0
 
 #: Гарнитура, которой считаем, когда шрифт фигуры в файле не назван. Имя ни к чему
 #: не привязывает: `FontLibrary` всё равно отдаст замену и пометит замер неточным.
@@ -159,6 +170,54 @@ def _too_tall(
     )
 
 
+def _has_frame(shape: object) -> bool:
+    """Рамка фигуры известна целиком и не пуста."""
+    box = [getattr(shape, name, None) for name in ("left", "top", "width", "height")]
+    return not any(value is None for value in box) and int(box[2] or 0) > 0
+
+
+def _text_height(
+    shape: object, family: str | None, size_pt: float, library: FontLibrary
+) -> int | None:
+    """Высота текста в рамке этой ширины — столько места он занимает на самом деле."""
+    width = int(getattr(shape, "width", 0) or 0)
+    height = int(getattr(shape, "height", 0) or 0)
+    if width <= 0:
+        return None
+    frame = BBox(x=0, y=0, cx=width, cy=max(height, 1))
+    measured = measure_text(
+        shape.text_frame.text,  # type: ignore[attr-defined]
+        font_family=family or _UNNAMED_FAMILY,
+        size_pt=size_pt,
+        box=frame,
+        bold=False,
+        fonts=library,
+    )
+    return measured.height_emu + 2 * TEXT_FRAME_INSET_Y_EMU
+
+
+def _occupied(shape: object, text_height: int | None) -> BBox | None:
+    """Место, которое фигура занимает на слайде **вместе с текстом**.
+
+    Не рамка: текст, который в рамку не влез, рисуется за её нижним краем и наезжает
+    на соседа. Поэтому высота берётся большая из двух — рамки и намеренного текста.
+    """
+    box = [getattr(shape, name, None) for name in ("left", "top", "width", "height")]
+    if any(value is None for value in box):
+        return None
+    left, top, width, height = (int(value) for value in box)  # type: ignore[arg-type]
+    if width <= 0 or height <= 0:
+        return None
+    return BBox(x=left, y=top, cx=width, cy=max(height, text_height or 0))
+
+
+def _overlap(first: BBox, second: BBox) -> tuple[int, int]:
+    """Пересечение двух мест по ширине и высоте, в EMU. Ноль — не пересекаются."""
+    wide = min(first.x + first.cx, second.x + second.cx) - max(first.x, second.x)
+    high = min(first.y + first.cy, second.y + second.cy) - max(first.y, second.y)
+    return max(0, wide), max(0, high)
+
+
 def _runs(shape: object) -> list[tuple[str, float | None, str | None, bool]]:
     """Прогоны текста фигуры: текст, кегль, гарнитура, полужирность.
 
@@ -191,8 +250,23 @@ def check_deck(path: Path, *, size_floor_pt: float, library: FontLibrary) -> Dec
         report.slides += 1
         if slide.has_notes_slide and slide.notes_slide.notes_text_frame.text.strip():
             report.notes += 1
+        #: Место каждого текста слайда — для проверки на наложение (RG39).
+        taken: list[tuple[str, BBox, float]] = []
         for shape in slide.shapes:
-            if not getattr(shape, "has_text_frame", False) or not shape.text_frame.text.strip():
+            if not getattr(shape, "has_text_frame", False):
+                continue
+            if not shape.text_frame.text.strip():
+                # Пустая текстовая рамка (RG40): карточка рецепта, в которую ничего
+                # не встало. Текста в ней нет, но плашка и знак списка на слайде есть.
+                if _has_frame(shape):
+                    report.findings.append(
+                        Finding(
+                            number,
+                            str(getattr(shape, "name", "?")),
+                            "пустая рамка",
+                            "текстовая фигура осталась на слайде без текста",
+                        )
+                    )
                 continue
             name = str(getattr(shape, "name", "?"))
             if shape.left is not None:
@@ -206,6 +280,14 @@ def check_deck(path: Path, *, size_floor_pt: float, library: FontLibrary) -> Dec
 
             usable = _usable_width(shape)
             runs = _runs(shape)
+            known = next((size for _, size, _, _ in runs if size is not None), None)
+            family = next((fam for _, size, fam, _ in runs if size is not None), None)
+            place = _occupied(
+                shape,
+                _text_height(shape, family, known, library) if known is not None else None,
+            )
+            if place is not None:
+                taken.append((name, place, known or _UNNAMED_SIZE_PT))
             first = next(
                 ((size, family, bold) for _, size, family, bold in runs if size is not None),
                 None,
@@ -255,7 +337,37 @@ def check_deck(path: Path, *, size_floor_pt: float, library: FontLibrary) -> Dec
                             f"при рамке {usable} EMU — рендер разорвёт его посередине{guess}",
                         )
                     )
+        report.findings.extend(_collisions(number, taken))
     return report
+
+
+def _collisions(number: int, taken: list[tuple[str, BBox, float]]) -> list[Finding]:
+    """Пары текстов, наезжающих друг на друга больше, чем на половину строки (RG39).
+
+    Порог — половина строки меньшего из двух кеглей: пара рамок может соприкасаться
+    краями законно, но перекрытие в полстроки означает, что буквы легли на буквы.
+    Считается по месту **с текстом**, а не по рамке: заголовок, не влезший в свою
+    зону, рисуется ниже её края и накрывает тело слайда — на превью WorkSpace s05
+    ровно это и видно.
+    """
+    found: list[Finding] = []
+    for index, (name, place, size) in enumerate(taken):
+        for other_name, other, other_size in taken[index + 1 :]:
+            wide, high = _overlap(place, other)
+            if not wide or not high:
+                continue
+            line = min(size, other_size) * LINE_HEIGHT_RATIO * EMU_PER_PT
+            if high <= line / 2:
+                continue
+            found.append(
+                Finding(
+                    number,
+                    f"{name} × {other_name}",
+                    "тексты наложились",
+                    f"перекрытие {wide}×{high} EMU при строке {round(line)} EMU",
+                )
+            )
+    return found
 
 
 def _print(report: DeckReport) -> None:

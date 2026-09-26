@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
+from deckforge.designsystem.models import Zone
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage, Dataset
 from deckforge.domain.enums import TextRole
@@ -874,6 +875,12 @@ def _zone_frames(
 
     Гарнитура — у фигуры-примера по `Zone.xml_id` (D01, §10а): зона набрана так, как её
     набрал автор, а не так, как набрана роль. Фигуры не нашлось — гарнитура роли.
+
+    Высота — не своя, а **до ближайшей зоны под собой** (RG39). Рамки зон в шаблоне
+    перекрываются: у WorkSpace рамка заголовка тянется до 1 592 263 EMU, а зона тела
+    начинается с 1 243 208. Пока заголовок был в одну строку, нижняя часть его рамки
+    пустовала, и перекрытие никому не мешало. Заголовок в две строки её занимает —
+    и накрывает первую строку тела (превью s05 прогона `ae907ce14a7d`).
     """
     recipe = next((r for r in rules.ds.recipes if r.recipe_id == slide.recipe_id), None)
     if recipe is None:
@@ -886,15 +893,43 @@ def _zone_frames(
         for shape in (example.shapes if example is not None else [])
         if shape.xml_id is not None
     }
+    framed = [zone for zone in recipe.zones if zone.has_frame and zone.cx and zone.cy]
     frames: dict[str, _ZoneFrame] = {}
-    for zone in recipe.zones:
-        if zone.has_frame and zone.cx is not None and zone.cy is not None:
-            frames[zone.zone_id] = _ZoneFrame(
-                box=BBox(x=0, y=0, cx=zone.cx, cy=zone.cy),
-                size_pt=zone.size_pt,
-                font_family=fonts.get(zone.xml_id) if zone.xml_id is not None else None,
-            )
+    for zone in framed:
+        frames[zone.zone_id] = _ZoneFrame(
+            box=BBox(x=0, y=0, cx=zone.cx or 0, cy=_room_below(zone, framed)),
+            size_pt=zone.size_pt,
+            font_family=fonts.get(zone.xml_id) if zone.xml_id is not None else None,
+        )
     return frames
+
+
+def _room_below(zone: Zone, others: list[Zone]) -> int:
+    """Высота, которой зона располагает на самом деле: до ближайшей зоны под собой.
+
+    Зоны — это фигуры автора шаблона, и рамки у них перекрываются: текст в них короче
+    рамок, и автору это не мешало. Нам мешает: текст, занявший свою рамку целиком,
+    ложится на соседа снизу.
+
+    Сосед считается соседом, только если перекрывается по ширине: две колонки рядом
+    друг другу не мешают, как бы ни стояли по вертикали. Если сосед начинается выше
+    низа зоны, высота урезается до расстояния между их верхами — ровно до того, что
+    зоне принадлежит без спора.
+    """
+    top, height = zone.y or 0, zone.cy or 0
+    left, width = zone.x or 0, zone.cx or 0
+    below = [
+        other.y
+        for other in others
+        if other is not zone
+        and other.y is not None
+        and other.y > top
+        and other.y < top + height
+        # Перекрытие по ширине: иначе это соседняя колонка, а не сосед снизу.
+        and (other.x or 0) < left + width
+        and (other.x or 0) + (other.cx or 0) > left
+    ]
+    return min([height, *[value - top for value in below if value is not None]])
 
 
 def _fit_text_block(
