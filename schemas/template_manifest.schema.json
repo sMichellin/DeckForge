@@ -814,7 +814,7 @@
           "type": "number"
         },
         "kind_source": {
-          "description": "heuristic | vlm | vlm+heuristic",
+          "description": "heuristic | heuristic+name | vlm | vlm+heuristic; +name — вид решило или подтвердило имя макета (Т8)",
           "title": "Kind Source",
           "type": "string"
         },

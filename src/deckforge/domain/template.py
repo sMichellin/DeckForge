@@ -212,7 +212,12 @@ class LayoutSpec(DomainModel):
     )
     kind: LayoutKind
     kind_confidence: float = Field(ge=0.0, le=1.0)
-    kind_source: str = Field(description="heuristic | vlm | vlm+heuristic")
+    kind_source: str = Field(
+        description=(
+            "heuristic | heuristic+name | vlm | vlm+heuristic; "
+            "+name — вид решило или подтвердило имя макета (Т8)"
+        )
+    )
     capacity: LayoutCapacity
     placeholders: list[PlaceholderSpec]
     shapes: list[LayoutShape] = Field(
