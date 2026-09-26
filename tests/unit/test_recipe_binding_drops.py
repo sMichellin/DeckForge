@@ -24,12 +24,13 @@ from __future__ import annotations
 from deckforge.composition.recipe_binding import bind_to_recipe, body_seats
 from deckforge.composition.recipe_picker import pick_recipe
 from deckforge.designsystem.models import Recipe, RecipeKind, TypeLevel, Zone
-from deckforge.domain.enums import CalloutTone, SlideIntent, TextRole
+from deckforge.domain.enums import CalloutTone, ImageSource, SlideIntent, TextRole
 from deckforge.domain.plan import SlidePlan
 from deckforge.domain.slide import (
     BulletItem,
     BulletsBlock,
     CalloutBlock,
+    ImageBlock,
     KpiBlock,
     KpiItem,
     QuoteBlock,
@@ -198,17 +199,34 @@ def test_a_paragraph_takes_a_card_when_free_zones_run_out() -> None:
 
 
 def test_a_wordless_block_is_named_not_swallowed() -> None:
-    """Нарушитель: показатель. Зона — текстовая фигура, поставить в неё нечего.
+    """Нарушитель: блок без единого слова. Зона — текстовая фигура, ставить нечего.
 
-    Снятие остаётся (ставить `kpi` в зоны — отдельная работа с отдельным замером),
-    но молчание уходит: по заметке видно, что слайд собран без показателя.
+    Показатель сюда больше не входит: решение изменено в RG48
+    (`a-diagram-becomes-text-rather-than-nothing`). У показателя и схемы слова есть —
+    значение с подписью и шаги, — и зона их принимает, теряя оформление. Прогон 26.09
+    показал цену прежнего решения: схема дважды оказывалась единственным содержанием
+    слайда, и снятие оставляло заголовок на пустом поле.
+
+    У картинки слов нет, и для неё правило прежнее.
     """
+    notes: list[str] = []
+    picture = ImageBlock(block_id="p", source=ImageSource.ASSET, asset_ref="a1")
+
+    bind_to_recipe(slide_ir([*body(0), picture]), recipe(1), notes)
+
+    assert any('блок p («image»)' in note and "снят" in note for note in notes), notes
+
+
+def test_a_metric_now_keeps_its_words() -> None:
+    """Обратная сторона того же решения: показатель отдаёт зоне значение и подпись."""
     notes: list[str] = []
     kpi = KpiBlock(block_id="k", items=[KpiItem(value="30%", label="доля")])
 
-    bind_to_recipe(slide_ir([*body(0), kpi]), recipe(1), notes)
+    bound = bind_to_recipe(slide_ir([*body(0), kpi]), recipe(1), notes)
 
-    assert any('блок k («kpi»)' in note and "снят" in note for note in notes), notes
+    placed = [block for block in bound.blocks if block.block_id == "k"]
+    assert placed, "показатель снят, хотя слова в нём есть"
+    assert "30%" in placed[0].text and "доля" in placed[0].text  # type: ignore[union-attr]
 
 
 def test_a_quote_goes_into_a_zone_as_plain_text() -> None:

@@ -22,8 +22,10 @@ from deckforge.domain.slide import (
     Block,
     BulletsBlock,
     CalloutBlock,
+    KpiBlock,
     QuoteBlock,
     SlideIR,
+    SmartArtBlock,
     TextBlock,
 )
 
@@ -165,27 +167,79 @@ def body_seats(recipe: Recipe) -> int:
     return len(free) + len(_buckets(recipe, heading))
 
 
+#: Сколько слов текста зона обязана удержать, чтобы вообще считаться для него местом.
+#: Два — тот же порог, на котором вписывание перестаёт сокращать и снимает блок
+#: (`_text_last_resort`): зона, куда не встают и два слова, всё равно кончится снятием.
+MIN_WORDS = 2
+
+
+def _holds_the_start(zone: Zone, text: str) -> bool:
+    """Удержит ли зона хотя бы начало текста — первые два слова (RG43).
+
+    Вместимость ноль — её не посчитали, и тогда не судим: отсеять зону из-за
+    собственного незнания хуже, чем попробовать.
+    """
+    if not zone.capacity_chars or not text:
+        return True
+    return zone.capacity_chars >= len(" ".join(text.split()[:MIN_WORDS]))
+
+
 def _zone_for(
     block: Block,
     zones: list[Zone],
     recipe: Recipe,
     slide: SlideIR,
     notes: list[str] | None,
+    text: str = "",
 ) -> Zone | None:
-    """Свободная зона под блок: своей ступени, а нет её — ближайшей, с заметкой."""
+    """Свободная зона под блок: своей ступени и вмещающая, а нет — ближайшей, с заметкой.
+
+    Вместимость спрашивается **раньше** ступени (RG43). До этого зона выбиралась только
+    по роли, и на VK Education три факта уходили в зоны `card_title` вместимостью
+    два знака, пока рядом стояли свободные `caption` на сорок четыре. Вписывание честно
+    сообщало, что текст не помещается и в два слова, снимало его — и слайд оставался
+    с одним заголовком (прогон `e4a9c09bf3a5`, s03 и s07).
+
+    Ступень при этом не отменяется, а уступает: среди вмещающих зон по-прежнему берётся
+    зона своей ступени, а из чужих — ближайшая. Уступка называется в `notes`: подмена
+    ступени, о которой молчат, неотличима от точного совпадения.
+    """
     role = _role_of(block)
     levels = _levels(role, recipe)
-    zone = _own_zone(zones, levels)
+    roomy = [zone for zone in zones if _holds_the_start(zone, text)]
+
+    zone = _own_zone(roomy, levels)
     if zone is not None:
         return zone
-    zone = _nearest_zone(zones, levels)
-    if zone is not None and notes is not None:
-        notes.append(
-            f"слайд {slide.slide_id}: блок {block.block_id} ({role.value}) — зоны своей "
-            f"ступени ({', '.join(level.value for level in levels)}) в рецепте "
-            f"{recipe.recipe_id} нет, взята {zone.zone_id} ({zone.role.value})"
-        )
+    zone = _nearest_zone(roomy, levels)
+    if zone is not None:
+        _note_level(notes, slide, block, recipe, zone, levels, role)
+        return zone
+    # Вмещающих нет вовсе — берём как раньше, по ступени: текст потеряет вписывание,
+    # но слайд хотя бы получит блок, а заметка назовёт и это.
+    zone = _own_zone(zones, levels) or _nearest_zone(zones, levels)
+    if zone is not None:
+        _note_level(notes, slide, block, recipe, zone, levels, role)
     return zone
+
+
+def _note_level(
+    notes: list[str] | None,
+    slide: SlideIR,
+    block: Block,
+    recipe: Recipe,
+    zone: Zone,
+    levels: tuple[TypeLevel, ...],
+    role: TextRole,
+) -> None:
+    if notes is None or zone.role in levels:
+        return
+    notes.append(
+        f"слайд {slide.slide_id}: блок {block.block_id} ({role.value}) — зоны своей "
+        f"ступени ({', '.join(level.value for level in levels)}) в рецепте "
+        f"{recipe.recipe_id} нет, взята {zone.zone_id} ({zone.role.value}, "
+        f"вместимость {zone.capacity_chars})"
+    )
 
 
 def _buckets(recipe: Recipe, heading: Zone | None) -> list[tuple[int, list[Zone]]]:
@@ -206,11 +260,26 @@ def _lines(block: Block) -> list[str]:
     Цитата и callout сюда входят: зона — текстовая фигура, и поставить в неё их текст
     можно, потеряв полосу и плашку. Терять оформление хуже, чем ничего, но лучше,
     чем терять слова: до RG28 такой блок уходил со слайда целиком и молча.
+
+    Схема и показатель — тоже (RG48). Их рисунок зона повторить не может, но слова
+    в них есть: у схемы это шаги, у показателя — значение с подписью. На прогоне 26.09
+    схема оказалась **единственным** содержанием слайда дважды (WorkSpace s07,
+    VK Tech s09), и снятие оставляло слайд с одним заголовком. Тот же размен уже принят
+    вписыванием по макету: `_smartart_to_bullets` превращает не влезшую схему в список
+    тех же пунктов.
     """
     if isinstance(block, BulletsBlock):
         return [item.text for item in block.items if item.text.strip()]
     if isinstance(block, TextBlock | QuoteBlock | CalloutBlock):
         return [line for line in block.text.splitlines() if line.strip()]
+    if isinstance(block, SmartArtBlock):
+        return [item for item in block.items if item.strip()]
+    if isinstance(block, KpiBlock):
+        return [
+            f"{item.value} — {item.label}".strip(" —")
+            for item in block.items
+            if item.value.strip() or item.label.strip()
+        ]
     return []
 
 
@@ -280,11 +349,10 @@ def _note_drop(
 def _note_wordless(
     notes: list[str] | None, slide: SlideIR, block: Block, recipe: Recipe
 ) -> None:
-    """Назвать блок, у которого нет текста: показатель, схему, таблицу, картинку.
+    """Назвать блок, у которого нет и слов: таблицу, диаграмму, картинку, иконку.
 
-    Зона рецепта — текстовая фигура автора, и поставить в неё показатель нечем.
-    Ставить такие блоки в зоны — отдельная работа с отдельным замером; пока они
-    снимаются, но больше не молча.
+    Зона рецепта — текстовая фигура автора, и нарисовать в ней диаграмму нечем.
+    Схема и показатель сюда больше не попадают: их слова зона принимает (`_lines`).
     """
     if notes is None or isinstance(block, TextBlock | BulletsBlock):
         return
@@ -294,16 +362,26 @@ def _note_wordless(
     )
 
 
+#: Что теряет блок, поставленный в зону простым текстом. Оформление зона повторить
+#: не может, слова — принимает; потеря называется своим именем, а не общей фразой.
+PLAIN_LOSS: dict[type[Block], str] = {
+    QuoteBlock: "полосы и отбивки цитаты",
+    CalloutBlock: "плашки callout",
+    SmartArtBlock: "рисунка схемы — остались её шаги",
+    KpiBlock: "крупного кегля показателя — остались значение и подпись",
+}
+
+
 def _note_plain(
     notes: list[str] | None, slide: SlideIR, block: Block, recipe: Recipe
 ) -> None:
-    """Назвать цитату или callout, поставленные в зону простым текстом."""
-    if notes is None or not isinstance(block, QuoteBlock | CalloutBlock):
+    """Назвать блок, поставленный в зону простым текстом, и что он при этом потерял."""
+    lost = PLAIN_LOSS.get(type(block))
+    if notes is None or lost is None:
         return
     notes.append(
         f"слайд {slide.slide_id}: блок {block.block_id} («{block.type}») поставлен "
-        f"в зону рецепта {recipe.recipe_id} простым текстом — полосу и плашку "
-        "зона не несёт"
+        f"в зону рецепта {recipe.recipe_id} простым текстом — зона не несёт {lost}"
     )
 
 
@@ -381,7 +459,7 @@ def bind_to_recipe(slide: SlideIR, recipe: Recipe, notes: list[str] | None = Non
     blocks: list[Block] = []
     used_repeat = 0
 
-    def take_repeat() -> tuple[int, Zone] | None:
+    def take_repeat(text: str = "") -> tuple[int, Zone] | None:
         """Следующий свободный повтор — абзацу, когда свободных зон не осталось.
 
         Повтор — это карточка ряда, и абзац в ней стоит законно: модель написала два
@@ -394,7 +472,7 @@ def bind_to_recipe(slide: SlideIR, recipe: Recipe, notes: list[str] | None = Non
             return None
         index, zones = buckets[used_repeat]
         used_repeat += 1
-        return index, zones[0]
+        return index, next((zone for zone in zones if _holds_the_start(zone, text)), zones[0])
 
     for block in slide.blocks:
         lines = _lines(block)
@@ -405,18 +483,28 @@ def bind_to_recipe(slide: SlideIR, recipe: Recipe, notes: list[str] | None = Non
             blocks.append(_placed(block, title_zone, lines[0], 0, slide, notes, TextRole.TITLE))
             title_zone = None
             continue
-        if isinstance(block, BulletsBlock) and recipe.repeats:
+        # Условие — **зоны повторов**, а не объявленное число повторов. У рецепта
+        # `ex018` VK Education `repeats` больше нуля, а зон с номерами повтора нет:
+        # `zip` клал ноль пунктов, и список терялся целиком (прогон `c0dc9beabec8`, s04).
+        # Нет зон повтора — список идёт общим путём и встаёт в свободную зону одним
+        # абзацем: форма хуже, содержание цело.
+        if isinstance(block, BulletsBlock) and buckets[used_repeat:]:
             free_repeats = buckets[used_repeat:]
             placed = 0
             for line, (index, zones) in zip(lines, free_repeats, strict=False):
-                blocks.append(_placed(block, zones[0], line, index, slide, notes))
+                # Внутри повтора зоны идут от названия карточки к её тексту, и пункт
+                # списка до RG43 всегда попадал в название — у VK Education это две
+                # буквы при подписи на сорок четыре знака рядом. Берём первую, которая
+                # держит хотя бы начало пункта.
+                card = next((zone for zone in zones if _holds_the_start(zone, line)), zones[0])
+                blocks.append(_placed(block, card, line, index, slide, notes))
                 used_repeat += 1
                 placed += 1
             if placed < len(lines):
                 _note_lost_lines(notes, slide, block, recipe, placed, len(lines))
             continue
         joined = " ".join(lines)
-        zone = _zone_for(block, rest, recipe, slide, notes)
+        zone = _zone_for(block, rest, recipe, slide, notes, joined)
         if zone is not None:
             rest.remove(zone)
             _note_plain(notes, slide, block, recipe)
@@ -424,7 +512,7 @@ def bind_to_recipe(slide: SlideIR, recipe: Recipe, notes: list[str] | None = Non
             continue
         # Свободных зон не осталось — идём в повтор, пока он есть: пустая карточка
         # рядом со снятым абзацем хуже карточки с абзацем.
-        if (taken := take_repeat()) is not None:
+        if (taken := take_repeat(joined)) is not None:
             index, card = taken
             _note_plain(notes, slide, block, recipe)
             blocks.append(_placed(block, card, joined, index, slide, notes))
