@@ -21,6 +21,7 @@ from deckforge.designsystem.models import Recipe, RecipeKind, TypeLevel
 from deckforge.designsystem.recipes import kind_for_visual
 from deckforge.domain.enums import SlideIntent
 from deckforge.domain.plan import SlidePlan
+from deckforge.parsing.layout_names import STRUCTURAL_LAYOUTS, load_vocabulary
 
 #: Место слайда в колоде → вид композиции. Структурный слайд берёт рецепт своего вида
 #: и заказом плана не управляется.
@@ -316,6 +317,18 @@ def _note_fallback(
         )
 
 
+def on_title_layout(recipe: Recipe) -> bool:
+    """Стоит ли пример рецепта на макете, который **по имени** — титул, раздел или финал.
+
+    Заметка владельца 26.09 — про названия («разделение титульник — контент в том числе
+    по названию в шаблоне»), поэтому признак — по имени макета через словарь
+    `configs/layout_names.yaml`, а не по виду по составу. По виду вышло бы и лишнее,
+    и мало: главный содержательный макет VK Education «Заголовок» эвристика уверенно
+    зовёт титулом, а три «Титульных» макета VK WorkSpace состав уверенно зовёт иначе.
+    """
+    return load_vocabulary().kind_of(recipe.layout_name) in STRUCTURAL_LAYOUTS
+
+
 def _nearest(
     recipes: list[Recipe],
     slide: SlidePlan,
@@ -339,13 +352,20 @@ def _nearest(
         return None
     need = _needs(slide)
 
-    def order(recipe: Recipe) -> tuple[int, int]:
+    content = slide.intent not in INTENT_KINDS
+
+    def order(recipe: Recipe) -> tuple[int, int, int]:
         """Сначала те, кому мест хватает, потом ближайшие по числу повторов (RG28).
 
         Нехватка мест стоит первой: рецепт, с которого снимут факт, хуже рецепта,
         отличающегося на один повтор. Прежний порядок о местах не знал.
+
+        Содержательный слайд берёт пример с макета титула, раздела или финала последним
+        (Т8, решение владельца 26.09): такой рецепт остаётся в выборе, но только когда
+        вмещающих других нет — слайд в оформлении шаблона лучше слайда на пустом макете.
         """
-        return _short(recipe, slide), abs(recipe.repeats - need)
+        titled = int(content and on_title_layout(recipe))
+        return _short(recipe, slide), titled, abs(recipe.repeats - need)
 
     usable.sort(key=lambda recipe: (*order(recipe), recipe.recipe_id))
     if previous is not None and len(usable) > 1 and usable[0].recipe_id == previous:
