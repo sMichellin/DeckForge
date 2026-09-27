@@ -808,6 +808,11 @@ def slide_without_recipe(ctx: CheckContext) -> Iterable[Finding]:
 
 _Frame = tuple[float, float, float, float]
 
+#: Фон или полоса во всю ширину **или** высоту слайда — оформление слайда, не декор зоны
+#: (RG52). То же число, что `FULL_SPAN_SHARE` писателя (`rendering/recipe_slide.py`):
+#: владельцы разные, политика одна. Не `FULL_BLEED_SHARE`: та — подложка по обеим сторонам.
+SPAN_SHARE = 0.9
+
 _GROUP = qn("p:grpSp")
 _CONNECTOR = qn("p:cxnSp")
 _SHAPE = qn("p:sp")
@@ -889,7 +894,7 @@ def _shape_id(node: Any) -> str:
 
 def _spans_the_slide(frame: _Frame, size: tuple[float, float]) -> bool:
     """Подложка или полоса во всю ширину или высоту — оформление слайда, не декор зоны."""
-    return frame[2] >= FULL_BLEED_SHARE * size[0] or frame[3] >= FULL_BLEED_SHARE * size[1]
+    return frame[2] >= SPAN_SHARE * size[0] or frame[3] >= SPAN_SHARE * size[1]
 
 
 @check(id="template.decor_leads_nowhere", deterministic=True, severity=Severity.WARNING,
@@ -907,7 +912,7 @@ def decor_leads_nowhere(ctx: CheckContext) -> Iterable[Finding]:
     большей), конец которой в пределах `touch_share` ширины слайда от пустого места и не у фигуры
     с текстом; и плашка `p:sp` без текста, которая касается пустого места и ни одной фигуры
     с текстом. Не декор примера: плейсхолдеры, фигуры, которые адресует рецепт, подложки во всю
-    сторону слайда (`FULL_BLEED_SHARE`); колонтитулы — не текст. Картинка рецепта — содержимое.
+    сторону слайда (`SPAN_SHARE`); колонтитулы — не текст. Картинка рецепта — содержимое.
     Заголовок — не пустое место: его писатель не снимает никогда.
 
     Граница: только слайды по рецепту и только рамки зон рецепта. На слайде по макету декор —

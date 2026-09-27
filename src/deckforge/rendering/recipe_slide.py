@@ -487,7 +487,8 @@ def _drop_orphan_decor(recipe: Recipe, slide: Any, width: int, height: int) -> N
     Привязок у линий нет (`a:stCxn`/`a:endCxn` — 2 на 45 линий трёх шаблонов), поэтому
     декор зоны отличается только геометрией, в допуске `TOUCH_SHARE`:
 
-    1. Линия уходит, если её конец у рамки снятой зоны или у уже снятой линии —
+    1. Линия уходит, если её конец у рамки снятой зоны, или каскадом — если конец у уже снятой
+       линии, а ни один конец не у текста (ствол развилки между заполненными зонами остаётся);
        разветвители схемы (`ex013`: цепочка в три шага) уходят до конца.
     2. Фигура без текста уходит, если касается снятой зоны или конца снятой линии
        **и** не касается ни одной фигуры с текстом: плашка, на которой остался наш
@@ -515,7 +516,11 @@ def _drop_orphan_decor(recipe: Recipe, slide: Any, width: int, height: int) -> N
     tolerance = TOUCH_SHARE * width
     addressed = _addressed(recipe)
 
+    def touches(box: _Box, targets: list[_Box]) -> bool:
+        return any(_gap(box, target) <= tolerance for target in targets)
+
     content: list[_Box] = []
+    title_boxes: list[_Box] = []
     decor: list[tuple[Any, _Box]] = []
     for node, own in placed:
         xml_id = _xml_id(node)
@@ -527,23 +532,34 @@ def _drop_orphan_decor(recipe: Recipe, slide: Any, width: int, height: int) -> N
         if written or xml_id in titles or xml_id == recipe.picture_xml_id:
             if box is not None:
                 content.append(box)
+                if xml_id in titles:
+                    title_boxes.append(box)
             continue
         if (box is None or mark is not None or xml_id in addressed or node.tag == GRAPHIC_FRAME
                 or box[2] >= FULL_SPAN_SHARE * width or box[3] >= FULL_SPAN_SHARE * height):
             continue
         decor.append((node, box))
-
-    def touches(box: _Box, targets: list[_Box]) -> bool:
-        return any(_gap(box, target) <= tolerance for target in targets)
+    # Декор у заголовка — оформление слайда, даже если касается и снятой зоны.
+    decor = [(node, box) for node, box in decor if not touches(box, title_boxes)]
 
     lines = [(node, box) for node, box in decor if _is_line(node, box)]
     shapes = [(node, box) for node, box in decor if not _is_line(node, box)]
     gone: list[tuple[Any, _Box]] = []
-    reach = list(dropped)
+    reach: list[_Box] = []
+
+    def orphaned(node: Any, box: _Box) -> bool:
+        """Конец у снятой зоны — линия ведёт в пустоту. Конец только у снятой линии — каскад,
+        если ни один конец не у текста: ствол развилки между заполненными зонами остаётся."""
+        ends = _ends(node, box)
+        if any(touches(end, dropped) for end in ends):
+            return True
+        return any(touches(end, reach) for end in ends) and not any(
+            touches(end, content) for end in ends
+        )
+
     while more := [
         (node, box) for node, box in lines
-        if all(node is not taken for taken, _ in gone)
-        and any(touches(end, reach) for end in _ends(node, box))
+        if all(node is not taken for taken, _ in gone) and orphaned(node, box)
     ]:
         gone += more
         reach += [box for _, box in more]

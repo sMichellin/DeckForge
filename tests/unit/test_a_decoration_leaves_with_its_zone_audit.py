@@ -70,25 +70,40 @@ def _text(slide: object, frame: tuple[int, int, int, int], text: str, xml_id: in
     return _with_id(box, xml_id)
 
 
-def scheme_file(path: Path, *, zone_b: str | None = None, caption: bool = False) -> dict[str, int]:
+def scheme_file(
+    path: Path,
+    *,
+    zone_a: str | None = "Первый факт",
+    zone_b: str | None = None,
+    caption: bool = False,
+    arrow_end: int = ZONE_B[0],
+    band: bool = False,
+) -> dict[str, int]:
     """Копия примера после писателя: заголовок и зона A с нашим текстом, стрелка A → B,
-    плашка вокруг B. `zone_b` — текст зоны B (нет — зону сняли); `caption` — у конца стрелки
-    лежит чужая для рецепта фигура с текстом."""
+    плашка вокруг B. `zone_a`/`zone_b` — текст зоны (нет — зону сняли); `caption` — у конца
+    стрелки лежит чужая для рецепта фигура с текстом; `arrow_end` — x конца стрелки;
+    `band` — полоса во всю ширину слайда вплотную под зонами A и B."""
     prs = Presentation()
     page = prs.slides.add_slide(prs.slide_layouts[6])
     shapes = page.shapes
     plate = _with_id(shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Emu(3900000), Emu(1900000),
                                       Emu(2200000), Emu(1000000)), 950)
     arrow = _with_id(shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Emu(2400000), Emu(2400000),
-                                          Emu(4000000), Emu(2400000)), 951)
+                                          Emu(arrow_end), Emu(2400000)), 951)
+    strip = _with_id(shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, Emu(2850000), Emu(9144000),
+                                      Emu(400000)), 952) if band else None
     _text(page, TITLE, "Выручка выросла на треть", 900)
-    _text(page, ZONE_A, "Первый факт", 901)
+    if zone_a is not None:
+        _text(page, ZONE_A, zone_a, 901)
     if zone_b is not None:
         _text(page, ZONE_B, zone_b, 902)
     if caption:
         _text(page, ZONE_B, "Подпись этапа", 960)
     prs.save(str(path))
-    return {"plate": plate.shape_id, "arrow": arrow.shape_id}  # type: ignore[attr-defined]
+    ids = {"plate": plate.shape_id, "arrow": arrow.shape_id}  # type: ignore[attr-defined]
+    if strip is not None:
+        ids["band"] = strip.shape_id  # type: ignore[attr-defined]
+    return ids
 
 
 def recipe_slide(*zones: str, recipe_id: str | None = "ex013") -> SlideIR:
@@ -145,6 +160,41 @@ def test_an_arrow_to_a_shape_with_text_is_not_a_finding(
     scheme_file(tmp_path / "deck.pptx", caption=True)
 
     assert run(manifest, recipe_slide("zt", "za"), tmp_path / "deck.pptx") == []
+
+
+def test_a_band_across_the_slide_is_not_a_finding(
+    manifest: TemplateManifest, tmp_path: Path
+) -> None:
+    """Норма: полоса во всю ширину у снятых зон — оформление слайда, а не декор зоны.
+
+    Зоны A и B сняты обе: текста полоса не касается, и без правила «во всю сторону»
+    она была бы плашкой пустого места.
+    """
+    ids = scheme_file(tmp_path / "deck.pptx", zone_a=None, band=True)
+
+    findings = run(manifest, recipe_slide("zt"), tmp_path / "deck.pptx")
+
+    assert str(ids["plate"]) in {f.evidence["xml_id"] for f in findings}, "замер не тот"
+    assert str(ids["band"]) not in {f.evidence["xml_id"] for f in findings}
+
+
+#: Допуск «примыкает» из `audit_checks.yaml`: 1 % ширины слайда 9 144 000 EMU.
+TOLERANCE = 91440
+
+
+@pytest.mark.parametrize(
+    ("gap", "found"), [(TOLERANCE - 500, True), (TOLERANCE + 500, False)]
+)
+def test_a_line_end_near_the_tolerance(
+    manifest: TemplateManifest, tmp_path: Path, gap: int, found: bool
+) -> None:
+    """Граница допуска: конец стрелки чуть ближе допуска к снятой зоне — находка, чуть
+    дальше — нет."""
+    ids = scheme_file(tmp_path / "deck.pptx", arrow_end=ZONE_B[0] - gap)
+
+    findings = run(manifest, recipe_slide("zt", "za"), tmp_path / "deck.pptx")
+
+    assert (str(ids["arrow"]) in {f.evidence["xml_id"] for f in findings}) is found
 
 
 def test_nothing_to_check_is_skipped_not_passed(

@@ -54,9 +54,11 @@ def _zone(zone_id, shape, role=TypeLevel.BODY, repeat=None) -> Zone:
 def scheme_example():
     """Пример-схема на слайде 9144000 × 6858000 EMU (1 % ширины — 91 440 EMU).
 
-    Фон во весь слайд; заголовок с чертой под ним; зона A на плашке; зона B на плашке
-    с иконкой (иконка внутри плашки, но не у зоны); стрелка A → B; номер шага N
-    на кружке; член повтора и «картинка рецепта» вплотную к зоне A.
+    Фон во весь слайд; заголовок с чертой под ним, черта касается и зоны-подзаголовка S,
+    которая не заполняется никогда; зона A на плашке; зона B на плашке с иконкой (иконка
+    внутри плашки, но не у зоны); стрелка A → B; номер шага N на кружке; полоса во всю
+    ширину касается только зоны N и кружка; член повтора и «картинка рецепта» вплотную
+    к зоне A. Черта и полоса без своих защит (заголовок, `FULL_SPAN_SHARE`) ушли бы.
     """
     prs = Presentation()
     s = prs.slides.add_slide(prs.slide_layouts[6])
@@ -83,6 +85,9 @@ def scheme_example():
         "zone_b": _text_box(s, 4000000, 2000000, 2000000, 800000, "Текстовый блок B"),
         "zone_n": _text_box(s, 7000000, 4000000, 400000, 400000, "01"),
         "zone_c": _text_box(s, 400000, 5000000, 2000000, 800000, "Карточка"),
+        "zone_s": _text_box(s, 400000, 900000, 3000000, 400000, "Подзаголовок"),
+        "band": shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, Emu(4300000), Emu(9144000),
+                                 Emu(500000)),
         "arrow": shapes.add_connector(
             MSO_CONNECTOR.STRAIGHT, Emu(2400000), Emu(2400000), Emu(4000000), Emu(2400000)
         ),
@@ -102,6 +107,7 @@ def scheme_recipe(part_name: str, f) -> Recipe:
             _zone("zb", f["zone_b"]),
             _zone("zn", f["zone_n"], TypeLevel.CARD_TITLE),
             _zone("zc", f["zone_c"], repeat=0),
+            _zone("zs", f["zone_s"]),
         ],
         repeat_xml_ids=[[f["zone_c"].shape_id, f["member"].shape_id]],
         picture_xml_id=f["picture"].shape_id,
@@ -153,11 +159,76 @@ def test_a_plate_that_keeps_our_text_stays() -> None:
 
 
 def test_the_slide_design_stays() -> None:
-    """История 46: фон во всю ширину, декор у заголовка, член повтора, картинка рецепта."""
+    """История 46: фон во всю ширину, декор у заголовка, член повтора, картинка рецепта.
+
+    Черта под заголовком касается снятой зоны S, полоса во всю ширину — только снятой зоны N:
+    обе остаются только благодаря своим защитам.
+    """
     left, f = cloned(["zt", "zc"])
 
-    for name in ("background", "title_rule", "member", "picture"):
+    assert f["zone_s"].shape_id not in left and f["zone_n"].shape_id not in left
+    for name in ("background", "band", "title_rule", "member", "picture"):
         assert f[name].shape_id in left, f"{name}: оформление слайда снято"
+
+
+def lines_example():
+    """Развилка и цепочка на слайде 9144000 × 6858000 EMU.
+
+    Развилка: ствол от заполненной зоны A к узлу J, из узла — ветка к снятой зоне B и ветка
+    к заполненной зоне C. Цепочка: три линии от снятой зоны D и кружок без текста у конца
+    последней — дальше допуска от любой зоны.
+    """
+    prs = Presentation()
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+
+    def line(x0, y0, x1, y1):
+        return s.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Emu(x0), Emu(y0), Emu(x1), Emu(y1))
+
+    f = {
+        "title": _text_box(s, 400000, 200000, 8000000, 600000, "Заголовок примера"),
+        "zone_a": _text_box(s, 400000, 2000000, 2000000, 800000, "A"),
+        "zone_b": _text_box(s, 4000000, 1000000, 2000000, 800000, "B"),
+        "zone_c": _text_box(s, 4000000, 3400000, 2000000, 800000, "C"),
+        "zone_d": _text_box(s, 6800000, 5000000, 1800000, 800000, "D"),
+        "trunk": line(2400000, 2400000, 3200000, 2400000),
+        "to_b": line(3200000, 2400000, 4000000, 1400000),
+        "to_c": line(3200000, 2400000, 4000000, 3800000),
+        "chain_1": line(6800000, 5400000, 5800000, 5400000),
+        "chain_2": line(5800000, 5400000, 5800000, 6200000),
+        "chain_3": line(5800000, 6200000, 4800000, 6200000),
+        "tail": s.shapes.add_shape(MSO_SHAPE.OVAL, Emu(4500000), Emu(6050000),
+                                   Emu(300000), Emu(300000)),
+    }
+    recipe = Recipe(
+        recipe_id="ex013",
+        example_index=1,
+        part_name=str(s.part.partname),
+        kind=RecipeKind.TEXT,
+        zones=[
+            _zone("zt", f["title"], TypeLevel.SLIDE_TITLE),
+            *(_zone(f"z{key}", f[f"zone_{key}"]) for key in "abcd"),
+        ],
+    )
+    slide = clone_recipe(prs, recipe, slide_ir(recipe, ["zt", "za", "zc"]))
+    return ids_left(slide), f
+
+
+def test_the_trunk_of_a_fork_between_filled_zones_stays() -> None:
+    """Ревью D08: ветка к снятой зоне уходит, а ствол и ветка к заполненной зоне — нет,
+    хотя касаются снятой линии: их другой конец у нашего текста."""
+    left, f = lines_example()
+
+    assert f["to_b"].shape_id not in left
+    assert f["trunk"].shape_id in left, "ствол между заполненными зонами снят каскадом"
+    assert f["to_c"].shape_id in left, "ветка к заполненной зоне снята каскадом"
+
+
+def test_a_chain_to_a_dropped_zone_leaves_with_its_tail() -> None:
+    """D08: цепочка из трёх линий к снятой зоне уходит целиком, кружок у её конца — тоже."""
+    left, f = lines_example()
+
+    for name in ("chain_1", "chain_2", "chain_3", "tail"):
+        assert f[name].shape_id not in left, f"{name}: остался у пустого места"
 
 
 # --- настоящий шаблон -----------------------------------------------------------------
