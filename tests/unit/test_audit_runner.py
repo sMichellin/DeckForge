@@ -98,7 +98,7 @@ def test_deterministic_checks_cover_three_content_questions() -> None:
     язык — подсчёт букв. Каждый уведённый вопрос экономит 12 вызовов VLM на колоду.
     """
     deterministic = {c.check_id for c in REGISTRY.deterministic()}
-    assert len(deterministic) == 33
+    assert len(deterministic) == 34
     assert {"content.no_typos", "content.numbers_grounded", "content.single_language"} <= (
         deterministic
     )
