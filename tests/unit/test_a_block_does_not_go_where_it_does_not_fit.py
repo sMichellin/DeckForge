@@ -145,13 +145,9 @@ def test_the_planner_forbids_facts_on_a_structural_slide() -> None:
     bundle = get_prompt_registry().load("deck_planner")
     system = Path(bundle.ref.path if hasattr(bundle.ref, "path") else "").name
 
-    text = (
-        Path("prompts/deck_planner")
-        / yaml.safe_load(Path("prompts/registry.yaml").read_text())["skills"]["deck_planner"][
-            "active"
-        ]
-        / "system.j2"
-    ).read_text()
+    registry = yaml.safe_load(Path("prompts/registry.yaml").read_text(encoding="utf-8"))
+    active = registry["skills"]["deck_planner"]["active"]
+    text = (Path("prompts/deck_planner") / active / "system.j2").read_text(encoding="utf-8")
 
     assert "фактов НЕ несут" in text, f"правила 9а нет в активной версии ({system})"
     assert "`fact_refs`" in text
@@ -159,6 +155,6 @@ def test_the_planner_forbids_facts_on_a_structural_slide() -> None:
 
 def test_the_previous_version_did_not_have_the_rule() -> None:
     """Нарушитель: в 1.3.0 правила не было — иначе тест не проверял бы ничего."""
-    old = (Path("prompts/deck_planner/1.3.0/system.j2")).read_text()
+    old = (Path("prompts/deck_planner/1.3.0/system.j2")).read_text(encoding="utf-8")
 
     assert "фактов НЕ несут" not in old

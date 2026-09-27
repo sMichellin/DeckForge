@@ -17,9 +17,7 @@ _ = (_deterministic, _semantic)
 
 
 def _content() -> ContentPackage:
-    return ContentPackage(
-        brief=Brief(purpose="report", audience="правление", target_slides=12)
-    )
+    return ContentPackage(brief=Brief(purpose="report", audience="правление", target_slides=12))
 
 
 async def test_run_finds_violations_and_counts_them(manifest: TemplateManifest) -> None:
@@ -111,15 +109,26 @@ def test_runner_populates_the_registry_itself() -> None:
     пустой реестр — ноль находок, ноль пройденных, ноль пропущенных. Отчёт при этом
     неотличим от чистой колоды: «аудит прошёл, нарушений нет».
     """
+    import os
     import subprocess
     import sys
+    from pathlib import Path
 
+    import deckforge
+
+    # Подпроцесс не видит `pythonpath` из pytest: без установленного пакета (локально,
+    # не через poetry) он падал на `import deckforge`, а не на пустом реестре.
+    src = str(Path(deckforge.__file__).resolve().parents[1])
+    env = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join(filter(None, [src, os.environ.get("PYTHONPATH")])),
+    }
     probe = (
         "from deckforge.audit.runner import AuditRunner;"
         "from deckforge.audit.registry import REGISTRY;"
         "print(len(REGISTRY))"
     )
     out = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, env=env
     )
     assert int(out.stdout.strip()) > 0, "импорта прогона не хватило, чтобы завести проверки"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from deckforge.domain.units import Emu
 
@@ -26,6 +26,19 @@ class BBox(DomainModel):
     y: int = Field(ge=0)
     cx: int = Field(gt=0)
     cy: int = Field(gt=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_computed(cls, data: object) -> object:
+        """`right` и `bottom` пишутся в JSON как вычисляемые — при чтении их снимаем.
+
+        Иначе хранимый `BBox` (декор шаблона, `StaticShape.bbox`) не переживал круг
+        `model_dump_json` → `model_validate_json`: `extra="forbid"` отвергал собственный
+        вывод модели, и манифест с декором не читался ни из кэша, ни из чекпойнта.
+        """
+        if isinstance(data, dict) and ("right" in data or "bottom" in data):
+            return {key: value for key, value in data.items() if key not in ("right", "bottom")}
+        return data
 
     @computed_field  # type: ignore[prop-decorator]
     @property
