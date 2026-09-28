@@ -14,6 +14,7 @@ from deckforge.audit.deterministic.template import (
     layout_not_from_template,
     size_not_in_scale,
 )
+from deckforge.audit.registry import CheckUnavailable
 from deckforge.domain.enums import ColorRef, TextRole
 from deckforge.domain.template import (
     Decor,
@@ -34,9 +35,12 @@ def test_font_not_in_theme_catches_a_third_family(manifest: TemplateManifest) ->
 
 
 def test_font_not_in_theme_silent_within_the_limit(manifest: TemplateManifest) -> None:
+    """В пределах лимита и без файла — не «чисто», а «не мерили»: гарнитуры текста видны
+    только в .pptx (change `the-font-check-names-its-skip`). Норма с файлом — ниже."""
     colony = deck(slide(title(), body()))
     context = context_for("template.font_not_in_theme", colony, manifest)
-    assert list(font_not_in_theme(context)) == []
+    with pytest.raises(CheckUnavailable):
+        list(font_not_in_theme(context))
 
 
 def test_font_not_in_theme_catches_a_foreign_font_in_the_file(
