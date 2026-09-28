@@ -35,6 +35,11 @@ checks:
     severity: error
     title: "Картинка растянута, пропорции нарушены"
     params: { max_aspect_delta: 0.02 }
+  layout.object_overflow:
+    deterministic: true
+    severity: error
+    title: "Таблица или схема записана с переполнением"
+    params: { height_tolerance: 0.02, position_share: 0.005 }
 
   # --- шаблон ---
   template.font_not_in_theme:

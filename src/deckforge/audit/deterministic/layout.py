@@ -1,7 +1,7 @@
 """Проверки вёрстки (§5.1). Change (15) `audit-deterministic`.
 
 out_of_bounds, overlap, text_overflow, text_clipped, off_guides, margin_violation,
-image_aspect_distorted.
+image_aspect_distorted, object_overflow.
 
 Все семь — чистые функции над `SlideIR` и манифестом: на одном и том же слайде
 результат всегда один. Пороги приходят из `configs/audit_checks.yaml` через `ctx.params`.
@@ -13,6 +13,7 @@ image_aspect_distorted.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from deckforge.audit.findings import make_finding
 from deckforge.audit.geometry import (
@@ -30,7 +31,14 @@ from deckforge.audit.registry import CheckContext, CheckUnavailable, check
 from deckforge.domain.audit import Finding
 from deckforge.domain.base import BBox
 from deckforge.domain.enums import AutoFix, Severity, TextRole
-from deckforge.domain.slide import BulletsBlock, SlideIR, TextBlock
+from deckforge.domain.slide import (
+    BulletsBlock,
+    ChartBlock,
+    SlideIR,
+    SmartArtBlock,
+    TableBlock,
+    TextBlock,
+)
 from deckforge.domain.template import ShapeKind
 from deckforge.domain.units import emu_to_cm
 
@@ -435,3 +443,121 @@ def _visible(shape: object, native_cx: int, native_cy: int) -> tuple[float, floa
     width = max(0.0, 1.0 - cut("l", "r"))
     height = max(0.0, 1.0 - cut("t", "b"))
     return native_cx * width, native_cy * height
+
+
+# --- переполненная таблица или схема (план Б, после 5б; change `the-overflowing-table-is-found`)
+
+
+def _plain(text: str) -> str:
+    """Текст для сверки подписи: неразрывные пробелы (Т4) — обычные, края срезаны."""
+    return " ".join(text.replace("\u00a0", " ").split())
+
+
+def _frames_on(page: Any) -> tuple[list[tuple[int, int, int, int]], list[set[str]]]:
+    """Таблицы страницы (x, y, cx, cy) и тексты подписей каждой группы фигур."""
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+    tables: list[tuple[int, int, int, int]] = []
+    groups: list[set[str]] = []
+    for shape in page.shapes:
+        if getattr(shape, "has_table", False):
+            tables.append((int(shape.left or 0), int(shape.top or 0),
+                           int(shape.width or 0), int(shape.height or 0)))
+        elif shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+            groups.append({
+                _plain(child.text_frame.text)
+                for child in shape.shapes
+                if getattr(child, "has_text_frame", False) and child.text_frame.text.strip()
+            })
+    return tables, groups
+
+
+@check(
+    id="layout.object_overflow",
+    deterministic=True,
+    severity=Severity.ERROR,
+    title="Таблица или схема записана с переполнением",
+)
+def object_overflow(ctx: CheckContext) -> Iterable[Finding]:
+    """Таблица или схема записана с переполнением (план Б, после 5б).
+
+    На пути `by_example` слайд без примера больше не сплющивает не влезший блок: таблица
+    и схема пишутся своим видом «как есть», а переполнение названо только заметкой
+    в `degradations`. `layout.text_overflow` смотрит лишь текст и списки — вылет таблицы
+    или схемы аудиту не был виден, и строки 5 и 9 плана Б сдвигались бы за счёт него.
+
+    Меряется **записанный файл**, а не решение писателя:
+
+    * таблица (и диаграмма, которую писатель заменил таблицей) — рамка таблицы на месте блока
+      выше места блока (`bbox` в IR) больше `height_tolerance`: писатель ставит строкам
+      измеренные высоты, и рамка — их сумма;
+    * схема — `fit_report` называет переполнение, и в файле она нарисована группой с подписями
+      пунктов, а не заменена списком (список — забота `layout.text_overflow`).
+
+    Без файла — пропуск: по одному IR не видно, каким видом блок записан.
+    """
+    path = ctx.deck_path
+    if path is None:
+        raise CheckUnavailable("файла колоды ещё нет: каким видом записан блок, видно в .pptx")
+    tolerance = ctx.param("height_tolerance", 0.02)
+    # Угол рамки таблицы и угол места блока совпадают по построению; допуск — доля ширины
+    # слайда, а не EMU: размер слайда у шаблонов разный (правило 2).
+    near = ctx.param("position_share", 0.005) * ctx.manifest.slide_size.bbox.cx
+    try:
+        from pptx import Presentation
+
+        pages = list(Presentation(str(path)).slides)
+    except Exception as error:
+        raise CheckUnavailable(f"файл колоды не открылся: {type(error).__name__}") from error
+    if len(pages) < len(ctx.deck.slides):
+        raise CheckUnavailable(
+            f"в файле {len(pages)} слайдов, а в IR {len(ctx.deck.slides)}: страницу не найти"
+        )
+
+    for page, slide in zip(pages, ctx.deck.slides, strict=False):
+        tables, groups = _frames_on(page)
+        for block in slide.blocks:
+            box = getattr(block, "bbox", None)
+            if box is None:
+                continue
+            if isinstance(block, TableBlock | ChartBlock):
+                frame = next(
+                    (t for t in tables if abs(t[0] - box.x) <= near and abs(t[1] - box.y) <= near),
+                    None,
+                )
+                if frame is None or frame[3] <= box.cy * (1 + tolerance):
+                    continue
+                kind = (
+                    "Таблица" if isinstance(block, TableBlock) else "Диаграмма, ставшая таблицей,"
+                )
+                yield make_finding(
+                    check_id="layout.object_overflow",
+                    slide_id=slide.slide_id,
+                    block_id=block.block_id,
+                    bbox=box,
+                    reason="table_taller",
+                    message=(
+                        f"{kind} {block.block_id} выше своего места: {emu_to_cm(frame[3]):.1f} см "
+                        f"при {emu_to_cm(box.cy):.1f} см"
+                    ),
+                    evidence={"frame_cy": str(frame[3]), "box_cy": str(box.cy)},
+                )
+            elif isinstance(block, SmartArtBlock):
+                measured = slide.fit_report.get(block.block_id)
+                if measured is None or not measured.overflow:
+                    continue
+                labels = {_plain(item) for item in block.items}
+                if not any(labels <= group for group in groups):
+                    continue
+                yield make_finding(
+                    check_id="layout.object_overflow",
+                    slide_id=slide.slide_id,
+                    block_id=block.block_id,
+                    bbox=box,
+                    reason="smartart_measured",
+                    message=(
+                        f"Подписи схемы {block.block_id} ({block.pattern.value}) не помещаются "
+                        f"в узлы на кегле {measured.final_size_pt:g} pt, а схема записана как есть"
+                    ),
+                    evidence={"source": "fit_report", "pattern": block.pattern.value},
+                )
