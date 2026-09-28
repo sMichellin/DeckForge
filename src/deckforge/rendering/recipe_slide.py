@@ -562,6 +562,7 @@ def _lay_out_rows(
     """
     zones = {zone.zone_id: zone for zone in recipe.zones}
     tree = _shapes_tree(slide)
+    frames = {node: (frame, origin) for node, frame, origin in _frames(tree)}
     for groups in passport.rows.values():
         if any(g.x is None or g.cx is None for g in groups):
             continue
@@ -575,34 +576,26 @@ def _lay_out_rows(
             for index, group in enumerate(staying):
                 nodes = [_node(tree, shapes, xml_id) for xml_id in _group_xml_ids(group, zones)]
                 texts = {_place_xml_id(p, zones) for p in group.places if p.kind is PlaceKind.TEXT}
-                _stretch(group, [n for n in nodes if n is not None], texts,
+                # Снятых пустых мест (`_drop_empty_places`) на слайде уже нет — и нет в `frames`.
+                _stretch(group, [n for n in nodes if n in frames], texts, frames,
                          left + index * (share + gap), share)
 
 
-def _scale_x(node: Any) -> tuple[float, float]:
-    """Горизонталь фигуры в координаты слайда: `x_слайда = a + b · x_свой`.
-
-    У фигуры внутри `p:grpSp` своя система — `chOff`/`chExt` группы, как их читает `_placed`.
-    """
-    a, b = 0.0, 1.0
-    chain = [g for g in node.iterancestors(GROUP)]
-    for group in reversed(chain):
-        xfrm = _xfrm(group)
-        own, child = _pair(xfrm, "a:off", "a:ext"), _pair(xfrm, "a:chOff", "a:chExt")
-        if own is None or child is None or not child[2]:
-            continue
-        scale = own[2] / child[2]
-        a, b = a + b * (own[0] - child[0] * scale), b * scale
-    return a, b
+#: Мелкий декор группы — уже этой доли её ширины (иконка, точка): при перестроении ряда
+#: он сохраняет размер и отступ от левого края, а шире — плашка, растягивается с группой.
+#: Иконка карточки — малая доля ширины, плашка — вся группа: половина разводит их с запасом
+#: в обе стороны (5а, R16).
+SMALL_DECOR_SHARE = 0.5
 
 
 def _stretch(
-    group: PlaceGroup, nodes: list[Any], texts: set[int | None], x: int, cx: int
+    group: PlaceGroup, nodes: list[Any], texts: set[int | None],
+    frames: dict[Any, tuple[_Box, tuple[float, float]]], x: int, cx: int,
 ) -> None:
     """Группа из рамки паспорта `(group.x, group.cx)` — в `(x, cx)`; пишутся только `a:off`/`a:ext`.
 
     Плашка и текстовые места растягиваются с прежними отступами от краёв группы; мелкий декор
-    (иконка — меньше половины группы) и картинка сохраняют размер и отступ от левого края:
+    (иконка — уже `SMALL_DECOR_SHARE` группы) и картинка сохраняют размер и отступ от левого края:
     растянутая иконка — уже другая иконка. Высоты и `y` не меняются. Фигура внутри другой
     фигуры группы (`p:grpSp` декора) едет вместе с ней.
     """
@@ -615,10 +608,11 @@ def _stretch(
             None, None)
         if off is None or ext is None:
             continue
-        a, b = _scale_x(node)
+        (ox, _, b, _), origin = frames[node]
+        a = ox - origin[0] * b
         left, width = a + b * int(off.get("x", 0)), b * int(ext.get("cx", 0))
         wide = _xml_id(node) in texts or (
-            node.tag != qn("p:pic") and 2 * width >= was_cx
+            node.tag != qn("p:pic") and width >= SMALL_DECOR_SHARE * was_cx
         )
         new_left = x + (left - was_x)
         new_width = width + (cx - was_cx) if wide else width
@@ -780,32 +774,46 @@ def _pair(xfrm: Any | None, off: str, ext: str) -> _Box | None:
             float(size.get("cx", 0)), float(size.get("cy", 0)))
 
 
-def _placed(parent: Any, frame: _Box = (0, 0, 1, 1), origin: tuple[float, float] = (0, 0)) -> Any:
-    """Фигуры с рамкой в координатах слайда (или `None`), группы раскрыты с их масштабом.
+def _frames(parent: Any, frame: _Box = (0, 0, 1, 1), origin: tuple[float, float] = (0, 0)) -> Any:
+    """Фигуры и группы с системой координат родителя: `x_слайда = ox + (x_свой − origin_x) · sx`.
 
-    Геометрию линий разбор примеров не хранит (`cx = 0` он отбрасывает), поэтому она
-    берётся из самого слайда. `frame` — сдвиг и масштаб родителя, `origin` — `chOff`.
+    Единственное место, где читаются `chOff`/`chExt` групп: `frame` — сдвиг и масштаб
+    родителя `(ox, oy, sx, sy)`, `origin` — его `chOff`. Им пользуются и `_placed` (рамки
+    на слайде), и `_stretch` (запись рамки обратно в координаты группы).
     """
-    ox, oy, sx, sy = frame
     for node in parent:
         if node.tag not in (GROUP, *SHAPE_TAGS):
             continue
-        xfrm = _xfrm(node)
-        own = _pair(xfrm, "a:off", "a:ext")
-        box = None if own is None else (
-            ox + (own[0] - origin[0]) * sx, oy + (own[1] - origin[1]) * sy,
-            own[2] * sx, own[3] * sy,
-        )
+        yield node, frame, origin
         if node.tag != GROUP:
-            yield node, box
             continue
-        child = _pair(xfrm, "a:chOff", "a:chExt")
-        if box is None or child is None or not child[2] or not child[3]:
-            yield from _placed(node, frame, origin)
+        xfrm = _xfrm(node)
+        own, child = _pair(xfrm, "a:off", "a:ext"), _pair(xfrm, "a:chOff", "a:chExt")
+        if own is None or child is None or not child[2] or not child[3]:
+            yield from _frames(node, frame, origin)
             continue
-        yield from _placed(
+        box = _on_slide(own, frame, origin)
+        yield from _frames(
             node, (box[0], box[1], box[2] / child[2], box[3] / child[3]), (child[0], child[1])
         )
+
+
+def _on_slide(own: _Box, frame: _Box, origin: tuple[float, float]) -> _Box:
+    """Рамка `a:off`/`a:ext` фигуры — в координатах слайда по системе её родителя."""
+    ox, oy, sx, sy = frame
+    return ox + (own[0] - origin[0]) * sx, oy + (own[1] - origin[1]) * sy, own[2] * sx, own[3] * sy
+
+
+def _placed(parent: Any) -> Any:
+    """Фигуры с рамкой в координатах слайда (или `None`), группы раскрыты с их масштабом.
+
+    Геометрию линий разбор примеров не хранит (`cx = 0` он отбрасывает), поэтому она
+    берётся из самого слайда.
+    """
+    for node, frame, origin in _frames(parent):
+        if node.tag != GROUP:
+            own = _pair(_xfrm(node), "a:off", "a:ext")
+            yield node, None if own is None else _on_slide(own, frame, origin)
 
 
 def _gap(a: _Box, b: _Box) -> float:
