@@ -16,6 +16,12 @@ models:
   judge: vlm_judge
   image: t2i
 
+# Путь сборки слайда (ADR-009, план Б). `legacy` — текст до выбора примера, как до 30.09;
+# `by_example` — пример до текста. `legacy` остаётся по умолчанию до приёмки плана Б
+# (docs/agents/tasks-plan-b.md), чтобы новый путь было с чем сравнить.
+composition:
+  path: legacy
+
 audit:
   run_deterministic: true
   # Судья-VLM на локальном сервере с одним слотом даёт 36 минут на колоду из десяти
