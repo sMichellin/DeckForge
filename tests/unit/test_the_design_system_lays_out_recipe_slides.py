@@ -267,7 +267,7 @@ def test_a_caption_below_the_floor_takes_the_lowest_step_above_it(
 PLATE = RGBColor(0xEE, 0xF1, 0xF6)
 
 
-def _on_plate(manifest: TemplateManifest, ink: RGBColor):
+def _on_plate(manifest: TemplateManifest, ink: RGBColor, notes: list[str] | None = None):
     """Две карточки из четырёх; плашки светлые, текст карточек у автора — цветом `ink`."""
     prs, part_name, found, cards = grid_example()
     for card in cards:
@@ -277,7 +277,7 @@ def _on_plate(manifest: TemplateManifest, ink: RGBColor):
     recipe = grid_recipe(part_name, found, cards)
     source = etree.tostring(_run_fill(prs.slides[0], cards[0]["text"]))
     slide = clone_recipe(prs, recipe, slide_ir(recipe, ["zt", "zb1", "zb2"]),
-                         DesignRules(manifest))
+                         DesignRules(manifest), notes=notes)
     return slide, cards, source
 
 
@@ -410,3 +410,20 @@ def test_an_inherited_ink_on_a_plate_is_named_not_judged(manifest: TemplateManif
     assert _run_fill(slide, cards[0]["text"]) is None
     assert [note.split(":")[0] for note in notes] == ["s01/zb1", "s01/zb2"]
     assert all("унаследован" in note for note in notes)
+
+
+def test_no_readable_slot_but_a_link_keeps_the_author_ink_and_names_it(
+    manifest: TemplateManifest,
+) -> None:
+    """История 18: читается на плашке только `hlink` — ссылкой подпись не красится, цвет автора
+    остаётся, но не молча: заметка называет слайд, зону и причину."""
+    light = {ref.value: "#D0D4DA" for ref in ColorRef}
+    colors = manifest.theme.colors.model_copy(update={**light, "hlink": "#101014"})
+    theme = manifest.theme.model_copy(update={"colors": colors})
+    dim = manifest.model_copy(update={"theme": theme})
+    notes: list[str] = []
+    slide, cards, source = _on_plate(dim, RGBColor(0xC8, 0xC8, 0xC8), notes)
+    for card in cards[:2]:
+        assert etree.tostring(_run_fill(slide, card["text"])) == source
+    assert [note.split(":")[0] for note in notes] == ["s01/zb1", "s01/zb2"]
+    assert all("читаемого слота нет" in note for note in notes)

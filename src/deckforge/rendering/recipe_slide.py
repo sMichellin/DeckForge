@@ -437,8 +437,7 @@ def _fill_by_passport(
                 plate = _plate_hex(boxes.get(shape), decor, boxes, design, color_map)
                 unjudged = _ink_on_plate(shape, plate, design, color_map) if plate else None
                 if unjudged is not None and notes is not None:
-                    notes.append(f"{slide_ir.slide_id}/{zone.zone_id}: цвет текста на плашке "
-                                 f"{unjudged} — контраст не проверен")
+                    notes.append(f"{slide_ir.slide_id}/{zone.zone_id}: {unjudged}")
     return kept
 
 
@@ -487,21 +486,27 @@ def _ink_on_plate(
     на слот темы (`DesignRules.text_ink`, правило `accent_ink`); читаемый — байт в байт.
     Класс текста — по кеглю прогона, уже поднятому до порога. Цвета в IR нет (правило 5).
 
-    Ответ — почему цвет хоть одного прогона не судился, для заметки: без своего
+    Ответ — заметка о прогоне, чей цвет остался как у автора без проверки: без своего
     `a:solidFill` прогон наследует цвет по цепочке стилей мастера, и писатель его не знает;
-    с модификаторами — тоже. Такой цвет не трогается, но и не молча (дозапрос 1)."""
+    с модификаторами — тоже. Нечитаемый цвет, у которого нет читаемого слота вне ссылок, тоже
+    остаётся — это дефект шаблона. Такой цвет не трогается, но и не молча (дозапросы 1, 2)."""
     unjudged = None
     for run in shape.iter(qn("a:r")):
         props = run.find(qn("a:rPr"))
         fill = props.find(qn("a:solidFill")) if props is not None else None
         author = _fill_hex(fill, design, color_map)
         if props is None or fill is None or author is None:
-            unjudged = unjudged or ("унаследован" if fill is None else "не разобран")
+            how = "унаследован" if fill is None else "не разобран"
+            unjudged = unjudged or f"цвет текста на плашке {how} — контраст не проверен"
             continue
         own = props.get("sz")
-        ref = design.text_ink(author, plate_hex, size_pt=int(own) / 100 if own else None,
-                              bold=props.get("b") in ("1", "true"))
+        reads, ref = design.text_ink(author, plate_hex, size_pt=int(own) / 100 if own else None,
+                                     bold=props.get("b") in ("1", "true"))
         if ref is None:
+            if not reads:
+                unjudged = unjudged or (
+                    "цвет текста на плашке не читается, а читаемого слота нет (кроме ссылок) — "
+                    "оставлен цвет автора")
             continue
         for child in list(fill):
             fill.remove(child)
@@ -517,6 +522,10 @@ def _raise_to_floor(shape: Any, zone: Zone, design: DesignRules) -> None:
     зоны (`Zone.author_size_pt`, D04): подставленную ступень лестницы писатель за кегль автора
     не считает (паспорт судит по `Zone.size_pt` — стык назван в proposal). Неизвестен ни тот,
     ни другой — прогон не трогается. Текст, не вставший после подъёма, писатель не режет.
+
+    Копия зоны с `size_pt` = кегль прогона — временная подмена: `probe_size` принимает зону,
+    а не кегль, и другого входа в правило нет. Просьба к A (proposal, «Стык с A»): функция
+    «ступень по кеглю и порогу» — тогда подмена уходит, и правило зовётся напрямую.
     """
     for props in shape.iter(qn("a:rPr")):
         own = props.get("sz")
