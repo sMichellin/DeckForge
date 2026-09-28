@@ -13,6 +13,7 @@ LanguageTool — внешний сервис (`DECKFORGE_LANGUAGETOOL_URL`). Е�
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -21,6 +22,7 @@ from deckforge.audit.findings import make_finding
 from deckforge.audit.geometry import block_bbox, block_text, layout_of
 from deckforge.audit.registry import CheckContext, CheckUnavailable, check
 from deckforge.domain.audit import Finding
+from deckforge.domain.content import ContentPackage
 from deckforge.domain.enums import Severity
 
 
@@ -90,6 +92,41 @@ class _LanguageToolAdapter:
 checker_factory: Callable[[str, str | None], SpellChecker | None] = _language_tool
 
 
+#: Семейство орфографических правил LanguageTool — проверка по словарю. Так оно
+#: называется во всех языках (`MORFOLOGIK_RULE_RU_RU`, `MORFOLOGIK_RULE_EN_US`).
+#: Грамматика и пунктуация живут под другими именами, и их исключение не касается.
+SPELLING_RULE_PREFIX = "MORFOLOGIK_RULE"
+#: Основа слова для сверки с материалом: без двух последних букв (окончание), но не
+#: короче пяти — короткое слово с отрезанным окончанием совпало бы с чем угодно.
+STEM_MIN_CHARS = 5
+_ENDING_CHARS = 2
+_WORD = re.compile(r"[\w-]+")
+
+
+def source_words(content: ContentPackage | None) -> set[str]:
+    """Слова исходного материала прогона, в нижнем регистре."""
+    if content is None:
+        return set()
+    texts = [content.raw_markdown or "", *(fact.text for fact in content.facts)]
+    return {word.lower() for text in texts for word in _WORD.findall(text)}
+
+
+def _in_source(fragment: str, words: set[str]) -> bool:
+    """Слово есть в материале — дословно или той же основой (RG60).
+
+    Словарь LanguageTool отраслевых терминов не знает: в прогоне `96ef159` все девять
+    «опечаток» — «дизайн-систему», «Пайплайн», «промпты» — стояли в задании заказчика.
+    Мы пишем словами заказчика, и ошибкой это не является.
+    """
+    word = fragment.lower()
+    if word in words:
+        return True
+    stem = word[:-_ENDING_CHARS]
+    if len(stem) < STEM_MIN_CHARS:
+        return False
+    return any(candidate.startswith(stem) for candidate in words)
+
+
 @check(id="content.no_typos", deterministic=True, severity=Severity.WARNING,
        title="Текст без опечаток")
 def no_typos(ctx: CheckContext) -> Iterable[Finding]:
@@ -101,6 +138,7 @@ def no_typos(ctx: CheckContext) -> Iterable[Finding]:
         # Сервиса нет — проверка не запускалась. Молчаливое «всё хорошо» было бы враньём.
         raise CheckUnavailable("LanguageTool недоступен: нет библиотеки или сервера")
 
+    words = source_words(ctx.content)
     for slide in ctx.deck.slides:
         layout = layout_of(slide, ctx.manifest)
         for block in slide.blocks:
@@ -109,6 +147,11 @@ def no_typos(ctx: CheckContext) -> Iterable[Finding]:
                 continue
             for typo in checker.check(text):
                 fragment = text[typo.offset : typo.offset + typo.length]
+                # Только орфография: пунктуация на слове из материала — наша (RG60, RG65).
+                if typo.rule_id.startswith(SPELLING_RULE_PREFIX) and _in_source(
+                    fragment, words
+                ):
+                    continue
                 suggestion = (
                     f"; возможно: {', '.join(typo.replacements)}" if typo.replacements else ""
                 )
