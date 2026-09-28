@@ -197,18 +197,27 @@ def _text_height(
 
 
 def _occupied(shape: object, text_height: int | None) -> BBox | None:
-    """Место, которое фигура занимает на слайде **вместе с текстом**.
+    """Место, которое фигура занимает на слайде, — это её **текст**, а не рамка.
 
-    Не рамка: текст, который в рамку не влез, рисуется за её нижним краем и наезжает
-    на соседа. Поэтому высота берётся большая из двух — рамки и намеренного текста.
+    Высота — высота текста: столько строк, сколько написано. Рамка выше текста места
+    не занимает, и перекрытие самих рамок браком не является — рамки зон шаблона
+    перекрываются у автора (у WorkSpace заголовок заходит на 349 055 EMU под зону тела),
+    и ему это не мешало: его текст короче рамки. Прежняя формула брала большее из двух
+    и обвиняла шаблон в наложении, которого на слайде нет (RG47).
+
+    Ширина остаётся от рамки: по горизонтали текст занимает её всю — перенос идёт
+    по ширине рамки.
+
+    Текст, который в рамку не влез, ловит своя проверка «текст выше рамки»: он рисуется
+    за нижним краем, и это находка сама по себе, а не через наложение.
     """
     box = [getattr(shape, name, None) for name in ("left", "top", "width", "height")]
     if any(value is None for value in box):
         return None
     left, top, width, height = (int(value) for value in box)  # type: ignore[arg-type]
-    if width <= 0 or height <= 0:
+    if width <= 0 or height <= 0 or not text_height:
         return None
-    return BBox(x=left, y=top, cx=width, cy=max(height, text_height or 0))
+    return BBox(x=left, y=top, cx=width, cy=text_height)
 
 
 def _overlap(first: BBox, second: BBox) -> tuple[int, int]:
