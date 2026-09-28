@@ -94,13 +94,16 @@ def _fonts_in_file(path: object) -> dict[str, list[str]]:
     По `SlideIR` эту проверку сделать нельзя: имени гарнитуры в IR нет вовсе, а кегль
     и шрифт приезжают из плейсхолдера шаблона — то есть по построению «из шаблона».
     Чужая гарнитура может появиться только при записи файла, там её и надо искать.
+
+    Файл не открылся — `CheckUnavailable`, а не пустой словарь: пустой значил бы
+    «гарнитур в файле нет», то есть «чисто» (change `the-font-check-names-its-skip`).
     """
     try:
         from pptx import Presentation
 
         presentation = Presentation(str(path))
-    except Exception:
-        return {}
+    except Exception as error:
+        raise CheckUnavailable(f"файл колоды не открылся: {type(error).__name__}") from error
 
     found: dict[str, list[str]] = {}
     for number, slide in enumerate(presentation.slides, start=1):
@@ -121,7 +124,23 @@ def _fonts_in_file(path: object) -> dict[str, list[str]]:
 @check(id="template.font_not_in_theme", deterministic=True, severity=Severity.ERROR,
        title="Шрифт не из шаблона или гарнитур больше двух")
 def font_not_in_theme(ctx: CheckContext) -> Iterable[Finding]:
-    """Шрифт не из шаблона или гарнитур больше двух."""
+    """Шрифт не из шаблона или гарнитур больше двух.
+
+    Половина проверки видна только в файле колоды: чужая гарнитура и гарнитуры прогонов
+    текста появляются при записи. Без файла находка по IR остаётся находкой, а вот
+    «чисто» сказать нельзя — тогда проверка называет себя пропущенной
+    (`CheckUnavailable`), а не отдаёт тихий ноль. На переаудите фикстуры Education 28.09
+    так пропадали три гарнитуры, найденные прогоном по файлу (#245).
+    """
+    findings = list(_font_findings(ctx))
+    if not findings and ctx.deck_path is None:
+        raise CheckUnavailable(
+            "файла колоды нет: гарнитуры текста видны только в .pptx, «чисто» не сказать"
+        )
+    return findings
+
+
+def _font_findings(ctx: CheckContext) -> Iterable[Finding]:
     manifest = ctx.manifest
     known = template_fonts(manifest)
     max_families = int(ctx.param("max_families", 2))

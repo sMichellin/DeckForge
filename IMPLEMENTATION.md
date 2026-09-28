@@ -1056,6 +1056,15 @@ LibreOffice существует только в образе), прогон п�
 **Незакрыто:** `warning` → `error` и холодный прогон трёх колод — после стенда. Подробно —
 `openspec/changes/a-decoration-leaves-with-its-zone/proposal.md`.
 
+### План Б: `the-font-check-names-its-skip` — готово
+
+Находка тимлида в #245. `template.font_not_in_theme` без файла колоды молча пропускала
+файловую половину и считалась пройденной. Теперь без файла и без находок по IR —
+`CheckUnavailable` (в `skipped_checks`), находка по IR без файла остаётся находкой, битый
+файл — тоже пропуск. Переаудит трёх фикстур 28.09: «пройдена» → в `skipped_checks`.
+Тесты: 5 (3 нарушителя, 2 нормы). **Незакрыто:** тот же тихий ноль на битом файле у
+`layout.image_aspect_distorted` и `template.layout_not_from_template`.
+
 ---
 
 ## Тимлид: контракты, граф, инфраструктура
