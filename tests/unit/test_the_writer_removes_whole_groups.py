@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from lxml import etree
 from pptx import Presentation
 from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
@@ -32,7 +33,7 @@ from deckforge.designsystem.models import (
 )
 from deckforge.layout.fonts import FontLibrary
 from deckforge.pipeline.replay import from_fixture
-from deckforge.rendering.recipe_slide import clone_recipe
+from deckforge.rendering.recipe_slide import RecipeError, clone_recipe
 from tests.case_templates import case_template
 from tests.unit.test_recipe_leaves_no_sample_text import slide_ir
 
@@ -140,24 +141,21 @@ def _place(number: int, zone: Zone) -> Place:
 
 
 def cards_passport(f) -> ExamplePassport:
-    def zone(zone_id: str, shape, role) -> Zone:
-        return _zone(zone_id, shape, role)
-
-    groups = [PlaceGroup(group_id="g01", places=[_place(1, zone("zt", f["title"],
-                                                                 TypeLevel.SLIDE_TITLE))])]
+    groups = [PlaceGroup(group_id="g01", places=[_place(1, _zone("zt", f["title"],
+                                                                  TypeLevel.SLIDE_TITLE))])]
     for n in range(1, 5):
         groups.append(PlaceGroup(
             group_id=f"g{n + 1:02d}",
             places=[
-                _place(2 * n, zone(f"zs{n}", f[f"sub{n}"], TypeLevel.CARD_TITLE)),
-                _place(2 * n + 1, zone(f"zb{n}", f[f"text{n}"], TypeLevel.BODY)),
+                _place(2 * n, _zone(f"zs{n}", f[f"sub{n}"], TypeLevel.CARD_TITLE)),
+                _place(2 * n + 1, _zone(f"zb{n}", f[f"text{n}"], TypeLevel.BODY)),
             ],
             decor_xml_ids=[f[f"plate{n}"].shape_id, f[f"icon{n}"].shape_id],
             row="r1",
         ))
     groups.append(PlaceGroup(
         group_id="g06",
-        places=[_place(10, zone("zw", f["wide_text"], TypeLevel.BODY))],
+        places=[_place(10, _zone("zw", f["wide_text"], TypeLevel.BODY))],
         decor_xml_ids=[f["wide_plate"].shape_id, f["wide_bar"].shape_id],
     ))
     return ExamplePassport(groups=groups)
@@ -298,3 +296,98 @@ def test_the_workspace_cover_table_leaves_with_a_passport() -> None:
     written = clone_recipe(prs, recipe, slide)
 
     assert not written.shapes._spTree.findall(".//{*}graphicFrame")
+
+
+def _set_xml_id(shape, xml_id: int) -> None:
+    shape._element.find(".//{*}cNvPr").set("id", str(xml_id))
+
+
+def _with_picture(passport: ExamplePassport, xml_id: int) -> ExamplePassport:
+    """У широкой карточки черта не декор, а место-картинка с тем же адресом."""
+    wide = passport.groups[-1]
+    picture = Place(place_id="p11", kind=PlaceKind.PICTURE, xml_id=xml_id)
+    groups = [*passport.groups[:-1], wide.model_copy(update={
+        "places": [*wide.places, picture],
+        "decor_xml_ids": [i for i in wide.decor_xml_ids if i != xml_id],
+    })]
+    return passport.model_copy(update={"groups": groups})
+
+
+@pytest.mark.parametrize("address", ["decor", "picture"])
+def test_a_twin_of_a_passport_address_is_an_error(address: str) -> None:
+    """Условие ревью 1: id, который адресует только паспорт (декор, место-картинка), повторяется
+    в примере — какую фигуру снимать, неизвестно; это `RecipeError`, как дубль id зоны.
+    Без паспорта этот id никто не адресует — ошибки нет, путь прежний."""
+    prs, part_name, f = cards_example()
+    bar = f["wide_bar"].shape_id
+    _set_xml_id(f["line"], bar)
+    recipe = cards_recipe(part_name, f, passport=True)
+    if address == "picture":
+        recipe = recipe.model_copy(update={"passport": _with_picture(recipe.passport, bar)})
+    ir = slide_ir(recipe, ["zt", "zs1", "zb1"])
+
+    with pytest.raises(RecipeError, match=str(bar)):
+        clone_recipe(prs, recipe, ir)
+    clone_recipe(prs, recipe.model_copy(update={"passport": None}), ir)
+
+
+def test_a_text_place_is_addressed_through_its_zone() -> None:
+    """Условие ревью 3: адрес текстового места — адрес его зоны, как при записи. Устаревший
+    `xml_id` места (здесь — id линии вне паспорта) не снимает чужую фигуру."""
+    prs, part_name, f = cards_example()
+    recipe = cards_recipe(part_name, f, passport=True)
+    passport = recipe.passport
+    g04 = passport.groups[3]
+    stale = [g04.places[0].model_copy(update={"xml_id": f["line"].shape_id}), *g04.places[1:]]
+    groups = [*passport.groups[:3], g04.model_copy(update={"places": stale}),
+              *passport.groups[4:]]
+    recipe = recipe.model_copy(update={"passport": passport.model_copy(update={"groups": groups})})
+
+    left = ids_left(clone_recipe(prs, recipe, slide_ir(recipe, ["zt", "zs1", "zb1", "zs2", "zb2"])))
+
+    assert f["line"].shape_id in left
+    assert f["sub3"].shape_id not in left
+
+
+def test_a_group_shape_in_the_decor_leaves_whole() -> None:
+    """Условие ревью 2: декор 4-й карточки — сама `p:grpSp`, плашка и иконка в паспорте
+    не названы. Незаполненная карточка уходит вместе с группой и всем, что в ней."""
+    prs, part_name, f = cards_example()
+    grp_id = int(f["plate4"]._element.getparent().find(".//{*}cNvPr").get("id"))
+    recipe = cards_recipe(part_name, f, passport=True)
+    passport = recipe.passport
+    g05 = passport.groups[4].model_copy(update={"decor_xml_ids": [grp_id]})
+    recipe = recipe.model_copy(update={"passport": passport.model_copy(
+        update={"groups": [*passport.groups[:4], g05, *passport.groups[5:]]})})
+
+    slide = clone_recipe(prs, recipe, slide_ir(recipe, ["zt", "zs1", "zb1", "zs2", "zb2"]))
+
+    assert not {grp_id, f["plate4"].shape_id, f["icon4"].shape_id} & ids_left(slide)
+
+
+def test_a_spare_repeat_does_not_decide_with_a_passport() -> None:
+    """Условие ревью 4, `_drop_spare_repeats`: рецепт относит черту широкой карточки к 3-му
+    повтору, паспорт — к широкой карточке. Широкая заполнена — черта остаётся, хотя 3-й
+    повтор лишний."""
+    prs, part_name, f = cards_example()
+    recipe = cards_recipe(part_name, f, passport=True)
+    rows = [list(row) for row in recipe.repeat_xml_ids]
+    rows[2].append(f["wide_bar"].shape_id)
+    recipe = recipe.model_copy(update={"repeat_xml_ids": rows})
+
+    slide = clone_recipe(prs, recipe, slide_ir(recipe, ["zt", "zs1", "zb1", "zs2", "zb2", "zw"]))
+
+    assert f["wide_bar"].shape_id in ids_left(slide)
+
+
+def test_an_empty_zone_outside_the_passport_is_not_guessed() -> None:
+    """Условие ревью 4, `_drop_empty_zones`: что уходит, решают группы паспорта. Зона широкой
+    карточки в паспорт не вошла — при паспорте её фигуру писатель не снимает по пустоте."""
+    prs, part_name, f = cards_example()
+    recipe = cards_recipe(part_name, f, passport=True)
+    passport = recipe.passport.model_copy(update={"groups": recipe.passport.groups[:-1]})
+    recipe = recipe.model_copy(update={"passport": passport})
+
+    slide = clone_recipe(prs, recipe, slide_ir(recipe, ["zt", "zs1", "zb1"]))
+
+    assert f["wide_text"].shape_id in ids_left(slide)

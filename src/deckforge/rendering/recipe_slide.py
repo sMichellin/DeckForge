@@ -112,6 +112,8 @@ def _by_xml_id(tree: Any, recipe: Recipe) -> dict[int, Any]:
 
     Если id, который адресует рецепт, в примере повторяется, какую фигуру имел в виду
     каталог, неизвестно: писать наугад — значит молча оставить чужую фразу. Это ошибка.
+    При паспорте то же для его адресов — декора и места-картинки: снять наугад значит
+    удалить чужую фигуру (change `the-writer-removes-whole-groups`).
     """
     found: dict[int, Any] = {}
     twins: set[int] = set()
@@ -122,7 +124,12 @@ def _by_xml_id(tree: Any, recipe: Recipe) -> dict[int, Any]:
         if identifier in found:
             twins.add(identifier)
         found.setdefault(identifier, node)
-    ambiguous = sorted(twins & _addressed(recipe))
+    addressed = _addressed(recipe)
+    if recipe.passport is not None:
+        for group in recipe.passport.groups:
+            addressed.update(group.decor_xml_ids)
+            addressed.update(p.xml_id for p in group.places if p.xml_id is not None)
+    ambiguous = sorted(twins & addressed)
     if ambiguous:
         raise RecipeError(
             f"рецепт {recipe.recipe_id}: cNvPr id {ambiguous} повторяется в примере, "
@@ -423,8 +430,12 @@ def _drop_empty_places(
 
 
 def _place_xml_id(place: Place, zones: dict[str, Zone]) -> int | None:
-    """Адрес фигуры места: свой у картинки, у текстового — тот же, что у его зоны."""
-    if place.xml_id is not None:
+    """Адрес фигуры места: у картинки — свой `xml_id`, у текстового — только адрес его зоны.
+
+    Пишет текст писатель по `zone.xml_id`; снимай он текстовое место по `place.xml_id`,
+    расхождение двух источников удалило бы чужую фигуру, а место с текстом шаблона осталось бы.
+    """
+    if place.kind is PlaceKind.PICTURE:
         return place.xml_id
     zone = zones.get(place.zone_id or "")
     return zone.xml_id if zone is not None else None
