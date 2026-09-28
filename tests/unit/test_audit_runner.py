@@ -88,18 +88,27 @@ async def test_clean_deck_produces_no_errors(manifest: TemplateManifest) -> None
 
 
 def test_deterministic_checks_cover_three_content_questions() -> None:
-    """Тридцать три детерминированные проверки: 30 в `deterministic/` и три из `semantic/`.
+    """Тридцать пять детерминированных проверок: 31 в `deterministic/` и четыре из `semantic/`.
 
     Папка отвечает на вопрос «про смысл ли проверка», а флаг `deterministic` —
     «одинаков ли результат на повторных запусках». Три вопроса Приложения 1 уведены
     из модели в код (change 18): опечатки — LanguageTool, числа — сверка с контент-пакетом,
     язык — подсчёт букв. Каждый уведённый вопрос экономит 12 вызовов VLM на колоду.
+    Четвёртая — пересказ заголовка телом (RG53): вопроса Приложения 1 у неё нет, а случай
+    с прогона есть, и виден он по тексту, а не по картинке.
+
+    Тридцать первая в `deterministic/` — декор, ведущий в никуда (RG52): стрелка примера,
+    оставшаяся у снятой зоны. Обе проверки пришли разными ветками, каждая подняла счёт
+    с 33 до 34, и слияние взяло одну правку из двух — счёт разошёлся с реестром.
     """
     deterministic = {c.check_id for c in REGISTRY.deterministic()}
-    assert len(deterministic) == 34
-    assert {"content.no_typos", "content.numbers_grounded", "content.single_language"} <= (
-        deterministic
-    )
+    assert len(deterministic) == 35
+    assert {
+        "content.no_typos",
+        "content.numbers_grounded",
+        "content.single_language",
+        "content.body_repeats_headline",
+    } <= deterministic
 
 
 def test_runner_populates_the_registry_itself() -> None:

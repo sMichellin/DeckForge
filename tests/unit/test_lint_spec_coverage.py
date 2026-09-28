@@ -68,6 +68,21 @@ def test_a_change_without_a_test_is_red(tmp_path: Path) -> None:
     assert run(changes, tests) == 1
 
 
+def test_a_test_named_after_the_change_counts(tmp_path: Path) -> None:
+    """Норма: имя change стоит в **имени файла** теста, а не в его тексте.
+
+    Так назван тест PR #223 — `test_the_floor_shortens_instead_of_overflowing.py`.
+    Гейт его не засчитывал и требовал повторить имя в докстринге: требование пустое,
+    доказательство связи и так налицо.
+    """
+    changes, tests = tmp_path / "changes", tmp_path / "tests"
+    make_change(changes, "a-zone-holds-the-text", delta=DELTA)
+    tests.mkdir(parents=True)
+    (tests / "test_a_zone_holds_the_text.py").write_text('"""Без имени в тексте."""\n')
+
+    assert run(changes, tests) == 0
+
+
 def test_a_change_with_a_test_is_green(tmp_path: Path) -> None:
     """Норма: тест называет change по имени."""
     changes, tests = tmp_path / "changes", tmp_path / "tests"
