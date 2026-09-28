@@ -222,12 +222,27 @@ class DesignRules:
         `designsystem.contrast`). Нет и такого — `None`: текст берёт цвет текста слайда."""
         if background_hex is None:
             return ref
-        colors = self.manifest.theme.colors
+        color = self.manifest.theme.colors.get(ref)
         kind = text_class(size_pt, bold=bold)
-        if readability(colors.get(ref), background_hex, kind, size_pt=size_pt, bold=bold).passes:
+        if readability(color, background_hex, kind, size_pt=size_pt, bold=bold).passes:
             return ref
+        return self.text_ink(color, background_hex, size_pt=size_pt, bold=bold)
+
+    def text_ink(
+        self, foreground_hex: str, background_hex: str, *, size_pt: float | None, bold: bool
+    ) -> ColorRef | None:
+        """Слот темы вместо цвета текста, который на этом фоне не читается (5а, R18).
+
+        Правило то же, что у `accent_ink`: тот же цвет глубже — ближайший по цвету слот,
+        взявший порог своего класса текста (`designsystem.contrast`, по нему же ДС судит
+        свои `contrast_pairs`). `None` — менять нечего: цвет и так читается, либо читаемого
+        слота нет вовсе, и подставлять лучший из плохих значит промолчать о дефекте шаблона.
+        """
+        kind = text_class(size_pt, bold=bold)
+        if readability(foreground_hex, background_hex, kind, size_pt=size_pt, bold=bold).passes:
+            return None
         return readable_ref(
-            self.manifest.theme, background_hex, kind, prefer_hex=colors.get(ref)
+            self.manifest.theme, background_hex, kind, prefer_hex=foreground_hex
         )
 
     def block_accent(self, background_hex: str | None, *, size_pt: float | None = None) -> ColorRef:
@@ -352,6 +367,19 @@ class DesignRules:
         Шаг объявлен в сетке — он же `grid.gutter_emu` манифеста, как было; не объявлен —
         ДС выводит его из полей или колонок, и блоки больше не встают вплотную."""
         return self.ds.grid.spacing.base_emu
+
+    # --- порог читаемости ---------------------------------------------------------
+
+    def floor_size_pt(self) -> float:
+        """Кегль, до которого поднимается текст ниже порога: наименьшая ступень шкалы шаблона
+        не ниже `reading_floor_pt` (правило 6 — кегль только из шкалы). Ступени нет — сам порог.
+
+        Тем же кеглем паспорт меряет ёмкость места (`composition/passport.probe_size`, #249):
+        писатель поднимает подпись ровно до того кегля, под который композиция писала текст
+        (change `the-design-system-lays-out-recipe-slides`, план Б, 5а).
+        """
+        steps = [size for size in self.manifest.size_ladder_pt if size >= self.reading_floor_pt]
+        return min(steps) if steps else self.reading_floor_pt
 
     # --- заметки прогона ----------------------------------------------------------
 
