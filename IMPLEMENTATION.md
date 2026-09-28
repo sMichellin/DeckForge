@@ -729,6 +729,16 @@ D06: блок, который сокращение свело бы к нулю, 
 исход поменялся у 4 блоков (двустрочные подписи сняты с заметкой). `pipeline/nodes/fit.py` не тронут.
 Незакрыто: прогон `check_deck_readable.py` на холодном разборе после мержа (тимлид).
 Подробно — `openspec/changes/the-floor-shortens-instead-of-overflowing/proposal.md`.
+### План Б, 5б: `no-example-goes-by-design` ◐ — код готов, путь `by_example` в граф не подключён
+
+Слайд без примера (`recipe_id is None`) пишется через `_render_slide` нативными объектами без
+потерь блоков — под параметром пути сборки `by_example: bool = False` у `PptxWriter` и `fit_slide`;
+по умолчанию прежний путь байт в байт (эталон XML снят до правки). Нативная раскладка `hierarchy`
+и `pyramid` — `layout/diagram.py` (`NATIVE_PATTERNS`; `SUPPORTED_PATTERNS` прежний). Мерило
+(шаблоны кейса без слайдов-примеров, 42 синтетических блока с текстом фикстур 28.09): строка 5
+14 → 0 (в текст 11 → 0), строка 9 3 → 0; холодный корпус — 0 потерь. Незакрыто: передать
+`by_example=True` и не сплющивать в узле `pipeline/nodes/fit.py` (запрос тимлиду); переполнение
+пишется как есть — длинная схема в 8 шагов нечитаема. Подробно — `openspec/changes/no-example-goes-by-design/proposal.md`.
 
 ---
 

@@ -108,9 +108,11 @@ def test_cycle_in_a_square_box_has_square_nodes() -> None:
         assert abs(node.cx - node.cy) <= 1
 
 
-def test_unsupported_pattern_is_an_error() -> None:
-    with pytest.raises(LayoutFitError, match="hierarchy"):
-        diagram_geometry(SmartArtPattern.HIERARCHY, 3, BOX)
+def test_hierarchy_is_laid_out_but_not_on_the_old_path() -> None:
+    """Change 5б `no-example-goes-by-design`: у иерархии есть раскладка (корень и два потомка),
+    но прежний путь её не строит — `SUPPORTED_PATTERNS` без неё, как до 5б."""
+    assert len(diagram_geometry(SmartArtPattern.HIERARCHY, 3, BOX).nodes) == 3
+    assert SmartArtPattern.HIERARCHY not in SUPPORTED_PATTERNS
 
 
 # --- вписывание -----------------------------------------------------------------
