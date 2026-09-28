@@ -623,8 +623,33 @@ def _block_pieces(block: Block, content: ContentPackage | None) -> list[str]:
     return pieces
 
 
+#: Пробельные знаки, которые типографика вёрстки ставит вместо обычного пробела
+#: (`layout/nonbreaking.py`, правило Т4): неразрывный и узкий неразрывный.
+_TYPOGRAPHIC_SPACES = "\u00a0\u202f"
+
+
+def _key(text: str) -> str:
+    """Строка для сравнения: пробел один и обычный, края обрезаны.
+
+    Writer пишет не то, что лежит в `SlideIR`: перед записью текст проходит типографику
+    (`rendering/writer.py`, `_paragraphs` → `layout.nonbreaking`), и в файле стоит
+    неразрывный пробел после короткого предлога — «по\u00a0шаблону». Дословное сравнение
+    поэтому не совпадает ни на одной строке, и 28.09 проверка объявила текстом автора
+    шаблона весь текст колоды: 51 ложная ошибка на трёх колодах прогона `19e3b7e`.
+
+    Повторять правило типографики вызовом `nonbreaking` здесь нельзя: правило принадлежит
+    вёрстке и меняется (Т4 менялся 26.09), а проверка ломалась бы от каждой такой правки
+    молча и ложной ошибкой. Нормализация снимает класс расхождений целиком: где текст
+    отличается только пробелом, это один и тот же текст, и фразой автора шаблона он
+    быть не может.
+    """
+    for space in _TYPOGRAPHIC_SPACES:
+        text = text.replace(space, " ")
+    return " ".join(text.split())
+
+
 def _our_lines(ctx: CheckContext) -> set[str]:
-    """Всё, что колода написала сама, построчно и без краевых пробелов.
+    """Всё, что колода написала сама, построчно и по ключу сравнения `_key`.
 
     Набор общий на колоду, а не на слайд, и от порядка слайдов не зависит только он.
     Страницу выбирает `sample_text_left` — по номеру слайда в IR, и в смешанной колоде
@@ -636,8 +661,8 @@ def _our_lines(ctx: CheckContext) -> set[str]:
     for slide in ctx.deck.slides:
         for block in slide.blocks:
             for piece in _block_pieces(block, ctx.content):
-                lines.add(piece.strip())
-                lines.update(line.strip() for line in piece.splitlines())
+                lines.add(_key(piece))
+                lines.update(_key(line) for line in piece.splitlines())
     lines.discard("")
     return lines
 
@@ -724,7 +749,7 @@ def sample_text_left(ctx: CheckContext) -> Iterable[Finding]:
     ours = _our_lines(ctx)
     for number, slide in recipe_slides:
         for xml_id, name, shape in _text_shapes(pages[number].shapes._spTree):
-            foreign = [text for text in _written_paragraphs(shape) if text not in ours]
+            foreign = [text for text in _written_paragraphs(shape) if _key(text) not in ours]
             if not foreign:
                 continue
             text = " / ".join(foreign)
