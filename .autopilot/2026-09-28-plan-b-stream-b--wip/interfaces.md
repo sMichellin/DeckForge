@@ -74,5 +74,7 @@
 - Эталоны legacy: `tests/fixtures/the-writer-removes-whole-groups/{synthetic-legacy.xml,vk-tech-ex018-legacy.xml}`.
 - Место-картинку писатель не заполняет → группа только с картинкой (и декор-иллюстрация незаполненной группы) уходит;
   на VK Tech вместе с широкой карточкой g06 уходит куб-иллюстрация (s02–s04, s09) — в proposal «незакрыто».
+- После ревью (6cc6371): при паспорте дубль любого адреса паспорта (`decor_xml_ids`, `xml_id` мест) — `RecipeError`;
+  адрес текстового места — только `zone.xml_id`, у картинки — `place.xml_id`.
 - Холодный корпус локально: `tests/fixtures/templates/cold/{DNA,Focus,Piano,Portfolio}.pptx` из `.otp` LibreOffice
   (`cold_corpus.py` ищет `.otp` только по пути Linux).

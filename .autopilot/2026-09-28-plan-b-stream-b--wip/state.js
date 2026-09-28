@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": null,
   "skillDir": "C:/Users/gulin/.claude/skills/autopilot",
   "startedAt": "2026-09-28T19:48:43+03:00",
-  "updatedAt": "2026-09-28T20:43:05+03:00",
+  "updatedAt": "2026-09-28T21:26:11+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -48,13 +48,14 @@ window.STATE =
     {
       "id": "build",
       "status": "active",
-      "startedAt": "2026-09-28T20:01:44+03:00"
+      "startedAt": "2026-09-28T20:01:44+03:00",
+      "note": "1 из 3 тасков готов"
     },
     {
       "id": "review",
       "status": "active",
       "startedAt": "2026-09-28T20:40:08+03:00",
-      "note": "ревью таска 01"
+      "note": "проверено 1 из 3"
     },
     {
       "id": "final",
@@ -63,8 +64,8 @@ window.STATE =
   ],
   "requirements": {
     "total": 30,
-    "done": 0,
-    "inTicket": 30,
+    "done": 10,
+    "inTicket": 20,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -102,11 +103,27 @@ window.STATE =
         "tests/unit/test_the_writer_removes_whole_groups.py",
         "openspec/changes/the-writer-removes-whole-groups/"
       ],
-      "status": "review",
+      "status": "done",
       "retries": 0,
-      "repairs": 0,
+      "repairs": 1,
       "handoffs": 1,
-      "startedAt": "2026-09-28T20:02:05+03:00"
+      "startedAt": "2026-09-28T20:02:05+03:00",
+      "repairFindings": [
+        "craft: дубль адресов паспорта → RecipeError; тест декора-p:grpSp; один источник адреса текстового места; тесты на невызов трёх угадывателей; обёртка zone в тестах"
+      ],
+      "finishedAt": "2026-09-28T21:25:39+03:00",
+      "tests": {
+        "passed": 2400,
+        "failed": 0
+      },
+      "commit": "6cc6371",
+      "files": [
+        "src/deckforge/rendering/recipe_slide.py",
+        "tests/unit/test_the_writer_removes_whole_groups.py",
+        "tests/fixtures/the-writer-removes-whole-groups/",
+        "openspec/changes/the-writer-removes-whole-groups/",
+        "IMPLEMENTATION.md"
+      ]
     },
     {
       "id": "02",
@@ -139,10 +156,11 @@ window.STATE =
         "layout/by_design.py",
         "openspec/changes/the-design-system-lays-out-recipe-slides/"
       ],
-      "status": "pending",
+      "status": "in-progress",
       "retries": 0,
       "repairs": 0,
-      "handoffs": 0
+      "handoffs": 0,
+      "startedAt": "2026-09-28T21:25:39+03:00"
     },
     {
       "id": "03",
@@ -175,13 +193,13 @@ window.STATE =
       "status": "in-progress",
       "retries": 0,
       "repairs": 0,
-      "handoffs": 0,
+      "handoffs": 1,
       "startedAt": "2026-09-28T20:39:02+03:00"
     }
   ],
   "singlePass": null,
   "tests": {
-    "passed": 2385,
+    "passed": 2400,
     "failed": 0
   },
   "debt": {
@@ -201,7 +219,10 @@ window.STATE =
     "T01 manifest: куб-иллюстрация VK Tech (s02–s04, s09) уходит с незаполненной g06 — место-картинку писатель не заполняет; в proposal «незакрыто», решает тимлид",
     "T01 spec: recipe_slide.py:414 — пустое место-картинка в заполненной группе остаётся (ист. 8 говорит «удаляется»); решение записано в proposal",
     "T01 spec: proposal.md:76 — замер audit через reaudit из скрипта, а не CLI `deckforge audit`; по смыслу то же",
-    "T01: после rebase на origin/plan-b (#249 — ёмкость паспорта кеглем порога) перемерить строку 3"
+    "T01: после rebase на origin/plan-b (#249 — ёмкость паспорта кеглем порога) перемерить строку 3",
+    "Диск C: забит до 0 байт 28.09 — тесты оставляют папки tmp* по ~43 МБ в Temp (335 шт. за 24.09); удалено 340 с согласия Насти, +5 ГБ. Гигиена тестов — не наш файл, сообщить тимлиду",
+    "T01 craft: test_an_empty_zone_outside_the_passport_is_not_guessed фиксирует текст шаблона у зоны вне паспорта как норму — уточнить тест/docstring",
+    "T01 craft: проверка дублей при паспорте не учитывает id самих p:grpSp в decor_xml_ids (только битый файл)"
   ],
   "reviewers": {
     "manifestSpec": "rev-ms (a86b1a6872adbaf5f)",
