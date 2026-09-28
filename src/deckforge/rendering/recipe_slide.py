@@ -21,7 +21,15 @@ from typing import Any
 from lxml import etree
 from pptx.oxml.ns import qn
 
-from deckforge.designsystem.models import Recipe, TypeLevel, Zone
+from deckforge.designsystem.models import (
+    ExamplePassport,
+    Place,
+    PlaceGroup,
+    PlaceKind,
+    Recipe,
+    TypeLevel,
+    Zone,
+)
 from deckforge.domain.slide import Block, BulletsBlock, FitResult, SlideIR, TextBlock
 from deckforge.layout.nonbreaking import bind as nonbreaking
 from deckforge.rendering.units import size_hundredths
@@ -273,9 +281,21 @@ def _lowered_size(zone: Zone, fitted: FitResult | None) -> float | None:
 
 
 def clone_recipe(prs: Any, recipe: Recipe, slide_ir: SlideIR) -> Any:
-    """Слайд колоды по рецепту: копия примера, наш текст по зонам, лишнее удалено."""
+    """Слайд колоды по рецепту: копия примера, наш текст по зонам, лишнее удалено.
+
+    Развилка одна (change `the-writer-removes-whole-groups`, план Б, 4): у рецепта с паспортом
+    лишнее снимается группами паспорта (`_fill_by_passport`), без паспорта — прежним угадыванием,
+    байт в байт. Оба пути живут до приёмки плана Б, и расхождение должно быть видно здесь.
+    """
     slide = clone_slide(prs, recipe)
     shapes = _by_xml_id(_shapes_tree(slide), recipe)
+    if recipe.passport is not None:
+        _fill_by_passport(recipe, recipe.passport, slide_ir, slide, shapes)
+        # Таблица и диаграмма автора в паспорт не попадают — ни местом, ни декором. Решение
+        # Насти 28.09: незаполненную чужую таблицу «Убирать» и при паспорте (титул WorkSpace
+        # `ex014`, «Заголовок / Текст»). Отступление от буквы issue — в proposal.
+        _drop_unfilled_frames(recipe, slide)
+        return slide
 
     filled: set[str] = set()
     for block in slide_ir.blocks:
@@ -298,6 +318,116 @@ def clone_recipe(prs: Any, recipe: Recipe, slide_ir: SlideIR) -> Any:
     _drop_orphan_decor(recipe, slide, int(prs.slide_width), int(prs.slide_height))
     _drop_unfilled_frames(recipe, slide)
     return slide
+
+
+def _texted_zones(slide_ir: SlideIR) -> list[tuple[str, Block, list[str]]]:
+    """Блоки IR с текстом для зоны: (зона, блок, строки). Пустой блок место не заполняет."""
+    out: list[tuple[str, Block, list[str]]] = []
+    for block in slide_ir.blocks:
+        zone_id = getattr(block, "zone_id", None)
+        lines = _lines_of(block)
+        if zone_id and lines:
+            out.append((zone_id, block, lines))
+    return out
+
+
+def _row_moves(passport: ExamplePassport, texted: set[str]) -> dict[str, str]:
+    """Куда переезжает текст в рядах паспорта: зона блока → зона цели.
+
+    Группы ряда взаимозаменяемы (форма у них одна — это инвариант паспорта), поэтому
+    заполненные группы по порядку ряда встают в первые k групп, место в место по номеру
+    места в группе. IR при этом не меняется: он принадлежит композиции, писатель только
+    решает, куда положить текст. Legacy-IR 28.09 на VK Tech `ex018` кладёт текст в 1-ю и 4-ю
+    карточку — без переноса между ними осталась бы дыра из двух снятых карточек.
+    """
+    moves: dict[str, str] = {}
+    for groups in passport.rows.values():
+        taken = [g for g in groups if any(p.zone_id in texted for p in g.places)]
+        for source, target in zip(taken, groups, strict=False):
+            for mine, theirs in zip(source.places, target.places, strict=True):
+                if mine.zone_id is not None and theirs.zone_id is not None:
+                    moves[mine.zone_id] = theirs.zone_id
+    return moves
+
+
+def _node(tree: Any, shapes: dict[int, Any], xml_id: int) -> Any | None:
+    """Фигура по `cNvPr id`, а если это группа `p:grpSp` декора — сама группа."""
+    if xml_id in shapes:
+        return shapes[xml_id]
+    return next((g for g in tree.iter(GROUP) if _xml_id(g) == xml_id), None)
+
+
+def _fill_by_passport(
+    recipe: Recipe, passport: ExamplePassport, slide_ir: SlideIR, slide: Any,
+    shapes: dict[int, Any],
+) -> None:
+    """Наш текст по зонам, лишнее — группами паспорта, без угадывания.
+
+    1. Перенос в ряду (`_row_moves`) — до записи, кегль вписывания тот же (`fit_report` блока):
+       группы ряда одного размера.
+    2. Группа заполнена, если хоть одно её место получило наш непустой текст. Незаполненная
+       уходит целиком: фигуры мест и `decor_xml_ids` — плашка, иконка, линии; опустевшая
+       `p:grpSp` — следом (`_remove`).
+
+    `_drop_spare_repeats`, `_drop_empty_zones` и `_drop_orphan_decor` здесь не вызываются:
+    паспорт знает, что живёт и уходит вместе, а угадывание по номеру повтора и по геометрии
+    линий снимало бы то, чего в группах нет. Удалять их нельзя — на них живёт `legacy`.
+    """
+    zones = {zone.zone_id: zone for zone in recipe.zones}
+    texted = _texted_zones(slide_ir)
+    moves = _row_moves(passport, {zone_id for zone_id, _, _ in texted})
+    filled: set[str] = set()
+    for zone_id, block, lines in texted:
+        zone = zones.get(moves.get(zone_id, zone_id))
+        if zone is None or zone.xml_id not in shapes:
+            continue
+        write_zone(
+            shapes[zone.xml_id],
+            lines,
+            _lowered_size(zone, slide_ir.fit_report.get(block.block_id)),
+            zone.author_size_pt,
+        )
+        filled.add(zone.zone_id)
+
+    tree = _shapes_tree(slide)
+    for group in passport.groups:
+        titled = any(place.role is TypeLevel.SLIDE_TITLE for place in group.places)
+        if titled or any(place.zone_id in filled for place in group.places):
+            _drop_empty_places(group, filled, zones, shapes)
+            continue
+        for xml_id in [_place_xml_id(place, zones) for place in group.places] + group.decor_xml_ids:
+            if xml_id is not None:
+                _remove(_node(tree, shapes, xml_id))
+
+
+def _drop_empty_places(
+    group: PlaceGroup, filled: set[str], zones: dict[str, Zone], shapes: dict[int, Any]
+) -> None:
+    """Пустое текстовое место группы, которая остаётся, уходит — иначе в колоде текст шаблона.
+
+    Заголовок слайда не уходит никогда (правило `_drop_empty_zones`): слайд без заголовка
+    читать нечем, поэтому его группа остаётся даже пустой, а чужая фраза в нём стирается.
+    Место-картинка остаётся: ассет в рецептный слайд писатель не ставит, и картинка автора
+    в заполненной карточке — её оформление.
+    """
+    for place in group.places:
+        if place.kind is PlaceKind.PICTURE or place.zone_id in filled:
+            continue
+        shape = shapes.get(_place_xml_id(place, zones) or -1)
+        if shape is None:
+            continue
+        if place.role is TypeLevel.SLIDE_TITLE:
+            write_zone(shape, [])
+        else:
+            _remove(shape)
+
+
+def _place_xml_id(place: Place, zones: dict[str, Zone]) -> int | None:
+    """Адрес фигуры места: свой у картинки, у текстового — тот же, что у его зоны."""
+    if place.xml_id is not None:
+        return place.xml_id
+    zone = zones.get(place.zone_id or "")
+    return zone.xml_id if zone is not None else None
 
 
 def _remove(node: Any) -> None:

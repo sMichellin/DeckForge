@@ -19,6 +19,7 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
 from pptx.util import Emu
 
+from deckforge.composition.passport import with_passports
 from deckforge.designsystem.models import (
     ExamplePassport,
     Place,
@@ -29,6 +30,7 @@ from deckforge.designsystem.models import (
     TypeLevel,
     Zone,
 )
+from deckforge.layout.fonts import FontLibrary
 from deckforge.pipeline.replay import from_fixture
 from deckforge.rendering.recipe_slide import clone_recipe
 from tests.case_templates import case_template
@@ -53,7 +55,8 @@ def cards_example():
     """Пример «ряд карточек» на слайде 9144000 × 6858000 EMU.
 
     Заголовок; четыре карточки ряда — плашка, иконка на ней, подзаголовок и текст (четвёртая
-    в группе `p:grpSp`); широкая карточка — плашка, акцентная черта слева от неё и текст; линия от третьей карточки вниз,
+    в группе `p:grpSp`); широкая карточка — плашка, акцентная черта слева от неё и текст;
+    линия от третьей карточки вниз,
     которой нет в паспорте; таблица автора, которую рецепт не адресует.
     """
     prs = Presentation()
@@ -104,7 +107,8 @@ def cards_recipe(part_name: str, f, *, passport: bool) -> Recipe:
     """Рецепт примера: зоны `zt`, `zs1..4`/`zb1..4` (подзаголовок/текст карточки), `zw`.
 
     Паспорт: g01 — заголовок; g02–g05 — ряд `r1`, место 1 — подзаголовок, место 2 — текст,
-    декор — плашка и иконка; g06 — широкая карточка с плашкой и чертой. Линии и таблицы в паспорте нет.
+    декор — плашка и иконка; g06 — широкая карточка с плашкой и чертой. Линии и таблицы
+    в паспорте нет.
     """
     zones = [_zone("zt", f["title"], TypeLevel.SLIDE_TITLE)]
     for n in range(1, 5):
@@ -191,3 +195,106 @@ def test_without_a_passport_the_synthetic_slide_is_byte_for_byte() -> None:
 def test_without_a_passport_the_vk_tech_slide_is_byte_for_byte() -> None:
     """История 4 на настоящем шаблоне: VK Tech `ex018` без паспорта — как до правки."""
     assert vk_tech_legacy_xml() == (GOLDEN / "vk-tech-ex018-legacy.xml").read_bytes()
+
+
+def ids_left(slide) -> set[int]:
+    tree = slide.shapes._spTree
+    return {int(node.get("id")) for node in tree.iter() if node.tag.endswith("cNvPr")}
+
+
+def with_passport(filled: list[str]):
+    prs, part_name, f = cards_example()
+    recipe = cards_recipe(part_name, f, passport=True)
+    slide = clone_recipe(prs, recipe, slide_ir(recipe, filled))
+    return slide, {name: shape.shape_id for name, shape in f.items()}
+
+
+def test_a_line_outside_the_passport_stays() -> None:
+    """История 10: при паспорте каскад по линиям не вызывается — линии нет в группах, она остаётся.
+
+    Без паспорта эта линия ушла бы: её конец у рамки снятой зоны 3-й карточки.
+    """
+    slide, ids = with_passport(["zt", "zs1", "zb1", "zs2", "zb2"])
+
+    assert ids["line"] in ids_left(slide)
+
+
+def test_a_group_leaves_with_its_plate_and_icon() -> None:
+    """Истории 6, 12: карточки без нашего текста уходят целиком — места, плашка, иконка;
+    опустевшая `p:grpSp` 4-й карточки уходит следом."""
+    slide, ids = with_passport(["zt", "zs1", "zb1", "zs2", "zb2"])
+    left = ids_left(slide)
+
+    for n in (3, 4):
+        for name in ("sub", "text", "plate", "icon"):
+            assert ids[f"{name}{n}"] not in left, f"{name}{n} осталась"
+    assert not slide.shapes._spTree.findall(".//{*}grpSp"), "пустая группа осталась"
+    assert {ids["plate1"], ids["icon1"], ids["plate2"], ids["icon2"]} <= left
+
+
+def test_a_single_group_without_text_leaves() -> None:
+    """История 12: одиночная группа (широкая карточка) без текста уходит с плашкой и чертой."""
+    slide, ids = with_passport(["zt", "zs1", "zb1"])
+    left = ids_left(slide)
+
+    assert not {ids["wide_text"], ids["wide_plate"], ids["wide_bar"]} & left
+
+
+def _text_of(slide, xml_id: int) -> str:
+    node = next(n for n in slide.shapes._spTree.iter() if n.tag.endswith("cNvPr")
+                and n.get("id") == str(xml_id)).getparent().getparent()
+    return "".join(t.text or "" for t in node.iter("{*}t"))
+
+
+def test_a_row_of_four_with_two_items_keeps_the_first_two() -> None:
+    """Истории 7, 12: IR заполнил 1-ю и 4-ю карточку ряда — остаются 1-я и 2-я, текст 4-й
+    переехал во 2-ю место в место; 3-й и 4-й карточек нет."""
+    slide, ids = with_passport(["zt", "zs1", "zb1", "zb4"])
+    left = ids_left(slide)
+
+    assert {ids["plate1"], ids["plate2"], ids["text1"], ids["text2"]} <= left
+    assert _text_of(slide, ids["text1"]) == "Наш текст zb1"
+    assert _text_of(slide, ids["text2"]) == "Наш текст zb4"
+    for n in (3, 4):
+        for name in ("sub", "text", "plate", "icon"):
+            assert ids[f"{name}{n}"] not in left, f"{name}{n} осталась"
+
+
+def test_an_empty_place_of_a_filled_card_leaves() -> None:
+    """История 8: карточка заполнена текстом без подзаголовка — фигуры подзаголовка нет
+    (текст шаблона «Подзаголовок» не остаётся), плашка карточки на месте."""
+    slide, ids = with_passport(["zt", "zb1"])
+    left = ids_left(slide)
+
+    assert ids["sub1"] not in left
+    assert {ids["plate1"], ids["icon1"], ids["text1"]} <= left
+
+
+def test_an_empty_slide_title_stays_and_is_erased() -> None:
+    """Истории 8, 9: блока для заголовка нет — рамка на месте, текста примера в ней нет."""
+    slide, ids = with_passport(["zs1", "zb1"])
+
+    assert ids["title"] in ids_left(slide)
+    assert _text_of(slide, ids["title"]) == ""
+
+
+def test_an_unfilled_author_table_leaves_with_a_passport() -> None:
+    """История 11: таблица автора, которую рецепт не адресует, уходит и при паспорте."""
+    slide, ids = with_passport(["zt", "zs1", "zb1"])
+
+    assert ids["table"] not in ids_left(slide)
+
+
+def test_the_workspace_cover_table_leaves_with_a_passport() -> None:
+    """История 11 на настоящем шаблоне: титул WorkSpace `ex014` с паспортом — таблицы автора
+    «Заголовок / Текст» (`graphicFrame` вне паспорта) на слайде нет, решение Насти 28.09."""
+    prs = Presentation(str(case_template(WORKSPACE)))
+    run = from_fixture(RUNS / "workspace")
+    ds, _ = with_passports(run.design_system, run.manifest, FontLibrary.default())
+    recipe = next(r for r in ds.recipes if r.recipe_id == "ex014")
+    assert recipe.passport is not None, "у титула WorkSpace нет паспорта — тест не о том"
+    slide = next(s for s in run.deck.slides if s.recipe_id == "ex014")
+
+    written = clone_recipe(prs, recipe, slide)
+
+    assert not written.shapes._spTree.findall(".//{*}graphicFrame")
