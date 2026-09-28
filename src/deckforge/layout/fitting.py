@@ -97,6 +97,14 @@ FREE_BLOCK_FILL_SHARE = 0.5
 #: Политика вёрстки, а не свойство шаблона.
 _ZONE_STEPS_DOWN = 2
 
+#: Какую долю ширины меньшей из двух зон должна перекрывать зона под ней, чтобы считаться
+#: соседом снизу (RG39) — D07, RG46. Меньшее перекрытие — волосок раскладки автора, а не
+#: соседство: у VK Tech подпись «Вставить фото» задета соседом на 2,3 % ширины, высота
+#: урезалась ниже строки её кегля, рамка становилась якорем (D02), и две строки 10 pt
+#: ложились поверх соседей. Политика вёрстки, а не свойство шаблона; порог лежит
+#: в разрыве 2,3 %…20 % замера трёх шаблонов кейса.
+_NEIGHBOUR_OVERLAP_SHARE = 0.1
+
 
 def _sizes(
     manifest: TemplateManifest,
@@ -912,12 +920,19 @@ def _room_below(zone: Zone, others: list[Zone]) -> int:
     ложится на соседа снизу.
 
     Сосед считается соседом, только если перекрывается по ширине: две колонки рядом
-    друг другу не мешают, как бы ни стояли по вертикали. Если сосед начинается выше
-    низа зоны, высота урезается до расстояния между их верхами — ровно до того, что
-    зоне принадлежит без спора.
+    друг другу не мешают, как бы ни стояли по вертикали. Перекрытие меньше доли
+    `_NEIGHBOUR_OVERLAP_SHARE` ширины меньшей из двух зон — тоже не соседство (D07):
+    волосок раскладки урезал бы рамку ниже строки её кегля и делал её якорем.
+    Если сосед начинается выше низа зоны, высота урезается до расстояния между их
+    верхами — ровно до того, что зоне принадлежит без спора.
     """
     top, height = zone.y or 0, zone.cy or 0
     left, width = zone.x or 0, zone.cx or 0
+
+    def overlap(other: Zone) -> int:
+        start, end = other.x or 0, (other.x or 0) + (other.cx or 0)
+        return min(left + width, end) - max(left, start)
+
     below = [
         other.y
         for other in others
@@ -926,8 +941,8 @@ def _room_below(zone: Zone, others: list[Zone]) -> int:
         and other.y > top
         and other.y < top + height
         # Перекрытие по ширине: иначе это соседняя колонка, а не сосед снизу.
-        and (other.x or 0) < left + width
-        and (other.x or 0) + (other.cx or 0) > left
+        and overlap(other) > 0
+        and overlap(other) >= _NEIGHBOUR_OVERLAP_SHARE * min(width, other.cx or 0)
     ]
     return min([height, *[value - top for value in below if value is not None]])
 
