@@ -69,6 +69,12 @@ callout, график, таблица), слайд должен идти пут�
 
 ## Запросы тимлиду
 
+**После мержа A2 (#248) и узла `assign` (#254) в `plan-b`:** путь едет в состоянии графа
+(`state["composition_path"]`), но узлы `fit` и запись его в `fit_slide`/`PptxWriter` не передают —
+параметр `by_example` остаётся, запрос 1 — `by_example=state["composition_path"] == "by_example"`.
+Настоящий `RecipeAssignment` (`composition/assign.py`) той же формы; ветка стоит на `8f6e6bf`, где его
+ещё нет, поэтому до ребейза тест держит подделку — после ребейза она меняется на импорт одной строкой.
+
 1. **Передать `by_example=True`** в `fit_slide` и `PptxWriter` на пути `by_example`
    (`pipeline/**` — одна строка на узел).
 2. **Узел `pipeline/nodes/fit.py`:** на пути `by_example` не вызывать `_smartart_to_bullets`,
