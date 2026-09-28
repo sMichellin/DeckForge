@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from deckforge.audit.registry import CheckContext
+from deckforge.composition.passport import with_passports
 from deckforge.designsystem import DesignSystem, derive
 from deckforge.designsystem.models import Recipe, Zone
 from deckforge.domain.slide import Block, SlideIR
@@ -21,8 +22,28 @@ from deckforge.domain.template import TemplateManifest
 
 def catalogue(ctx: CheckContext) -> dict[str, Recipe]:
     """Рецепты шаблона по идентификатору."""
+    return {recipe.recipe_id: recipe for recipe in _design_system(ctx).recipes}
+
+
+def _design_system(ctx: CheckContext) -> DesignSystem:
     design = ctx.design_system
-    ds: DesignSystem = design if isinstance(design, DesignSystem) else derive(ctx.manifest)
+    return design if isinstance(design, DesignSystem) else derive(ctx.manifest)
+
+
+def catalogue_with_passports(ctx: CheckContext) -> dict[str, Recipe]:
+    """Рецепты с паспортом примера (план Б, ADR-009), если пример его получает.
+
+    Дизайн-система графа несёт паспорта только на пути `by_example`; прогоны `legacy`
+    и старые снимки их не знают. Тогда паспорт считается здесь тем же `with_passports`,
+    что и в композиции: группы мест строятся по геометрии примера, и проверка видит
+    карточку, а не ряд, который каталог принял за повтор (VK Tech `ex018`).
+    Пример, не прошедший пробную заливку, остаётся без паспорта — как и в каталоге.
+    """
+    ds = _design_system(ctx)
+    # Паспорт хоть у одного — каталог уже прошёл `with_passports`, у остальных его нет
+    # по причине (пробная заливка), и пересчёт ничего не изменит.
+    if ds.recipes and all(recipe.passport is None for recipe in ds.recipes):
+        ds, _ = with_passports(ds, ctx.manifest)
     return {recipe.recipe_id: recipe for recipe in ds.recipes}
 
 

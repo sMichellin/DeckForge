@@ -96,9 +96,10 @@ def test_check_specs_cover_tz_appendix() -> None:
     assert len([i for i in ids if i.startswith("layout.")]) == 7
     assert len([i for i in ids if i.startswith("template.")]) == 10
     assert len([i for i in ids if i.startswith("density.")]) == 5
-    # Семь: шесть из Приложения 1 плюс `integrity.content_lost` — потерю содержания
-    # ТЗ отдельным вопросом не называет, но колода из одних заголовков ему не отвечает.
-    assert len([i for i in ids if i.startswith("integrity.")]) == 7
+    # Восемь: шесть из Приложения 1 плюс `integrity.content_lost` — потерю содержания
+    # ТЗ отдельным вопросом не называет, но колода из одних заголовков ему не отвечает, —
+    # плюс `integrity.empty_group`: пустая карточка примера на слайде (план Б, RG63).
+    assert len([i for i in ids if i.startswith("integrity.")]) == 8
     # 11 вопросов валидации контента из Приложения 1 плюс `content.body_repeats_headline`:
     # пересказ заголовка телом ТЗ отдельным вопросом не называет, а слайд, говорящий одно
     # и то же дважды, не отвечает ни на один из его вопросов (RG53).
