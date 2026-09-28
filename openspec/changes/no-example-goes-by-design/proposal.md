@@ -129,7 +129,7 @@ LibreOffice): `tests/e2e/test_cold_template.py` зелёный (прежний �
 
 Прежний тест `tests/unit/test_layout_diagram.py::test_unsupported_pattern_is_an_error` (change 21,
 поток B) утверждал, что у иерархии нет раскладки; заменён на `test_hierarchy_is_laid_out_but_not_on_the_old_path`:
-раскладка есть, `SUPPORTED_PATTERNS` без иерархии. Полный pytest: 2401 passed, 23 skipped (база 2383 passed,
+раскладка есть, `SUPPORTED_PATTERNS` без иерархии. Полный pytest после ревью, на plan-b 67b6ee6: 2467 passed, 23 skipped (база до правки 2383 passed,
 1 упавший тест базы проходит отдельно — падал от нехватки места на диске); ruff, mypy, lint констант чистые.
 
 ## Что осталось незакрытым
