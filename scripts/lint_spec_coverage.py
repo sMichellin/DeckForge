@@ -88,15 +88,22 @@ def _delta_problems(change: Path) -> list[str]:
 
 
 def _names_in_tests(tests: Path, wanted: set[str]) -> set[str]:
-    """Имена change'ей, названные в тестах. Ищутся **точные** имена, а не по шаблону.
+    """Имена change'ей, названные в тестах: в тексте файла **или в его имени**.
 
-    Первая версия искала кебаб-кейс из трёх и более слов и не видела `web-ui` вовсе —
-    гейт с собственной дырой хуже отсутствующего гейта.
+    Первая версия искала кебаб-кейс из трёх и более слов и не видела `web-ui` вовсе.
+    Вторая читала только текст — и не засчитывала тест
+    `test_the_floor_shortens_instead_of_overflowing.py`, названный ровно как change,
+    но не повторивший его имя в докстринге (PR #223). Имя файла — такое же
+    доказательство связи, как строка в тексте, и требовать обоих незачем.
+
+    Подчёркивания имени файла приводятся к дефисам: `test_a_b_c.py` → `a-b-c`.
     """
-    haystack = "\n".join(
-        path.read_text(encoding="utf-8", errors="ignore") for path in tests.rglob("test_*.py")
-    )
-    return {name for name in wanted if name in haystack}
+    haystack: list[str] = []
+    for path in tests.rglob("test_*.py"):
+        haystack.append(path.read_text(encoding="utf-8", errors="ignore"))
+        haystack.append(path.stem.removeprefix("test_").replace("_", "-"))
+    text = "\n".join(haystack)
+    return {name for name in wanted if name in text}
 
 
 def main(argv: list[str] | None = None) -> int:
