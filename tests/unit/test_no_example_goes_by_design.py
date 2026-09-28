@@ -37,10 +37,13 @@ from deckforge.layout.fitting import fit_slide
 from deckforge.layout.fonts import FontLibrary
 from deckforge.parsing import TemplateParser
 from deckforge.rendering.writer import PptxWriter, SlideDegrader, SlideValidator, WriterError
+from tests.case_templates import case_template
 from tests.integration.test_native_objects import build_template
 from tests.unit.test_layout_fonts import make_font
 
-GOLDEN = Path(__file__).parents[1] / "fixtures" / "no-example-goes-by-design" / "legacy-slides.json"
+FIXTURES = Path(__file__).parents[1] / "fixtures" / "no-example-goes-by-design"
+GOLDEN = FIXTURES / "legacy-slides.json"
+GOLDEN_COLD = FIXTURES / "legacy-slides-cold-focus.json"
 
 STEPS = ["Сбор требований", "Проектирование", "Разработка", "Проверка"]
 LONG = [
@@ -55,8 +58,11 @@ LONG = [
 ]
 
 
-def template_and_manifest(tmp_path: Path) -> tuple[Path, TemplateManifest, FontLibrary]:
-    template = build_template(tmp_path / "template.pptx")
+def template_and_manifest(
+    tmp_path: Path, template: Path | None = None
+) -> tuple[Path, TemplateManifest, FontLibrary]:
+    """Синтетический шаблон или данный (холодный); шрифт — всегда синтетический."""
+    template = template or build_template(tmp_path / "template.pptx")
     manifest = TemplateParser(cache_dir=tmp_path / "cache").parse(template)
     fonts_dir = tmp_path / "fonts"
     fonts_dir.mkdir()
@@ -130,11 +136,11 @@ def slide_xml(path: Path) -> dict[str, str]:
         }
 
 
-def legacy_deck_xml(tmp_path: Path) -> dict[str, str]:
+def legacy_deck_xml(tmp_path: Path, template: Path | None = None) -> dict[str, str]:
     """Колода без рецептов прежним путём: вписывание и писатель без параметра пути сборки.
 
     Длинной таблицы здесь нет — прежний путь отказывает в записи всей колоды с ней."""
-    template, manifest, fonts = template_and_manifest(tmp_path)
+    template, manifest, fonts = template_and_manifest(tmp_path, template)
     package = content()
     slides = [
         fit_slide(
@@ -153,6 +159,15 @@ def legacy_deck_xml(tmp_path: Path) -> dict[str, str]:
 def test_legacy_path_is_unchanged_byte_for_byte(tmp_path: Path) -> None:
     """Эталон снят до правки кода (22a): без параметра пути сборки файл прежний."""
     assert legacy_deck_xml(tmp_path) == json.loads(GOLDEN.read_text(encoding="utf-8"))
+
+
+def test_legacy_path_is_unchanged_on_a_cold_template(tmp_path: Path) -> None:
+    """Второй эталон (22a) — на холодном шаблоне, снят кодом `origin/plan-b` до правки.
+    Холодный корпус в git не коммитится (`cold/` в `.gitignore`): нет файла — пропуск."""
+    template = case_template("cold/Focus.pptx")
+    assert legacy_deck_xml(tmp_path, template) == json.loads(
+        GOLDEN_COLD.read_text(encoding="utf-8")
+    )
 
 
 def by_example(tmp_path: Path, block_id: str) -> tuple[PptxWriter, str]:
