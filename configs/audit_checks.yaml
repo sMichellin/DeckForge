@@ -219,6 +219,10 @@ checks:
     deterministic: false
     severity: error
     title: "Нет служебного мусора: реплик спикера, кусков промпта"
+  content.body_repeats_headline:
+    deterministic: true
+    severity: warning
+    title: Тело слайда не пересказывает заголовок
   content.single_language:
     deterministic: true
     severity: warning
