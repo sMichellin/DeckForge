@@ -355,3 +355,52 @@ def test_the_writer_hands_its_design_rules_to_the_recipe(
     width = (ROW_RIGHT - ROW_LEFT - GAP) // 2
     assert own_box(slide, cards[0]["plate"]) == (ROW_LEFT, TOP, width, PLATE_CY)
     assert own_box(slide, cards[1]["plate"]) == (ROW_LEFT + width + GAP, TOP, width, PLATE_CY)
+
+
+def _plate_by_scheme(prs, cards, plate_slot: str) -> None:
+    """Плашки карточек — заливкой `a:schemeClr` по имени из карты цветов (`bg1`, `tx1`…)."""
+    for card in cards:
+        card["plate"].fill.solid()
+        fill = card["plate"]._element.spPr.find(qn("a:solidFill"))
+        for child in list(fill):
+            fill.remove(child)
+        etree.SubElement(fill, qn("a:schemeClr"), val=plate_slot)
+
+
+def test_the_plate_is_read_through_the_color_map_of_the_master(
+    manifest: TemplateManifest,
+) -> None:
+    """История 18: `bg1` плашки — слот по `p:clrMap` мастера, а не по стандартной карте.
+
+    Карта обращена (`bg1 → dk1`): плашка тёмная, светлый текст автора на ней читается —
+    цвет тот же байт в байт. По стандартной карте плашка была бы белой, и цвет бы сменился.
+    """
+    prs, part_name, found, cards = grid_example()
+    clr_map = prs.slide_masters[0]._element.find(qn("p:clrMap"))
+    for role, slot in (("bg1", "dk1"), ("tx1", "lt1"), ("bg2", "dk2"), ("tx2", "lt2")):
+        clr_map.set(role, slot)
+    _plate_by_scheme(prs, cards, "bg1")
+    for card in cards:
+        card["text"].text_frame.paragraphs[0].runs[0].font.color.rgb = RGBColor(0xC8, 0xC8, 0xC8)
+    source = etree.tostring(_run_fill(prs.slides[0], cards[0]["text"]))
+    recipe = grid_recipe(part_name, found, cards)
+    slide = clone_recipe(prs, recipe, slide_ir(recipe, ["zt", "zb1", "zb2"]),
+                         DesignRules(manifest))
+    for card in cards[:2]:
+        assert etree.tostring(_run_fill(slide, card["text"])) == source
+
+
+def test_an_inherited_ink_on_a_plate_is_named_not_judged(manifest: TemplateManifest) -> None:
+    """История 18: у прогона нет своего `a:solidFill` — цвет он наследует, и какой именно,
+    писатель не знает. Цвет не трогается, но и не молча: заметка называет слайд и зону."""
+    prs, part_name, found, cards = grid_example()
+    for card in cards:
+        card["plate"].fill.solid()
+        card["plate"].fill.fore_color.rgb = PLATE
+    recipe = grid_recipe(part_name, found, cards)
+    notes: list[str] = []
+    slide = clone_recipe(prs, recipe, slide_ir(recipe, ["zt", "zb1", "zb2"]),
+                         DesignRules(manifest), notes=notes)
+    assert _run_fill(slide, cards[0]["text"]) is None
+    assert [note.split(":")[0] for note in notes] == ["s01/zb1", "s01/zb2"]
+    assert all("унаследован" in note for note in notes)

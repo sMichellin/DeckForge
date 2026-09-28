@@ -34,6 +34,7 @@ from deckforge.domain.enums import ColorRef
 from deckforge.domain.slide import Block, BulletsBlock, FitResult, SlideIR, TextBlock
 from deckforge.layout.by_design import DesignRules
 from deckforge.layout.nonbreaking import bind as nonbreaking
+from deckforge.parsing.ooxml.background import parse_color_map
 from deckforge.rendering.units import size_hundredths
 
 #: Атрибуты, которыми фигура ссылается на связь своей части: картинка, диаграмма, ссылка.
@@ -290,7 +291,8 @@ def _lowered_size(zone: Zone, fitted: FitResult | None) -> float | None:
 
 
 def clone_recipe(
-    prs: Any, recipe: Recipe, slide_ir: SlideIR, design: DesignRules | None = None
+    prs: Any, recipe: Recipe, slide_ir: SlideIR, design: DesignRules | None = None,
+    *, notes: list[str] | None = None,
 ) -> Any:
     """Слайд колоды по рецепту: копия примера, наш текст по зонам, лишнее удалено.
 
@@ -301,11 +303,15 @@ def clone_recipe(
     `design` — ответы дизайн-системы (change `the-design-system-lays-out-recipe-slides`, 5а):
     при паспорте по ним перестраивается ряд, поднимается кегль до порога и выбирается цвет
     текста на плашке. Без паспорта `design` не читается: `legacy` прежний байт в байт.
+    В `notes` (у писателя — `PptxWriter.degradations`) названо то, что ДС судить не смогла.
     """
     slide = clone_slide(prs, recipe)
     shapes = _by_xml_id(_shapes_tree(slide), recipe)
     if recipe.passport is not None:
-        kept = _fill_by_passport(recipe, recipe.passport, slide_ir, slide, shapes, design)
+        kept = _fill_by_passport(
+            recipe, recipe.passport, slide_ir, slide, shapes, design,
+            notes if notes is not None else [],
+        )
         if design is not None:
             _lay_out_rows(recipe, recipe.passport, kept, slide, shapes, design.block_gap_emu())
         # Таблица и диаграмма автора в паспорт не попадают — ни местом, ни декором. Решение
@@ -376,7 +382,7 @@ def _node(tree: Any, shapes: dict[int, Any], xml_id: int) -> Any | None:
 
 def _fill_by_passport(
     recipe: Recipe, passport: ExamplePassport, slide_ir: SlideIR, slide: Any,
-    shapes: dict[int, Any], design: DesignRules | None = None,
+    shapes: dict[int, Any], design: DesignRules | None = None, notes: list[str] | None = None,
 ) -> set[str]:
     """Наш текст по зонам, лишнее — группами паспорта, без угадывания. Ответ — группы, что остались.
 
@@ -418,6 +424,7 @@ def _fill_by_passport(
             _remove(_node(tree, shapes, xml_id))
     if design is not None:
         boxes = {node: box for node, box in _placed(tree) if box is not None}
+        color_map = parse_color_map(slide.slide_layout.slide_master.part.blob)
         for group in passport.groups:
             decor = [_node(tree, shapes, xml_id) for xml_id in group.decor_xml_ids]
             for place in group.places:
@@ -426,53 +433,69 @@ def _fill_by_passport(
                     continue
                 shape = shapes[zone.xml_id]
                 _raise_to_floor(shape, zone.author_size_pt, design)
-                plate = _plate_hex(boxes.get(shape), decor, boxes, design)
-                if plate is not None:
-                    _ink_on_plate(shape, plate, design)
+                plate = _plate_hex(boxes.get(shape), decor, boxes, design, color_map)
+                unjudged = _ink_on_plate(shape, plate, design, color_map) if plate else None
+                if unjudged is not None and notes is not None:
+                    notes.append(f"{slide_ir.slide_id}/{zone.zone_id}: цвет текста на плашке "
+                                 f"{unjudged} — контраст не проверен")
     return kept
 
 
-#: Псевдонимы слотов в `a:schemeClr` — стандартная карта цветов мастера (`p:clrMap`).
-_SCHEME_ALIASES = {"tx1": "dk1", "bg1": "lt1", "tx2": "dk2", "bg2": "lt2"}
+#: Имена `a:schemeClr`, которые мастер отображает на слоты темы своей `p:clrMap`.
+_MAPPED_NAMES = frozenset({"tx1", "bg1", "tx2", "bg2"})
 
 
-def _fill_hex(fill: Any, design: DesignRules) -> str | None:
+def _fill_hex(fill: Any, design: DesignRules, color_map: dict[str, str]) -> str | None:
     """Цвет `a:solidFill`: `srgbClr` или слот темы. С модификаторами (`lumMod`, `alpha`)
-    и прочими видами цвета — `None`: настоящего цвета писатель не знает, и мерить нечего."""
+    и прочими видами цвета — `None`: настоящего цвета писатель не знает, и мерить нечего.
+
+    `tx1/bg1/tx2/bg2` — через `p:clrMap` мастера скопированного слайда
+    (`parsing.ooxml.background.parse_color_map`): у тёмного шаблона `bg1` — это `dk1`.
+    Мастер карту не объявил — имя не разрешается, и цвет не судится."""
     if fill is None or len(fill) != 1 or len(fill[0]):
         return None
     color, value = fill[0], fill[0].get("val") or ""
     if color.tag == qn("a:srgbClr"):
         return f"#{value.upper()}"
-    slot = _SCHEME_ALIASES.get(value, value)
+    slot = color_map.get(value, "") if value in _MAPPED_NAMES else value
     if color.tag != qn("a:schemeClr") or slot not in {ref.value for ref in ColorRef}:
         return None
     return design.manifest.theme.colors.get(ColorRef(slot))
 
 
 def _plate_hex(
-    box: _Box | None, decor: list[Any], boxes: dict[Any, _Box], design: DesignRules
+    box: _Box | None, decor: list[Any], boxes: dict[Any, _Box], design: DesignRules,
+    color_map: dict[str, str],
 ) -> str | None:
     """Заливка плашки под зоной: наименьшая фигура декора группы с заливкой, в которой
     зона стоит целиком. Нет такой — текст не на плашке группы, и цвет не трогается."""
     under = []
     for node in decor:
         frame = boxes.get(node) if node is not None else None
-        color = _fill_hex(node.find(f"{qn('p:spPr')}/{qn('a:solidFill')}"), design) if (
+        color = _fill_hex(node.find(f"{qn('p:spPr')}/{qn('a:solidFill')}"), design, color_map) if (
             node is not None) else None
         if box is not None and frame is not None and color is not None and _within(box, frame):
             under.append((frame[2] * frame[3], color))
     return min(under)[1] if under else None
 
 
-def _ink_on_plate(shape: Any, plate_hex: str, design: DesignRules) -> None:
+def _ink_on_plate(
+    shape: Any, plate_hex: str, design: DesignRules, color_map: dict[str, str]
+) -> str | None:
     """Цвет нашего текста на плашке читается (5а, R18): нечитаемый цвет автора — ссылкой
     на слот темы (`DesignRules.text_ink`, правило `accent_ink`); читаемый — байт в байт.
-    Класс текста — по кеглю прогона, уже поднятому до порога. Цвета в IR нет (правило 5)."""
-    for props in shape.iter(qn("a:rPr")):
-        fill = props.find(qn("a:solidFill"))
-        author = _fill_hex(fill, design)
-        if author is None:
+    Класс текста — по кеглю прогона, уже поднятому до порога. Цвета в IR нет (правило 5).
+
+    Ответ — почему цвет хоть одного прогона не судился, для заметки: без своего
+    `a:solidFill` прогон наследует цвет по цепочке стилей мастера, и писатель его не знает;
+    с модификаторами — тоже. Такой цвет не трогается, но и не молча (дозапрос 1)."""
+    unjudged = None
+    for run in shape.iter(qn("a:r")):
+        props = run.find(qn("a:rPr"))
+        fill = props.find(qn("a:solidFill")) if props is not None else None
+        author = _fill_hex(fill, design, color_map)
+        if props is None or fill is None or author is None:
+            unjudged = unjudged or ("унаследован" if fill is None else "не разобран")
             continue
         own = props.get("sz")
         ref = design.text_ink(author, plate_hex, size_pt=int(own) / 100 if own else None,
@@ -482,6 +505,7 @@ def _ink_on_plate(shape: Any, plate_hex: str, design: DesignRules) -> None:
         for child in list(fill):
             fill.remove(child)
         etree.SubElement(fill, qn("a:schemeClr"), val=ref.value)
+    return unjudged
 
 
 def _raise_to_floor(shape: Any, author_pt: float | None, design: DesignRules) -> None:
