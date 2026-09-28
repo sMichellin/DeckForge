@@ -13,9 +13,12 @@
   текстом, поэтому шаблоны фраз ниже сняты с кода, который их пишет, и сторожатся
   тестом: переформулировали заметку — тест покраснеет, а не число молча обнулится.
 
-Чего скрипт не считает: пустые карточки на слайде (нужен `.pptx`) и блоки ниже порога
-читаемости (`scripts/check_deck_readable.py`). В таблице они помечены прочерком,
-а не нулём: «не мерили» и «ноль» — разные ответы.
+Строка 7 — блоки ниже порога читаемости — считается по файлу колоды тем же замером,
+что `scripts/check_deck_readable.py` (change `the-seventh-row-is-measured`): только если
+рядом с отчётом лежит `out/deck.pptx`. У фикстур файла нет, у прогонов стенда есть.
+
+Чего скрипт не считает: пустые карточки на слайде (проверка потока C, #245). В таблице
+они помечены прочерком, а не нулём: «не мерили» и «ноль» — разные ответы.
 
     python scripts/plan_b_metrics.py artifacts/runs/2026-09-28-main-19e3b7e/*/
     python scripts/plan_b_metrics.py --json <каталог прогона> …
@@ -32,6 +35,8 @@ from dataclasses import asdict, dataclass, field
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 #: Интенты плана, которым пример задаёт место в колоде, а не смысл: обложка, раздел, финал.
 #: План Б считает «пример по смыслу» только на содержательных слайдах.
@@ -103,6 +108,8 @@ class DeckMetrics:
     flattened: dict[str, int] = field(default_factory=dict)
     #: Строка 6: блоков, обрезанных или снятых кодом вписывания.
     cut_by_code: int = 0
+    #: Строка 7: блоков ниже порога читаемости по файлу колоды; `None` — файла нет.
+    below_floor: int | None = None
 
     @property
     def flattened_total(self) -> int:
@@ -151,6 +158,34 @@ def deck_metrics(report: dict[str, Any]) -> DeckMetrics:
     return metrics
 
 
+def below_floor(run_dir: Path) -> int | None:
+    """Строка 7: сколько блоков колоды набрано ниже порога читаемости.
+
+    Считает `check_deck_readable.check_deck` — тот же замер, что приёмка итерации 25.09,
+    — а здесь только сводится: блок — пара «слайд, фигура», сколько бы прогонов текста
+    в ней ни было. Шаблон рядом (`in/template.pptx`) — чтобы пустые рамки автора не шли
+    в счёт. Файла колоды нет — `None`, а не ноль.
+    """
+    deck = run_dir / "out" / "deck.pptx"
+    if not deck.is_file():
+        return None
+    import check_deck_readable as readable
+
+    template = run_dir / "in" / "template.pptx"
+    report = readable.check_deck(
+        deck,
+        size_floor_pt=readable.DEFAULT_SIZE_FLOOR_PT,
+        library=readable._library(),
+        filled=readable.filled_in_template(template if template.is_file() else None),
+        outside=readable.outside_in_template(template if template.is_file() else None),
+    )
+    return len({
+        (finding.slide, finding.shape)
+        for finding in report.findings
+        if finding.kind == readable.BELOW_FLOOR
+    })
+
+
 def load_report(run_dir: Path) -> dict[str, Any]:
     """`run.json` каталога прогона: как его кладёт стенд (`out/run.json`) или рядом."""
     for candidate in (run_dir / "out" / "run.json", run_dir / "run.json"):
@@ -191,7 +226,8 @@ def table(decks: list[DeckMetrics]) -> str:
         row("", "…и пунктов списка снято", [str(d.dropped_items) for d in decks]),
         row("5", "Блоков сплющено в текст", [flat(d) for d in decks]),
         row("6", "Обрезка или снятие текста кодом", [str(d.cut_by_code) for d in decks]),
-        row("7", "Блоков ниже порога читаемости", ["—" for _ in decks]),
+        row("7", "Блоков ниже порога читаемости",
+            ["—" if d.below_floor is None else str(d.below_floor) for d in decks]),
     ]
     by_seats = sum(d.by_seats for d in decks)
     with_example = sum(d.with_example for d in decks)
@@ -210,7 +246,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--json", action="store_true", help="вывести JSON, а не таблицу")
     args = parser.parse_args(argv)
 
-    decks = [deck_metrics(load_report(run)) for run in args.runs]
+    decks = []
+    for run in args.runs:
+        deck = deck_metrics(load_report(run))
+        deck.below_floor = below_floor(run)
+        decks.append(deck)
     if args.json:
         print(json.dumps([asdict(d) for d in decks], ensure_ascii=False, indent=2))
     else:
