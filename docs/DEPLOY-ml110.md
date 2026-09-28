@@ -195,6 +195,75 @@ podman logs --tail 3 deckforge-worker    # «Starting worker for 2 functions»
 podman ps                                # пять контейнеров: api, worker, ui, redis, languagetool
 ```
 
+### 4б. Стенд ветки `plan-b` — параллельно основному (28.09)
+
+План Б (эпик #242) работает в ветке `plan-b`, и приёмочные прогоны нужны на её коде, а §3
+разрешает деплой только из `main`. Поэтому на время плана Б рядом с основным стендом
+живёт второй — **отдельный код, отдельные контейнеры, отдельные порты и прогоны**.
+Основной стенд он не трогает.
+
+| | Основной | `plan-b` |
+|---|---|---|
+| Код | `~/deckforge` | `~/deckforge-plan-b` — git-бандл ветки `plan-b` |
+| Скрипты | `~/e2e-work/stand/` | `~/e2e-work/stand-plan-b/` |
+| Контейнеры | `deckforge-{api,worker,ui}` | `deckforge-pb-{api,worker,ui}` |
+| API / UI | 8080 / 8501 | **8120 / 8541** (смещение +40) |
+| Очередь arq | Redis, база 0 | тот же Redis, **база 1** |
+| Прогоны | `~/e2e-work/artifacts` | `~/e2e-work/plan-b/artifacts` |
+| Образ | `localhost/deckforge:worker` | тот же — код монтируется, зависимости `plan-b` не менялись |
+
+Общие: Redis-сервер, LanguageTool :8010, ключи `~/deckforge/.env` и **llama.cpp с одним
+слотом** — одновременные прогоны двух стендов встанут к нему в очередь, и время колоды
+у обоих вырастет. Мерить время (строка 10 приёмки) — только когда второй стенд простаивает.
+
+```bash
+bash ~/e2e-work/stand-plan-b/api.sh       # API :8120
+bash ~/e2e-work/stand-plan-b/worker.sh    # воркер, Redis база 1
+bash ~/e2e-work/stand-plan-b/ui.sh        # интерфейс :8541
+bash ~/e2e-work/stand-plan-b/warm-cache.sh  # предразбор трёх шаблонов кейса (D1), долго
+bash ~/e2e-work/stand-plan-b/update.sh    # обновить код из /tmp/deckforge-plan-b.bundle
+```
+
+Обновление кода — бандлом, как в §8.4:
+
+```bash
+git bundle create /tmp/deckforge-plan-b.bundle plan-b
+scp -P 43653 -i ~/.ssh/<свой ключ> /tmp/deckforge-plan-b.bundle smichellin@46.32.88.170:/tmp/
+ssh ml110 bash ~/e2e-work/stand-plan-b/update.sh
+```
+
+**Снаружи порты 8120 и 8541 закрыты** — на входе проброшены только порты основного стенда,
+а открывать порты на общем сервере решает его владелец. Заходить через туннель:
+
+```bash
+ssh -N -L 8541:localhost:8541 -L 8120:localhost:8120 ml110
+# интерфейс — http://localhost:8541, API — http://localhost:8120
+```
+
+Проверено 28.09 на `8fdf24a`: `make test` на сервере — 2213 passed, 131 skipped; гейты
+пройдены; `/profiles` отвечает, воркер «Starting worker for 2 functions», интерфейс — 200
+через туннель.
+
+Скрипты — на сервере; `common.sh` задаёт всё общее:
+
+```bash
+CODE=/home/smichellin/deckforge-plan-b
+IMAGE=localhost/deckforge:worker
+API_PORT=8120
+UI_PORT=8541
+# LOCAL=(…) — переменные локального llama.cpp, как в ~/e2e-work/stand/api.sh
+COMMON=(--restart=always --network host
+  --env-file /home/smichellin/deckforge/.env "${LOCAL[@]}"
+  -v $CODE:/app:z -v /home/smichellin/e2e-work:/work/e2e:z -w /app
+  -e PYTHONPATH=/app/src:/work/e2e -e PYTHONUNBUFFERED=1
+  -e DECKFORGE_ARTIFACTS_DIR=/work/e2e/plan-b/artifacts
+  -e DECKFORGE_REDIS_URL=redis://localhost:6379/1)
+```
+
+Снять стенд после приёмки: `podman rm -f deckforge-pb-api deckforge-pb-worker deckforge-pb-ui`,
+`rm -rf ~/deckforge-plan-b ~/e2e-work/stand-plan-b` — прогоны `~/e2e-work/plan-b/` оставить,
+по ним сведена приёмка.
+
 ---
 
 ## 5. Секреты на сервере
