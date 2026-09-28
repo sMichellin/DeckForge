@@ -89,6 +89,7 @@ def test_the_plan_b_baseline_is_reproduced_from_the_fixtures() -> None:
     decks = {name: metrics.deck_metrics(metrics.load_report(FIXTURES / name)) for name in DECKS}
 
     assert sum(d.by_meaning for d in decks.values()) == 0
+    assert sum(d.by_seats for d in decks.values()) == 24
     assert sum(d.content_slides for d in decks.values()) == 24
     assert {name: d.top_example_uses for name, d in decks.items()} == {
         name: uses for name, (_, _, uses) in DECKS.items()

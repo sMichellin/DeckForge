@@ -1,4 +1,5 @@
-"""Мерило плана Б по `run.json`. Change `the-deck-is-measured-by-plan-b`.
+"""Мерило плана Б по `run.json`. Changes `the-deck-is-measured-by-plan-b`,
+`the-first-row-counts-examples` (строка 1: с примером и без него — отдельно).
 
 План Б принимается не по числу ошибок аудита, а по таблице: пример по смыслу, повторы,
 снятые, сплющенные и обрезанные блоки (`docs/agents/tasks-plan-b.md`). Путь `legacy`
@@ -55,6 +56,24 @@ def test_structural_slides_are_not_counted_as_by_meaning(plan_b: ModuleType) -> 
     )
 
     assert (deck.by_meaning, deck.content_slides) == (1, 2)
+
+
+def test_a_slide_without_an_example_is_not_an_example(plan_b: ModuleType) -> None:
+    """Нарушитель мерила: слайд путём дизайн-системы — «по смыслу», но не «с примером».
+
+    Иначе строку 1 можно выполнить, не назначив ни одного примера (замечание к #248).
+    """
+    by_design = {"slide_id": "s03", "intent": "evidence", "recipe_id": None,
+                 "why": "заказ плана «smartart» примером не показывается"}
+    deck = plan_b.deck_metrics(
+        report([
+            choice("s02", "summary", "ex018", BY_MEANING),
+            by_design,
+            choice("s04", "evidence", "ex009", BY_SEATS),
+        ])
+    )
+
+    assert (deck.by_seats, deck.with_example, deck.by_design) == (1, 1, 1)
 
 
 def test_a_repeated_example_is_counted_and_neighbours_named(plan_b: ModuleType) -> None:
