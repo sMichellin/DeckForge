@@ -37,7 +37,7 @@ from deckforge.audit.geometry import (
     placeholder_of,
     self_positioned_blocks,
 )
-from deckforge.audit.recipes import catalogue, recipe_layout_part
+from deckforge.audit.recipes import catalogue, recipe_layout_part, zone_of
 from deckforge.audit.registry import CheckContext, CheckUnavailable, check
 from deckforge.designsystem.contrast import (
     TextClass,
@@ -183,6 +183,11 @@ def template_sizes(manifest: TemplateManifest) -> list[float]:
     Шкала — четыре ступени по ролям, а плейсхолдеры живут своими размерами: заголовок
     раздела и заголовок слайда набраны по-разному, хотя роль у них одна. Сверять только
     со шкалой значит ругаться на кегль, который шаблон сам и задал.
+
+    Кегли слайдов-примеров сюда **не** входят, хотя кегль слайда по рецепту приходит
+    именно оттуда (D02). Причина в цене: примеров у шаблонов кейса десятки, и набор
+    вырос бы с 5 до 19 кеглей на WorkSpace и с 16 до 48 на VK Tech — проверка перестала бы
+    находить что-либо. Кегль автора разрешается точечно, у своей зоны: `size_not_in_scale`.
     """
     sizes = set(manifest.size_ladder_pt)
     sizes |= {
@@ -197,10 +202,20 @@ def template_sizes(manifest: TemplateManifest) -> list[float]:
 @check(id="template.size_not_in_scale", deterministic=True, severity=Severity.WARNING,
        title="Кегль не из типографической шкалы шаблона")
 def size_not_in_scale(ctx: CheckContext) -> Iterable[Finding]:
-    """Кегль не из типографической шкалы шаблона."""
+    """Кегль не из типографической шкалы шаблона.
+
+    У блока, стоящего в зоне рецепта, разрешён ещё и кегль автора этой зоны
+    (`Zone.author_size_pt`): писатель берёт его и только понижает (D02, RG59). Иначе
+    проверка ругается на решение самого шаблона — в прогоне `96ef159` так вышло
+    28 предупреждений из 86, и кегль 18 pt на WorkSpace оказался кеглем автора тех же
+    фигур в примере (`slide5.xml`). Разрешение точечное, у своей зоны: пустить в общий
+    набор кегли всех примеров значило бы раздуть его с 5 до 19 кеглей на WorkSpace
+    и с 16 до 48 на VK Tech, то есть выключить проверку.
+    """
     allowed = template_sizes(ctx.manifest)
     if not allowed:
         return
+    recipes = catalogue(ctx)
     for slide in ctx.deck.slides:
         layout = layout_of(slide, ctx.manifest)
         for block in slide.blocks:
@@ -212,6 +227,10 @@ def size_not_in_scale(ctx: CheckContext) -> Iterable[Finding]:
             if size is None:
                 continue
             if any(abs(size - step) < 0.01 for step in allowed):
+                continue
+            zone = zone_of(slide, block, recipes)
+            author = zone.author_size_pt if zone is not None else None
+            if author is not None and abs(size - author) < 0.01:
                 continue
             yield make_finding(
                 check_id="template.size_not_in_scale",
