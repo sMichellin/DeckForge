@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from deckforge.domain.base import DomainModel
 from deckforge.domain.enums import ColorRef, FontRef, TextRole
@@ -417,6 +417,119 @@ class Zone(DomainModel):
         return None not in (self.x, self.y, self.cx, self.cy)
 
 
+# --- паспорт примера (план Б, change `the-example-passport-model`, ADR-009) ---------
+
+
+class PlaceKind(StrEnum):
+    """Что держит место примера. Решает, чем его заполняет композиция."""
+
+    TEXT = "text"
+    NUMBER = "number"
+    PICTURE = "picture"
+
+
+class Place(DomainModel):
+    """Одно место примера, которое заполняет наша колода.
+
+    Текстовое место ссылается на зону рецепта (`zone_id`): рамка, кегль и адрес фигуры
+    живут там, а не дублируются. Картинка зоны не имеет — у неё только адрес фигуры.
+
+    `capacity_chars` — ёмкость по метрикам шрифта примера (план Б, шаг 1), а не
+    `Zone.capacity_chars` = 0,52 × кегль на знак: паспорт и вписывание обязаны мерить
+    одним способом, иначе текст, написанный «ровно под место», в место не встанет.
+    """
+
+    place_id: str = Field(pattern=r"^p\d{2,}$")
+    kind: PlaceKind
+    zone_id: str | None = Field(default=None, description="Зона рецепта; у картинки — нет")
+    xml_id: int | None = Field(default=None, description="cNvPr id фигуры в файле шаблона")
+    role: TypeLevel | None = Field(default=None, description="Ступень лестницы; у картинки — нет")
+    capacity_chars: int = Field(default=0, ge=0, description="Знаков по метрикам шрифта")
+
+    @model_validator(mode="after")
+    def _kind_matches_fields(self) -> Place:
+        if self.kind is PlaceKind.PICTURE:
+            if self.zone_id is not None or self.role is not None:
+                raise ValueError(f"{self.place_id}: у картинки нет зоны и ступени лестницы")
+            return self
+        if self.zone_id is None or self.role is None:
+            raise ValueError(f"{self.place_id}: текстовому месту нужны зона и ступень")
+        if self.capacity_chars == 0:
+            raise ValueError(f"{self.place_id}: текстовое место без ёмкости не заполнить")
+        return self
+
+    @property
+    def shape(self) -> tuple[PlaceKind, TypeLevel | None]:
+        """Что за место, без размеров: по нему сверяются повторы одного ряда."""
+        return self.kind, self.role
+
+
+class PlaceGroup(DomainModel):
+    """Места, которые живут и уходят вместе: карточка, пункт схемы, одиночный заголовок.
+
+    `decor_xml_ids` — фигуры группы без нашего текста: плашка, иконка, линии. Незаполненная
+    группа удаляется с ними целиком (план Б, шаг 4), а не угадыванием по координатам.
+
+    `row` — ряд взаимозаменяемых групп (карточки в сетке). Группы одного ряда обязаны
+    иметь одну форму: тогда композиция пишет «N × (подзаголовок, текст)», а вёрстка
+    убирает лишние повторы с конца ряда.
+    """
+
+    group_id: str = Field(pattern=r"^g\d{2,}$")
+    places: list[Place] = Field(min_length=1)
+    decor_xml_ids: list[int] = Field(default_factory=list)
+    row: str | None = Field(default=None, description="Ряд повторов; None — одиночная группа")
+    x: int | None = Field(default=None, description="Левый край рамки группы, EMU")
+    y: int | None = Field(default=None, description="Верхний край рамки группы, EMU")
+    cx: int | None = Field(default=None, gt=0, description="Ширина рамки группы, EMU")
+    cy: int | None = Field(default=None, gt=0, description="Высота рамки группы, EMU")
+
+    @property
+    def shape(self) -> tuple[tuple[PlaceKind, TypeLevel | None], ...]:
+        return tuple(place.shape for place in self.places)
+
+
+class ExamplePassport(DomainModel):
+    """Паспорт слайда-примера: его места, собранные в группы (план Б, шаг 1).
+
+    Контракт между потоками A и B (`docs/agents/tasks-plan-b.md`, change 1а): композиция
+    пишет текст под места паспорта, вёрстка удаляет и перестраивает группы паспорта.
+    Строит паспорт change `the-example-passport`; здесь — только форма и её инварианты.
+    """
+
+    groups: list[PlaceGroup] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _ids_and_rows_are_consistent(self) -> ExamplePassport:
+        group_ids = [group.group_id for group in self.groups]
+        if len(set(group_ids)) != len(group_ids):
+            raise ValueError(f"группы паспорта повторяются: {sorted(group_ids)}")
+        place_ids = [place.place_id for place in self.places]
+        if len(set(place_ids)) != len(place_ids):
+            raise ValueError(f"места паспорта повторяются: {sorted(place_ids)}")
+        for row, groups in self.rows.items():
+            shapes = {group.shape for group in groups}
+            if len(shapes) > 1:
+                raise ValueError(f"ряд {row}: группы разной формы — повтором их не заполнить")
+        return self
+
+    @property
+    def places(self) -> list[Place]:
+        return [place for group in self.groups for place in group.places]
+
+    @property
+    def rows(self) -> dict[str, list[PlaceGroup]]:
+        """Ряды повторов в порядке групп паспорта — порядок ряда и есть порядок заполнения."""
+        out: dict[str, list[PlaceGroup]] = {}
+        for group in self.groups:
+            if group.row is not None:
+                out.setdefault(group.row, []).append(group)
+        return out
+
+    def place(self, place_id: str) -> Place | None:
+        return next((place for place in self.places if place.place_id == place_id), None)
+
+
 class Recipe(DomainModel):
     """Слайд-пример шаблона как готовая композиция.
 
@@ -446,6 +559,28 @@ class Recipe(DomainModel):
             "на титуле, разделе или финале и берёт его содержательному слайду последним (Т8)"
         ),
     )
+    #: Паспорт примера (ADR-009). `None` — каталог собран до плана Б или пример паспорт
+    #: не получил; путь `by_example` такой пример не берёт.
+    passport: ExamplePassport | None = None
+
+    @model_validator(mode="after")
+    def _passport_points_at_own_zones(self) -> Recipe:
+        """Место паспорта ссылается только на зону своего рецепта.
+
+        Иначе композиция написала бы текст под зону, которой на слайде нет, а вёрстка
+        не нашла бы, куда его поставить.
+        """
+        if self.passport is None:
+            return self
+        zones = {zone.zone_id for zone in self.zones}
+        stray = sorted(
+            place.place_id
+            for place in self.passport.places
+            if place.zone_id is not None and place.zone_id not in zones
+        )
+        if stray:
+            raise ValueError(f"{self.recipe_id}: места {stray} ссылаются на чужие зоны")
+        return self
 
 
 class DesignSystem(DomainModel):
