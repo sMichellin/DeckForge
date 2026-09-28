@@ -30,6 +30,10 @@ SUPPORTED_PATTERNS = frozenset(
         SmartArtPattern.MATRIX,
     }
 )
+#: Паттерны с нативной раскладкой. Шире `SUPPORTED_PATTERNS` на `hierarchy` и `pyramid`:
+#: их строит только путь `by_example` (change 5б `no-example-goes-by-design`) — прежний путь
+#: и каталог паттернов композитора остаются на `SUPPORTED_PATTERNS` байт в байт.
+NATIVE_PATTERNS = frozenset(SmartArtPattern)
 
 #: process: промежуток между шагами в долях ширины шага; отступ стрелки — в долях промежутка.
 _PROCESS_GAP, _PROCESS_LINK_MARGIN = 0.25, 0.2
@@ -56,6 +60,11 @@ _TIMELINE_MARKER = 0.2
 #: стрелки от узла в долях зазора; шагов деления пополам (точность — 2⁻³⁰ высоты рамки).
 _CYCLE_NODE_ASPECT, _CYCLE_GAP, _CYCLE_LINK_MARGIN = 2.5, 0.35, 0.2
 _CYCLE_SEARCH_STEPS = 30
+#: hierarchy (5б): промежуток между рядами в высотах узла; узлы — как шаги процесса.
+_HIERARCHY_ROW_GAP = 0.35
+#: pyramid (5б): ширина верхнего уровня в долях рамки; промежуток между уровнями в высотах.
+#: Верх уже основания, но вмещает подпись: треугольник до точки оставил бы её без места.
+_PYRAMID_TOP, _PYRAMID_GAP = 0.4, 0.12
 #: Радиус скругления `roundRect` по умолчанию — `adj` 16667/100000 от короткой стороны; поле
 #: текста отступает на радиус × (1 − 1/√2). Константы формата (presetShapeDefinitions).
 ROUND_RECT_RADIUS = 0.16667
@@ -109,6 +118,10 @@ def diagram_geometry(
         return _cycle(count, box)
     if pattern is SmartArtPattern.MATRIX:
         return _matrix(count, box, *_matrix_shape(component))
+    if pattern is SmartArtPattern.HIERARCHY:
+        return _hierarchy(count, box)
+    if pattern is SmartArtPattern.PYRAMID:
+        return _pyramid(count, box)
     raise LayoutFitError(f"паттерн {pattern.value} не поддерживается составными компонентами")
 
 
@@ -220,6 +233,52 @@ def _matrix(
                    for node in nodes)
     return Diagram(nodes=tuple(nodes), labels=labels, links=(), arrows=False,
                    round_nodes=False, text_inside=True)
+
+
+def _hierarchy(count: int, box: BBox) -> Diagram:
+    """Первый пункт — корень над рядом остальных, связи от корня к каждому — без стрелок:
+    подчинение, а не порядок шагов. Узлы — по правилам шага процесса (не выше ширины)."""
+    children = max(1, count - 1)
+    width = box.cx / (children + (children - 1) * _PROCESS_GAP)
+    rows = 2 if count > 1 else 1
+    height = min(box.cy / (rows + (rows - 1) * _HIERARCHY_ROW_GAP), width * _PROCESS_NODE_ASPECT)
+    row_step = height * (1 + _HIERARCHY_ROW_GAP)
+    top = box.y + int((box.cy - height - (rows - 1) * row_step) / 2)
+    node_cx, node_cy = max(1, int(width)), max(1, int(height))
+    root = BBox(x=box.x + (box.cx - node_cx) // 2, y=top, cx=node_cx, cy=node_cy)
+    kids = tuple(
+        BBox(x=box.x + int(i * width * (1 + _PROCESS_GAP)), y=top + int(row_step),
+             cx=node_cx, cy=node_cy)
+        for i in range(count - 1)
+    )
+    nodes = (root, *kids)
+    labels = tuple(_inset(node, round(min(node.cx, node.cy) * _ROUND_RECT_TEXT_INSET))
+                   for node in nodes)
+    links = tuple(
+        Link(root.x + root.cx // 2, root.bottom, kid.x + kid.cx // 2, kid.y) for kid in kids
+    )
+    return Diagram(nodes=nodes, labels=labels, links=links, arrows=False, round_nodes=False,
+                   text_inside=True)
+
+
+def _pyramid(count: int, box: BBox) -> Diagram:
+    """Уровни стопкой сверху вниз по центру рамки; ширина растёт от `_PYRAMID_TOP` рамки
+    у вершины до всей рамки у основания."""
+    height = box.cy / (count + (count - 1) * _PYRAMID_GAP)
+    nodes = tuple(
+        _centred(box, box.cx * (_PYRAMID_TOP + (1 - _PYRAMID_TOP) * (i + 1) / count),
+                 box.y + i * height * (1 + _PYRAMID_GAP), height)
+        for i in range(count)
+    )
+    labels = tuple(_inset(node, round(min(node.cx, node.cy) * _ROUND_RECT_TEXT_INSET))
+                   for node in nodes)
+    return Diagram(nodes=nodes, labels=labels, links=(), arrows=False, round_nodes=False,
+                   text_inside=True)
+
+
+def _centred(box: BBox, width: float, y: float, height: float) -> BBox:
+    cx = max(1, int(width))
+    return BBox(x=box.x + (box.cx - cx) // 2, y=int(y), cx=cx, cy=max(1, int(height)))
 
 
 def _timeline(count: int, box: BBox) -> Diagram:

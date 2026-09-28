@@ -13,6 +13,7 @@ import re
 import zipfile
 from pathlib import Path
 
+import pytest
 from pydantic import BaseModel
 
 from deckforge.domain.content import Brief, ContentPackage, Dataset, Series
@@ -160,3 +161,76 @@ def legacy_deck_xml(tmp_path: Path) -> dict[str, str]:
 def test_legacy_path_is_unchanged_byte_for_byte(tmp_path: Path) -> None:
     """Эталон снят до правки кода (22a): без параметра пути сборки файл прежний."""
     assert legacy_deck_xml(tmp_path) == json.loads(GOLDEN.read_text(encoding="utf-8"))
+
+
+def by_example(tmp_path: Path, block_id: str) -> tuple[PptxWriter, str]:
+    """Слайд без примера путём `by_example`: назначение без рецепта → вписывание → запись."""
+    template, manifest, fonts = template_and_manifest(tmp_path)
+    package = content()
+    block = next(b for b in blocks(manifest) if b.block_id == block_id)
+    assignment = RecipeAssignment(slide_id="s01", recipe_id=None, reason="примера нет")
+    slide = fit_slide(slide_for(assignment, block, manifest), manifest, fonts=fonts,
+                      content=package, by_example=True)
+    deck = DeckIR(deck_id="d1", variant="A", template_id=manifest.template_id, seed=7,
+                  slides=[slide])
+    writer = PptxWriter(template, manifest, fonts=fonts, by_example=True)
+    out = writer.write(deck, tmp_path / "deck.pptx", package)
+    (xml,) = slide_xml(out).values()
+    return writer, xml
+
+
+def flattened_or_dropped(writer: PptxWriter) -> list[str]:
+    """Потери блока: сплющен в текст или снят. Диаграмма → таблица — нативный объект, не текст."""
+    return [d for d in writer.degradations if "→ буллеты" in d or "→ маркир" in d or "убран" in d]
+
+
+def test_hierarchy_without_example_is_a_component_not_a_list(tmp_path: Path) -> None:
+    """Иерархии нет раскладки на прежнем пути — писатель сплющивал её в буллеты (22)."""
+    writer, xml = by_example(tmp_path, "sa-hierarchy")
+    assert flattened_or_dropped(writer) == []
+    assert 'name="Компонент hierarchy"' in xml
+
+
+#: Вид блока → по чему в XML слайда видно, что он записан своим объектом, а не текстом.
+NATIVE = {
+    **{f"sa-{p.value}": f'name="Компонент {p.value}"' for p in SmartArtPattern},
+    "kpi": ">37",
+    "quote": "Заказчик",
+    "callout": "<p:sp>",
+    "chart": "<c:chart ",
+    "chart-bad": "<a:tbl>",
+    "table": "<a:tbl>",
+}
+
+
+@pytest.mark.parametrize("block_id", sorted(NATIVE))
+def test_every_kind_without_example_keeps_its_own_object(tmp_path: Path, block_id: str) -> None:
+    """Ни один вид блока слайда без примера не снят и не сплющен в текст (22, R24).
+    Диаграмма из битых данных становится таблицей — нативным объектом, не буллетами."""
+    writer, xml = by_example(tmp_path, block_id)
+    assert flattened_or_dropped(writer) == []
+    assert NATIVE[block_id] in xml
+
+
+@pytest.mark.parametrize(("block_id", "native"), [
+    ("sa-long", 'name="Компонент process"'),
+    ("table-long", "<a:tbl>"),
+])
+def test_overflow_is_named_not_flattened(tmp_path: Path, block_id: str, native: str) -> None:
+    """Не влезшая схема или таблица остаётся своим видом, переполнение названо: прежний путь
+    сплющивал схему в буллеты, а длинную таблицу снимал отказом записи всей колоды."""
+    writer, xml = by_example(tmp_path, block_id)
+    assert flattened_or_dropped(writer) == []
+    assert native in xml
+    assert any("переполнен" in d for d in writer.degradations)
+
+
+def test_fitting_measures_every_pattern_only_on_the_by_example_path(tmp_path: Path) -> None:
+    """Вписывание (layout-fitting): иерархия меряется по своей раскладке на пути `by_example`;
+    без параметра — пропускается, как до change (писатель прежнего пути заменит её списком)."""
+    _, manifest, fonts = template_and_manifest(tmp_path)
+    block = next(b for b in blocks(manifest) if b.block_id == "sa-hierarchy")
+    slide = slide_for(RecipeAssignment(slide_id="s01", recipe_id=None, reason="примера нет"),
+                      block, manifest)
+    assert "sa-hierarchy" in fit_slide(slide, manifest, fonts=fonts, by_example=True).fit_report
+    assert "sa-hierarchy" not in fit_slide(slide, manifest, fonts=fonts).fit_report
