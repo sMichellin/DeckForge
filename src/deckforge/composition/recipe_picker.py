@@ -329,8 +329,10 @@ def _structural(
                 continue
             if kind is not own:
                 _note_fallback(notes, slide, own, chosen)
-            explain["path"] = "own" if kind is own else "related" if kind else "plain"
-            explain["seated"] = bool(body_seats(chosen))
+            if kind is own:
+                explain["path"] = "own"
+            else:
+                explain["path"] = "related" if kind is not None else "plain"
             return chosen
     chosen = _nearest(plain, slide, previous, has_asset=has_asset, needs_chars=needs_chars)
     explain["path"] = "plain" if chosen is not None else "none"
