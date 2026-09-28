@@ -241,6 +241,10 @@ class RunResult:
             "design_system": design_system_summary(design),
             "design_system_usage": usage,
             "skipped_checks": list(self.state.get("skipped_checks") or []),
+            # Какие проверки знал код этого прогона. Без списка «проверка прошла, находок
+            # нет» и «прогон собран кодом, где проверки ещё не было» выглядят одинаково —
+            # нулём, и мерило плана Б приняло бы второе за первое (строка 3).
+            "checks_known": _checks_known(),
             "degradations": list(self.state.get("degradations") or []),
             "notes": notes,
             "errors": list(self.state.get("errors") or []),
@@ -293,6 +297,14 @@ class RunResult:
             json.dumps(self.report(), ensure_ascii=False, indent=2), encoding="utf-8"
         )
         return path
+
+
+def _checks_known() -> list[str]:
+    """Проверки аудита, зарегистрированные в коде этого прогона."""
+    import deckforge.audit.runner  # noqa: F401 — импорт регистрирует проверки
+    from deckforge.audit.registry import REGISTRY
+
+    return [registered.check_id for registered in REGISTRY.all()]
 
 
 def build_deps(

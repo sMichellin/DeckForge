@@ -17,8 +17,10 @@
 что `scripts/check_deck_readable.py` (change `the-seventh-row-is-measured`): только если
 рядом с отчётом лежит `out/deck.pptx`. У фикстур файла нет, у прогонов стенда есть.
 
-Чего скрипт не считает: пустые карточки на слайде (проверка потока C, #245). В таблице
-они помечены прочерком, а не нулём: «не мерили» и «ноль» — разные ответы.
+Строка 3 — пустые карточки — берётся из находок проверки `integrity.empty_group`
+(поток C, #255) в `run.json`: сколько слайдов с ней. Только если проверку знал код прогона
+(`checks_known`) и она не пропущена; иначе прочерк, а не ноль: «не мерили» и «ноль» —
+разные ответы (change `the-third-row-is-measured`).
 
     python scripts/plan_b_metrics.py artifacts/runs/2026-09-28-main-19e3b7e/*/
     python scripts/plan_b_metrics.py --json <каталог прогона> …
@@ -108,6 +110,8 @@ class DeckMetrics:
     flattened: dict[str, int] = field(default_factory=dict)
     #: Строка 6: блоков, обрезанных или снятых кодом вписывания.
     cut_by_code: int = 0
+    #: Строка 3: слайдов с пустой группой примера; `None` — проверка не шла.
+    empty_cards: int | None = None
     #: Строка 7: блоков ниже порога читаемости по файлу колоды; `None` — файла нет.
     below_floor: int | None = None
 
@@ -155,7 +159,24 @@ def deck_metrics(report: dict[str, Any]) -> DeckMetrics:
         elif any(pattern.match(text) for pattern in _CUT_BY_CODE):
             metrics.cut_by_code += 1
     metrics.flattened = dict(sorted(flattened.items()))
+    metrics.empty_cards = _empty_cards(report)
     return metrics
+
+
+#: Проверка потока C, по которой считается строка 3 (#255).
+EMPTY_GROUP = "integrity.empty_group"
+
+
+def _empty_cards(report: dict[str, Any]) -> int | None:
+    """Строка 3: слайды с пустой группой примера — или `None`, если проверка не шла."""
+    known = report.get("checks_known") or []
+    if EMPTY_GROUP not in known or EMPTY_GROUP in (report.get("skipped_checks") or []):
+        return None
+    return len({
+        finding.get("slide_id")
+        for finding in report.get("findings_detail") or []
+        if finding.get("check_id") == EMPTY_GROUP
+    })
 
 
 def below_floor(run_dir: Path) -> int | None:
@@ -221,7 +242,8 @@ def table(decks: list[DeckMetrics]) -> str:
             [f"{d.top_example_uses} ({d.top_example})" for d in decks],
         ),
         row("2", "Соседних слайдов на одном примере", [str(d.adjacent_repeats) for d in decks]),
-        row("3", "Пустые карточки и плашки", ["—" for _ in decks]),
+        row("3", "Слайдов с пустой карточкой",
+            ["—" if d.empty_cards is None else str(d.empty_cards) for d in decks]),
         row("4", "Блоков снято из-за нехватки мест", [str(d.dropped_blocks) for d in decks]),
         row("", "…и пунктов списка снято", [str(d.dropped_items) for d in decks]),
         row("5", "Блоков сплющено в текст", [flat(d) for d in decks]),
