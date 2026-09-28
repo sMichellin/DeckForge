@@ -104,10 +104,10 @@ def test_a_real_quantity_is_still_a_number(text: str, raw: str) -> None:
 
 def test_the_composer_forbids_inventing_a_deadline() -> None:
     """Активная версия промпта называет соблазн строки следующего шага прямо."""
-    active = yaml.safe_load(Path("prompts/registry.yaml").read_text())["skills"][
+    active = yaml.safe_load(Path("prompts/registry.yaml").read_text(encoding="utf-8"))["skills"][
         "slide_composer"
     ]["active"]
-    text = (Path("prompts/slide_composer") / active / "system.j2").read_text()
+    text = (Path("prompts/slide_composer") / active / "system.j2").read_text(encoding="utf-8")
 
     assert "закрывающем слайде" in text
     assert "30 дней" in text, "правило не называет пример выдуманного срока"
@@ -116,7 +116,9 @@ def test_the_composer_forbids_inventing_a_deadline() -> None:
 def test_the_composer_response_schema_did_not_change() -> None:
     """Контракт ответа прежний: меняется просьба, а не схема."""
     bundle = get_prompt_registry().load("slide_composer")
-    old = (Path("prompts/slide_composer/1.4.0/schema.json")).read_text()
-    new = (Path("prompts/slide_composer") / bundle.version / "schema.json").read_text()
+    old = (Path("prompts/slide_composer/1.4.0/schema.json")).read_text(encoding="utf-8")
+    new = (Path("prompts/slide_composer") / bundle.version / "schema.json").read_text(
+        encoding="utf-8"
+    )
 
     assert old == new
