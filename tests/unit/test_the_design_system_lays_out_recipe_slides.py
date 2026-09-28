@@ -337,8 +337,12 @@ def test_the_writer_hands_its_design_rules_to_the_recipe(
     manifest: TemplateManifest, tmp_path: Path
 ) -> None:
     """История 15 через `PptxWriter.write`: писатель передаёт в `clone_recipe` свои ответы ДС —
-    синтетический шаблон с паспортом, 2 пункта из 4, и две карточки на всю ширину ряда."""
+    синтетический шаблон с паспортом, 2 пункта из 4, и две карточки на всю ширину ряда.
+    Что ДС судить не смогла (цвет текста на плашке унаследован), — в `degradations` писателя."""
     prs, part_name, found, cards = grid_example()
+    for card in cards:
+        card["plate"].fill.solid()
+        card["plate"].fill.fore_color.rgb = PLATE
     # Макеты python-pptx под именами синтетического манифеста — писатель сверяет их по имени.
     for spec in manifest.layouts:
         prs.slide_layouts[spec.index]._element.cSld.set("name", spec.name)
@@ -350,11 +354,13 @@ def test_the_writer_hands_its_design_rules_to_the_recipe(
         update={"layout_id": manifest.layouts[0].layout_id})
     deck = DeckIR(deck_id="d01", template_id=manifest.template_id, variant="A", seed=1,
                   slides=[ir])
-    out = PptxWriter(template, manifest, design_system=ds).write(deck, tmp_path / "deck.pptx")
+    writer = PptxWriter(template, manifest, design_system=ds)
+    out = writer.write(deck, tmp_path / "deck.pptx")
     slide = Presentation(str(out)).slides[0]
     width = (ROW_RIGHT - ROW_LEFT - GAP) // 2
     assert own_box(slide, cards[0]["plate"]) == (ROW_LEFT, TOP, width, PLATE_CY)
     assert own_box(slide, cards[1]["plate"]) == (ROW_LEFT + width + GAP, TOP, width, PLATE_CY)
+    assert [note.split(":")[0] for note in writer.degradations] == ["s01/zb1", "s01/zb2"]
 
 
 def _plate_by_scheme(prs, cards, plate_slot: str) -> None:

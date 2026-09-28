@@ -562,7 +562,8 @@ class PptxWriter:
             # `recipe_id` входит в сам предикат.
             recipe_id = slide.recipe_id
             if slide.by_recipe and recipe_id is not None:
-                written.append(clone_recipe(prs, self.recipes[recipe_id], slide, self.design))
+                written.append(clone_recipe(prs, self.recipes[recipe_id], slide, self.design,
+                                            notes=self.degradations))
             else:
                 written.append(
                     self._render_slide(prs, layouts[slide.layout_id], slide, content, table_style)
