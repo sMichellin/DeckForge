@@ -278,11 +278,23 @@ def duplicate_slides(ctx: CheckContext) -> Iterable[Finding]:
             if left is not None and right is not None:
                 distance = int(left - right)  # type: ignore[operator]
 
-            if distance is not None:
+            by_recipe = bool(slide.recipe_id) and bool(other.recipe_id)
+            if distance is not None and not by_recipe:
                 # Есть на что смотреть: решает картинка. Одинаковый текст на разных
                 # макетах даёт разные слайды, и дублем это не считается.
                 same = distance <= hash_threshold
                 why = f"изображения совпадают (расстояние {distance})"
+                note = ""
+            elif by_recipe:
+                # Оба слайда по рецепту: хеш меряет композицию примера — фон, плашки,
+                # сетку карточек, — а не содержание (RG61). В прогоне `96ef159` все
+                # 12 «дублей» были слайдами на одном виде рецепта с совпадением текста
+                # 0–25 %. Решает текст, тем же порогом, что и без превью.
+                same = similarity >= text_threshold
+                why = (
+                    f"совпадение текста {similarity:.0%} "
+                    "(слайды по рецепту: картинка меряет рецепт)"
+                )
                 note = ""
             else:
                 same = similarity >= text_threshold
@@ -305,6 +317,10 @@ def duplicate_slides(ctx: CheckContext) -> Iterable[Finding]:
                     "other_slide_id": slide.slide_id,
                     "cosine": f"{similarity:.3f}",
                     "phash_distance": str(distance) if distance is not None else "нет превью",
-                    "compared": "изображение" if distance is not None else "только текст",
+                    "compared": (
+                        "только текст"
+                        if distance is None
+                        else "текст" if by_recipe else "изображение"
+                    ),
                 },
             )
