@@ -125,6 +125,14 @@ class DeckForgeClient:
         self._ok(answer)
         return answer.content
 
+    def example(self, run_id: str, recipe_id: str) -> bytes | None:
+        """Превью слайда-примера шаблона; нет в кэше — `None`, лист покажет слайд без него."""
+        answer = self.http.get(f"/runs/{run_id}/examples/{recipe_id}")
+        if answer.status_code == 404:
+            return None
+        self._ok(answer)
+        return answer.content
+
     # --- действия ------------------------------------------------------------
 
     def choose_fixes(self, run_id: str, finding_ids: list[str]) -> None:

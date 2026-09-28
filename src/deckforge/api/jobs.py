@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from deckforge.api.examples import TEMPLATE_CACHE_DIR
 from deckforge.api.store import RunStore
 from deckforge.config import get_settings, load_run_config
 from deckforge.domain.content import Brief
@@ -116,7 +117,7 @@ def _prepare(request: dict[str, Any], paths: Any) -> tuple[Any, Any]:
         brief,
         run,
         paths.out,
-        cache_dir=Path(get_settings().artifacts_dir) / "template-cache",
+        cache_dir=Path(get_settings().artifacts_dir) / TEMPLATE_CACHE_DIR,
         asset_dir=paths.out / "assets",
         interactive=bool(request.get("interactive", True)),
         profile=get_settings().profile,

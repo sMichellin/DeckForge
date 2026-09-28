@@ -21,6 +21,7 @@ import streamlit as st
 
 from frontend.client import DEFAULT_BASE_URL, DeckForgeClient, ServiceError
 from frontend.highlight import by_slide, draw_findings
+from frontend.sheet import repeat_warnings, sheet_rows
 
 #: Как часто перерисовывать страницу, пока прогон идёт. Стадии длятся десятки секунд —
 #: чаще раза в секунду обновлять нечего.
@@ -285,6 +286,7 @@ def finished(run_id: str, status: dict[str, Any]) -> None:
     report = client().report(run_id) or {}
     if report:
         summary(report)
+        deck_sheet(run_id, report)
 
     st.subheader("Скачать")
     columns = st.columns(len(EXPORT_LABELS))
@@ -331,6 +333,38 @@ def summary(report: dict[str, Any]) -> None:
                 st.markdown(f"**{choice.get('slide_id')}** · {used} — {choice.get('why')}")
     with st.expander("Отчёт прогона целиком"):
         st.json(report)
+
+
+def deck_sheet(run_id: str, report: dict[str, Any]) -> None:
+    """Слайды колоды рядом с примерами шаблона, по которым они собраны (план Б, шаг 6).
+
+    Повтор примера и его пустые карточки видны глазами за секунды — без модели и без
+    разбора PDF. Логика строк — в `sheet.py`, здесь только разметка.
+    """
+    rows = sheet_rows(report)
+    if not rows:
+        return
+    with st.expander("Лист колоды: слайды рядом с примерами шаблона"):
+        for line in repeat_warnings(rows):
+            st.warning(f"Один пример на многих слайдах: {line}")
+        api = client()
+        for row in rows:
+            st.markdown(row.caption)
+            slide_column, example_column = st.columns(2)
+            with slide_column:
+                png = api.preview(run_id, row.slide_id)
+                if png is None:
+                    st.caption("превью слайда нет")
+                else:
+                    st.image(png, caption="слайд колоды", use_container_width=True)
+            with example_column:
+                example = api.example(run_id, row.recipe_id) if row.recipe_id else None
+                if example is not None:
+                    st.image(example, caption=f"пример {row.recipe_id}", use_container_width=True)
+                elif row.recipe_id:
+                    st.caption(f"превью примера {row.recipe_id} нет в кэше шаблона")
+            if row.why:
+                st.caption(row.why)
 
 
 def forget_run() -> None:

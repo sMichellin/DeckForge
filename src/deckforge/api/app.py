@@ -24,6 +24,7 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 
+from deckforge.api.examples import TEMPLATE_CACHE_DIR, example_preview
 from deckforge.api.queue import RESUME_JOB, RUN_JOB, ArqQueue, Queue
 from deckforge.api.schemas import FindingView, FixSelection, RunCreated, RunRequest, RunStatus
 from deckforge.api.store import FINAL_STATES, RunStore
@@ -40,15 +41,23 @@ EXPORT_TYPES: dict[str, str] = {
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 
 
-def create_app(store: RunStore | None = None, queue: Queue | None = None) -> FastAPI:
+def create_app(
+    store: RunStore | None = None,
+    queue: Queue | None = None,
+    cache_root: Path | None = None,
+) -> FastAPI:
     """Приложение. Хранилище и очередь передаются снаружи — тестам и inline-режиму.
 
     По умолчанию берётся arq: в `docker/compose.yaml` воркер поднят отдельным сервисом,
     потому что рендер превью запускает `soffice` подпроцессом и в соседний контейнер
     не дотянется.
+
+    `cache_root` — кэш шаблонов, куда рендер кладёт превью слайдов-примеров; по умолчанию
+    тот же, что у графа (`api/jobs.py`).
     """
     settings = get_settings()
     runs = store or RunStore(Path(settings.artifacts_dir) / "runs")
+    cache = cache_root or Path(settings.artifacts_dir) / TEMPLATE_CACHE_DIR
     jobs_queue = queue or ArqQueue(settings.redis_url)
 
     @asynccontextmanager
@@ -61,11 +70,11 @@ def create_app(store: RunStore | None = None, queue: Queue | None = None) -> Fas
     app = FastAPI(title="DeckForge", version="23", lifespan=lifespan)
     app.state.store = runs
     app.state.queue = jobs_queue
-    app.include_router(_router(runs, jobs_queue))
+    app.include_router(_router(runs, jobs_queue, cache))
     return app
 
 
-def _router(store: RunStore, queue: Queue) -> APIRouter:
+def _router(store: RunStore, queue: Queue, cache_root: Path) -> APIRouter:
     router = APIRouter()
 
     def known(run_id: str) -> str:
@@ -178,6 +187,18 @@ def _router(store: RunStore, queue: Queue) -> APIRouter:
         path = store.preview_of(known(run_id), slide_id)
         if path is None:
             raise HTTPException(status_code=404, detail="превью этого слайда нет")
+        return FileResponse(path, media_type="image/png")
+
+    @router.get("/runs/{run_id}/examples/{recipe_id}")
+    async def example(run_id: str, recipe_id: str) -> FileResponse:
+        """Превью слайда-примера шаблона прогона — для листа колоды (план Б, шаг 6).
+
+        Из кэша, который наполняет рендер: сервис сам не рендерит. Нет превью — 404,
+        и лист показывает слайд без примера, а не падает.
+        """
+        path = example_preview(store.paths(known(run_id)).template, recipe_id, cache_root)
+        if path is None:
+            raise HTTPException(status_code=404, detail=f"превью примера {recipe_id} нет")
         return FileResponse(path, media_type="image/png")
 
     @router.get("/runs/{run_id}/exports/{fmt}")
