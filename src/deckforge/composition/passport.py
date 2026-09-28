@@ -97,6 +97,22 @@ def _role(zone: Zone) -> TextRole:
     return TextRole.TITLE if zone.role is TypeLevel.SLIDE_TITLE else TextRole.BODY
 
 
+def probe_size(zone: Zone, manifest: TemplateManifest, floor: float) -> float | None:
+    """Кегль пробной заливки: тот, которым место будет написано, а не тот, что у автора.
+
+    Автор шаблона набирает подписи и мельче порога читаемости: у VK Tech `ex018` карточки
+    подписаны 9 pt при пороге 10 pt — 317 мест из 650 на этом шаблоне. Вёрстка такой текст
+    поднимет до порога (план Б, шаг 5а), и место вместит меньше, чем обещал паспорт.
+    Обещание исправляется здесь: ниже порога не меряем.
+
+    `None` — мерить кеглем автора, как раньше: он не ниже порога либо неизвестен вовсе.
+    """
+    if zone.size_pt is None or zone.size_pt >= floor:
+        return None
+    ladder = [size for size in manifest.size_ladder_pt if size >= floor]
+    return min(ladder) if ladder else floor
+
+
 def _landed(result: FitResult | None) -> bool:
     """Текст встал кеглем автора: без переполнения и без спуска по шкале."""
     return result is not None and not result.overflow and result.strategy == AS_IS
@@ -109,6 +125,8 @@ def fit_measure(
     rules = DesignRules(manifest, ds)
     layout_id = manifest.layouts[0].layout_id if manifest.layouts else "L01"
 
+    floor = rules.reading_floor_pt
+
     def fits(recipe: Recipe, texts: dict[str, str]) -> dict[str, bool]:
         zones = {zone.zone_id: zone for zone in recipe.zones}
         filled = {zone_id: text for zone_id, text in texts.items() if text}
@@ -116,7 +134,7 @@ def fit_measure(
             return dict.fromkeys(texts, True)
         blocks = [
             TextBlock(block_id=f"b{index:02d}", zone_id=zone_id, role=_role(zones[zone_id]),
-                      text=text)
+                      text=text, size_pt=probe_size(zones[zone_id], manifest, floor))
             for index, (zone_id, text) in enumerate(filled.items(), start=1)
         ]
         slide = SlideIR(
