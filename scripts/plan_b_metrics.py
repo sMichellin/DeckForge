@@ -80,8 +80,16 @@ class DeckMetrics:
     run_id: str
     composition_path: str
     content_slides: int = 0
-    #: Строка 1: пример выбран по смыслу, а не «ближайший по местам».
+    #: Строка 1: пример выбран по смыслу, а не «ближайший по местам» — с примером или без.
     by_meaning: int = 0
+    #: Строка 1, что лечит план Б: пример взят по местам, а не по смыслу. Цель — 0.
+    by_seats: int = 0
+    #: Строка 1: слайд получил пример по смыслу.
+    with_example: int = 0
+    #: Строка 1: примера нет, слайд собран дизайн-системой (ADR-009). Законный путь, но
+    #: видимый отдельно: иначе строку «по смыслу» можно выполнить, не назначив ни одного
+    #: примера (замечание потока A к #248).
+    by_design: int = 0
     #: Строка 2: самый частый пример колоды и сколько раз он стоит.
     top_example: str | None = None
     top_example_uses: int = 0
@@ -110,9 +118,13 @@ def deck_metrics(report: dict[str, Any]) -> DeckMetrics:
     choices = list(report.get("slide_choices") or [])
     content = [c for c in choices if c.get("intent") not in STRUCTURAL_INTENTS]
     metrics.content_slides = len(content)
-    metrics.by_meaning = sum(
-        1 for c in content if not str(c.get("why") or "").startswith(_BY_SEATS)
+    metrics.by_seats = sum(1 for c in content if str(c.get("why") or "").startswith(_BY_SEATS))
+    metrics.by_meaning = len(content) - metrics.by_seats
+    metrics.by_design = sum(
+        1 for c in content
+        if not c.get("recipe_id") and not str(c.get("why") or "").startswith(_BY_SEATS)
     )
+    metrics.with_example = metrics.by_meaning - metrics.by_design
 
     examples = [c.get("recipe_id") for c in choices]
     uses = Counter(example for example in examples if example)
@@ -164,7 +176,10 @@ def table(decks: list[DeckMetrics]) -> str:
         head,
         rule,
         row("", "Путь сборки", [d.composition_path for d in decks]),
-        row("1", "Пример по смыслу", [f"{d.by_meaning} из {d.content_slides}" for d in decks]),
+        row("1", "Пример по местам, а не по смыслу",
+            [f"{d.by_seats} из {d.content_slides}" for d in decks]),
+        row("1", "…с примером по смыслу", [f"{d.with_example}" for d in decks]),
+        row("1", "…путём дизайн-системы, без примера", [f"{d.by_design}" for d in decks]),
         row(
             "2",
             "Один пример на колоду, максимум",
@@ -178,11 +193,12 @@ def table(decks: list[DeckMetrics]) -> str:
         row("6", "Обрезка или снятие текста кодом", [str(d.cut_by_code) for d in decks]),
         row("7", "Блоков ниже порога читаемости", ["—" for _ in decks]),
     ]
-    by_meaning = sum(d.by_meaning for d in decks)
+    by_seats = sum(d.by_seats for d in decks)
+    with_example = sum(d.with_example for d in decks)
     content = sum(d.content_slides for d in decks)
     lines.append("")
     lines.append(
-        f"Итого пример по смыслу: {by_meaning} из {content}. "
+        f"Итого по местам: {by_seats} из {content}; с примером по смыслу: {with_example}. "
         "«—» — этим скриптом не мерится."
     )
     return "\n".join(lines)
