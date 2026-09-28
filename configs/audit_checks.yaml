@@ -179,6 +179,10 @@ checks:
     severity: warning
     title: "Два слайда дублируют друг друга"
     params: { phash_distance: 6, text_cosine: 0.92 }
+  integrity.empty_group:
+    deterministic: true
+    severity: warning
+    title: "На слайде осталась пустая карточка примера"
 
   # --- контент: орфография детерминирована (LanguageTool), не модель ---
   content.no_typos:

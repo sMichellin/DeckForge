@@ -13,10 +13,13 @@ import math
 import re
 from collections import Counter
 from collections.abc import Iterable
+from typing import Any
 
 from deckforge.audit.findings import make_finding
 from deckforge.audit.geometry import block_bbox, block_text, layout_of, slide_text
+from deckforge.audit.recipes import catalogue_with_passports
 from deckforge.audit.registry import CheckContext, CheckUnavailable, check
+from deckforge.designsystem.models import PlaceKind, Recipe
 from deckforge.domain.audit import Finding
 from deckforge.domain.enums import ChartType, Severity, TextRole
 from deckforge.domain.slide import ChartBlock, IconBlock, ImageBlock, SlideIR, TextBlock
@@ -323,4 +326,124 @@ def duplicate_slides(ctx: CheckContext) -> Iterable[Finding]:
                         else "текст" if by_recipe else "изображение"
                     ),
                 },
+            )
+
+
+# --- пустая группа примера (план Б, RG63, change `the-empty-card-is-found`) ---------------
+
+#: Фигуры страницы, у которых есть `cNvPr id`: по нему фигура слайда узнаётся в примере.
+_SHAPE_TAGS = ("sp", "pic", "cxnSp", "grpSp", "graphicFrame")
+
+
+def _page_shapes(page: Any) -> dict[int, str]:
+    """Фигуры страницы по `cNvPr id` → их текст (пустая строка — фигура без текста)."""
+    from pptx.oxml.ns import qn
+
+    tags = {qn(f"p:{tag}") for tag in _SHAPE_TAGS}
+    found: dict[int, str] = {}
+    for node in page.shapes._spTree.iter():
+        if node.tag not in tags:
+            continue
+        props = node.find(f"./*/{qn('p:cNvPr')}")
+        if props is None or not (props.get("id") or "").isdigit():
+            continue
+        found[int(props.get("id"))] = "".join(t.text or "" for t in node.iter(qn("a:t"))).strip()
+    return found
+
+
+def _empty_groups(recipe: Recipe, shapes: dict[int, str], authored: dict[int, int]) -> list[
+    tuple[str, str | None]
+]:
+    """Группы рецепта, которые остались на странице без текста: (группа, ряд).
+
+    Группа паспорта — карточка, пункт схемы: её фигуры (декор и рамки мест) живут и уходят
+    вместе. Осталась хоть одна, а текста нет ни в одном месте — на слайде пустая карточка.
+    Пусто и у автора — его композиция (RG36), не наша. Без паспорта — повторы каталога.
+    """
+    if recipe.passport is not None:
+        units = [
+            (
+                group.group_id,
+                group.row,
+                [*group.decor_xml_ids, *(p.xml_id for p in group.places if p.xml_id)],
+                [p.xml_id for p in group.places if p.kind is not PlaceKind.PICTURE and p.xml_id],
+            )
+            for group in recipe.passport.groups
+        ]
+    else:
+        units = [
+            (
+                f"repeat{index}",
+                None,
+                list(addresses),
+                [z.xml_id for z in recipe.zones if z.repeat == index and z.xml_id is not None],
+            )
+            for index, addresses in enumerate(recipe.repeat_xml_ids)
+        ]
+    empty: list[tuple[str, str | None]] = []
+    for unit, row, members, places in units:
+        if not places or not any(member in shapes for member in members):
+            continue
+        if any(shapes.get(place) for place in places):
+            continue
+        if not any(authored.get(place, 0) for place in places):
+            continue
+        empty.append((unit, row))
+    return empty
+
+
+@check(id="integrity.empty_group", deterministic=True, severity=Severity.WARNING,
+       title="На слайде осталась пустая карточка примера")
+def empty_group(ctx: CheckContext) -> Iterable[Finding]:
+    """На слайде осталась пустая карточка примера (план Б, строка 3; RG63).
+
+    Судья-VLM видел пустые карточки на 5 слайдах VK Tech из 10, детерминированные проверки
+    молчали: пустая у автора рамка — его композиция (RG36). Отличает нашу пустоту от чужой
+    паспорт примера: группа мест, которую мы должны были заполнить или снять целиком, осталась
+    на странице без текста. Пусто и у автора — не находка.
+
+    Меряется **готовый файл** против паспорта — контракта A ↔ B, а не решение писателя:
+    замер не подтверждает сам себя. Паспорт — из дизайн-системы или считается по снимку
+    (`catalogue_with_passports`); пример без паспорта сверяется по повторам каталога.
+    Страница — по номеру слайда в IR, как у `template.sample_text_left`.
+    """
+    path = ctx.deck_path
+    if path is None:
+        raise CheckUnavailable("файла колоды ещё нет: пустая карточка видна только в .pptx")
+    if not ctx.manifest.examples:
+        raise CheckUnavailable("в шаблоне нет слайдов-примеров: карточек примера не бывает")
+    recipe_ids = {slide.recipe_id for slide in ctx.deck.slides if slide.recipe_id}
+    if not recipe_ids:
+        raise CheckUnavailable("ни одного слайда по рецепту: карточек примера нет")
+    try:
+        from pptx import Presentation
+
+        pages = list(Presentation(str(path)).slides)
+    except Exception as error:
+        raise CheckUnavailable(f"файл колоды не открылся: {type(error).__name__}") from error
+    if len(pages) < len(ctx.deck.slides):
+        raise CheckUnavailable(
+            f"в файле {len(pages)} слайдов, а в IR {len(ctx.deck.slides)}: "
+            "страницу слайда по рецепту не найти"
+        )
+
+    recipes = catalogue_with_passports(ctx)
+    examples = {example.slide_index: example for example in ctx.manifest.examples}
+    for page, slide in zip(pages, ctx.deck.slides, strict=False):
+        recipe = recipes.get(slide.recipe_id or "")
+        example = examples.get(recipe.example_index) if recipe is not None else None
+        if recipe is None or example is None:
+            continue
+        authored = {s.xml_id: s.text_len for s in example.shapes if s.xml_id is not None}
+        for unit, row in _empty_groups(recipe, _page_shapes(page), authored):
+            where = f" ряда {row}" if row else ""
+            yield make_finding(
+                check_id="integrity.empty_group",
+                slide_id=slide.slide_id,
+                reason=f"empty_group:{recipe.recipe_id}:{unit}",
+                message=(
+                    f"Карточка {unit}{where} примера {recipe.recipe_id} осталась на слайде "
+                    "без текста: её надо было заполнить или снять целиком"
+                ),
+                evidence={"recipe_id": recipe.recipe_id, "group": unit, "row": row or ""},
             )

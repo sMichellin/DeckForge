@@ -88,7 +88,7 @@ async def test_clean_deck_produces_no_errors(manifest: TemplateManifest) -> None
 
 
 def test_deterministic_checks_cover_three_content_questions() -> None:
-    """Тридцать пять детерминированных проверок: 31 в `deterministic/` и четыре из `semantic/`.
+    """Тридцать шесть детерминированных проверок: 32 в `deterministic/` и четыре из `semantic/`.
 
     Папка отвечает на вопрос «про смысл ли проверка», а флаг `deterministic` —
     «одинаков ли результат на повторных запусках». Три вопроса Приложения 1 уведены
@@ -100,9 +100,11 @@ def test_deterministic_checks_cover_three_content_questions() -> None:
     Тридцать первая в `deterministic/` — декор, ведущий в никуда (RG52): стрелка примера,
     оставшаяся у снятой зоны. Обе проверки пришли разными ветками, каждая подняла счёт
     с 33 до 34, и слияние взяло одну правку из двух — счёт разошёлся с реестром.
+
+    Тридцать вторая — пустая карточка примера на слайде (план Б, RG63, `integrity.empty_group`).
     """
     deterministic = {c.check_id for c in REGISTRY.deterministic()}
-    assert len(deterministic) == 35
+    assert len(deterministic) == 36
     assert {
         "content.no_typos",
         "content.numbers_grounded",
