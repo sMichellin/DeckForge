@@ -86,6 +86,8 @@ class DeckReport:
     unmeasured_place: int = 0
     #: Пустые рамки, пустые и в самом шаблоне: композиция автора, а не наш брак.
     blank_in_template: int = 0
+    #: Фигуры за краем слайда, которые за краем и в шаблоне: вылет автора, а не наш.
+    outside_in_template: int = 0
     left_edges: Counter[int] = None  # type: ignore[assignment]
     notes: int = 0
 
@@ -126,22 +128,38 @@ def _usable_width(shape: object) -> int:
     return max(0, width - inset_left - inset_right)
 
 
-def _outside(shape: object, slide_cx: int, slide_cy: int) -> str | None:
-    """Насколько фигура вышла за край слайда. `None` — не вышла или рамка неизвестна."""
+#: Вылет фигуры за край слайда с каждой стороны, EMU: слева, сверху, справа, снизу.
+Overhang = tuple[int, int, int, int]
+#: Слова для сторон вылета — в том же порядке, что `Overhang`.
+_SIDES = ("слева", "сверху", "справа", "снизу")
+
+
+def _overhang(shape: object, slide_cx: int, slide_cy: int) -> Overhang | None:
+    """Вылет фигуры за край с каждой стороны. `None` — рамка неизвестна."""
     box = [getattr(shape, name, None) for name in ("left", "top", "width", "height")]
     if any(value is None for value in box):
         return None
     left, top, width, height = (int(value) for value in box)  # type: ignore[arg-type]
-    over = []
-    if left < 0:
-        over.append(f"слева на {-left}")
-    if top < 0:
-        over.append(f"сверху на {-top}")
-    if left + width > slide_cx:
-        over.append(f"справа на {left + width - slide_cx}")
-    if top + height > slide_cy:
-        over.append(f"снизу на {top + height - slide_cy}")
-    return ", ".join(over) or None
+    return (
+        max(0, -left),
+        max(0, -top),
+        max(0, left + width - slide_cx),
+        max(0, top + height - slide_cy),
+    )
+
+
+def _says_overhang(over: Overhang) -> str:
+    """Вылет словами: только те стороны, где он есть."""
+    sides = zip(_SIDES, over, strict=True)
+    return ", ".join(f"{side} на {value}" for side, value in sides if value)
+
+
+def _outside(shape: object, slide_cx: int, slide_cy: int) -> str | None:
+    """Насколько фигура вышла за край слайда. `None` — не вышла или рамка неизвестна."""
+    over = _overhang(shape, slide_cx, slide_cy)
+    if over is None:
+        return None
+    return _says_overhang(over) or None
 
 
 def _too_tall(
@@ -268,12 +286,40 @@ def filled_in_template(template: Path | None) -> set[str]:
     }
 
 
+def outside_in_template(template: Path | None) -> dict[str, Overhang]:
+    """Вылеты фигур шаблона за край его слайда: имя фигуры → вылет с каждой стороны.
+
+    Нужны, чтобы не обвинять шаблон в своих мерках — тем же приёмом, которым
+    `filled_in_template` отличает пустую рамку автора от стёртой нами. Прогон `96ef159`
+    дал единственную находку края на фигуре, которая выходит за край и в слайде-примере
+    шаблона, и ровно на столько же: писатель копирует пример целиком и фигур не двигает.
+
+    Ключ — имя фигуры: оно копируется вместе с фигурой и переживает запись.
+    """
+    if template is None:
+        return {}
+    presentation = Presentation(str(template))
+    slide_cx = int(presentation.slide_width or 0)
+    slide_cy = int(presentation.slide_height or 0)
+    outside: dict[str, Overhang] = {}
+    for slide in presentation.slides:
+        for shape in slide.shapes:
+            over = _overhang(shape, slide_cx, slide_cy)
+            if over is None or not any(over):
+                continue
+            name = str(getattr(shape, "name", "?"))
+            known = outside.get(name)
+            outside[name] = over if known is None else tuple(map(max, known, over))  # type: ignore[assignment]
+    return outside
+
+
 def check_deck(
     path: Path,
     *,
     size_floor_pt: float,
     library: FontLibrary,
     filled: set[str] | None = None,
+    outside: dict[str, Overhang] | None = None,
 ) -> DeckReport:
     """Замер одной колоды. Ничего не пишет и файла не трогает."""
     presentation = Presentation(str(path))
@@ -311,11 +357,21 @@ def check_deck(
             if shape.left is not None:
                 report.left_edges[int(shape.left)] += 1
 
-            over = _outside(shape, slide_cx, slide_cy)
-            if over is not None:
-                report.findings.append(
-                    Finding(number, name, "за краем слайда", f"фигура вышла {over} EMU")
-                )
+            over = _overhang(shape, slide_cx, slide_cy)
+            if over is not None and any(over):
+                # Вылет автора — не наш брак (RG58). Находка — только вылет больше
+                # шаблонного хотя бы с одной стороны: значит, фигуру отодвинули мы.
+                author = (outside or {}).get(name)
+                theirs = zip(over, author, strict=True) if author is not None else ()
+                if author is not None and all(ours <= his for ours, his in theirs):
+                    report.outside_in_template += 1
+                else:
+                    report.findings.append(
+                        Finding(
+                            number, name, "за краем слайда",
+                            f"фигура вышла {_says_overhang(over)} EMU",
+                        )
+                    )
 
             usable = _usable_width(shape)
             runs = _runs(shape)
@@ -435,6 +491,11 @@ def _print(report: DeckReport) -> None:
             f"  пустых рамок автора: {report.blank_in_template} — пусты и в шаблоне, "
             "это его композиция"
         )
+    if report.outside_in_template:
+        print(
+            f"  фигур за краем шаблона: {report.outside_in_template} — вылезают и в нём, "
+            "это композиция автора"
+        )
     if report.unmeasured_place:
         print(
             f"  вне проверки наложения: {report.unmeasured_place} фигур — "
@@ -465,10 +526,15 @@ def main(argv: list[str] | None = None) -> int:
 
     library = _library()
     filled = filled_in_template(args.template)
+    outside = outside_in_template(args.template)
     total = 0
     for path in args.decks:
         report = check_deck(
-            path, size_floor_pt=args.size_floor_pt, library=library, filled=filled
+            path,
+            size_floor_pt=args.size_floor_pt,
+            library=library,
+            filled=filled,
+            outside=outside,
         )
         _print(report)
         total += len(report.findings)
