@@ -4,7 +4,7 @@
     deckforge design-system template.pptx -o дизайн-система.html
     deckforge ingest  content/ --brief brief.yaml -o content.json
     deckforge generate template.pptx content/ --variant A --config configs/default.yaml
-    deckforge audit   deck.pptx --manifest manifest.json
+    deckforge audit   <каталог прогона или фикстура> -o audit_report.json
     deckforge export  deck.json --format pptx,pdf,html
     deckforge checks  --list
 """
@@ -151,12 +151,33 @@ def generate(
 
 @app.command()
 def audit(
-    deck: Path = typer.Argument(..., exists=True),
-    manifest: Path = typer.Option(..., "--manifest", exists=True),
+    run: Path = typer.Argument(..., exists=True, file_okay=False),
     out: Path = typer.Option(Path("audit_report.json"), "--out", "-o"),
+    variant: str = typer.Option("A", "--variant"),
 ) -> None:
-    """Прогон аудита по готовой колоде (change 15)."""
-    raise NotImplementedError("change (15) audit-deterministic")
+    """Детерминированный аудит готового прогона — без модели и без стенда.
+
+    `RUN` — каталог прогона стенда (`checkpoint.sqlite` рядом) или фикстура
+    (`tests/fixtures/runs/…`). Change `the-deck-is-audited-offline`.
+    """
+    import asyncio
+    import json
+
+    from deckforge.pipeline.replay import load_snapshot, reaudit
+
+    snapshot = load_snapshot(run, variant=variant)
+    result = asyncio.run(reaudit(snapshot))
+    payload = {
+        "run_id": snapshot.run_id,
+        "report": result.report.model_dump(mode="json"),
+        "skipped_checks": result.skipped_checks,
+    }
+    out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    summary = result.report.summary
+    typer.echo(
+        f"{snapshot.run_id}: ошибок {summary.errors}, предупреждений {summary.warnings}, "
+        f"пропущено проверок {len(result.skipped_checks)} → {out}"
+    )
 
 
 @app.command()
