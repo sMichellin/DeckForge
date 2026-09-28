@@ -291,24 +291,47 @@ def _structural(
     notes: list[str] | None,
     sink: dict[str, object] | None = None,
 ) -> Recipe | None:
-    """Рецепт структурного слайда: свой вид → родственный → вмещающий содержательный.
+    """Рецепт структурного слайда: сперва с местом под тело, потом по ступени цепочки.
 
-    Содержательный берётся только **без повторов** (RG24): содержание структурного
-    слайда — заголовок, а не список, и набить повторы ему нечем. На VK Tech откат дал
-    обложке ряд карточек, карточки остались пустыми и были удалены — на слайде остались
-    обрезанный заголовок и логотип. Обложка по макету лучше пустой обложки.
+    Цепочка видов — свой вид, затем родственные (`RELATED_KINDS`), затем вмещающий
+    содержательный. Содержательный берётся только **без повторов** (RG24): содержание
+    структурного слайда — заголовок, а не список, и набить повторы ему нечем. На VK Tech
+    откат дал обложке ряд карточек, карточки остались пустыми и были удалены — на слайде
+    остались обрезанный заголовок и логотип. Обложка по макету лучше пустой обложки.
+
+    Цепочка проходится дважды, и первый проход берёт только рецепты с местом под тело
+    (RG55). Иначе вид, у которого мест нет ни у одного рецепта, обрывал перебор,
+    и строка слайда терялась: на прогоне `19e3b7e` так пропало содержание закрывающих
+    слайдов WorkSpace («final» в шаблоне нет, у обоих рецептов «cover» мест 0)
+    и Education (единственный рецепт «final» без мест, а у «section» место есть).
+    Место под строку весит больше ступени цепочки.
+
+    Содержательный рецепт с местом входит в первый проход только если своего вида
+    в шаблоне **нет вовсе**. Есть свой вид, но мест нет нигде — слайд остаётся на своём
+    виде: обложка по своему виду лучше обложки текстовым рецептом, а её подзаголовок —
+    известное ограничение, а не потерянный факт.
     """
     explain: dict[str, object] = sink if sink is not None else {}
     explain.update(wanted=own.value, fitting=len(fitting))
-    for kind in (own, *RELATED_KINDS.get(slide.intent, ())):
-        same = [recipe for recipe in recipes if recipe.kind is kind]
-        chosen = _nearest(same, slide, previous, has_asset=has_asset, needs_chars=needs_chars)
-        if chosen is not None:
+    chain = (own, *RELATED_KINDS.get(slide.intent, ()))
+    plain = [recipe for recipe in fitting if not recipe.repeats]
+    of_kind = {kind: [recipe for recipe in recipes if recipe.kind is kind] for kind in chain}
+    seated: list[tuple[RecipeKind | None, list[Recipe]]] = [
+        (kind, [recipe for recipe in same if body_seats(recipe)]) for kind, same in of_kind.items()
+    ]
+    if own not in {recipe.kind for recipe in recipes}:
+        seated.append((None, [recipe for recipe in plain if body_seats(recipe)]))
+    by_kind: list[tuple[RecipeKind | None, list[Recipe]]] = list(of_kind.items())
+    for candidates in (seated, by_kind):
+        for kind, same in candidates:
+            chosen = _nearest(same, slide, previous, has_asset=has_asset, needs_chars=needs_chars)
+            if chosen is None:
+                continue
             if kind is not own:
                 _note_fallback(notes, slide, own, chosen)
-            explain["path"] = "own" if kind is own else "related"
+            explain["path"] = "own" if kind is own else "related" if kind else "plain"
+            explain["seated"] = bool(body_seats(chosen))
             return chosen
-    plain = [recipe for recipe in fitting if not recipe.repeats]
     chosen = _nearest(plain, slide, previous, has_asset=has_asset, needs_chars=needs_chars)
     explain["path"] = "plain" if chosen is not None else "none"
     if chosen is not None:
