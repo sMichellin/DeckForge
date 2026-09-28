@@ -158,6 +158,45 @@ export DECKFORGE_PORT_OFFSET=20
 
 ---
 
+## 4а. Стенд: прогон вне процесса API (28.09)
+
+Стенд поднимается пятью скриптами из `~/e2e-work/stand/`, а не `make up`: на сервере
+`podman compose` требует провайдера, и ради него ставить в систему ничего нельзя (§8.2).
+
+```bash
+bash ~/e2e-work/stand/redis.sh          # очередь arq
+bash ~/e2e-work/stand/languagetool.sh   # орфография полного аудита
+bash ~/e2e-work/stand/api.sh            # API :8080, очередь arq
+bash ~/e2e-work/stand/worker.sh         # прогон вне процесса API
+bash ~/e2e-work/stand/ui.sh             # интерфейс :8501
+```
+
+**Почему не `InlineQueue`.** До 28.09 стенд держал прогон задачей в цикле событий API
+(`~/e2e-work/inline_app.py`). Цена была такая: блокирующие стадии (разбор `.pptx`,
+`soffice`, вызовы llama.cpp) замораживали цикл на минуты, опрос статуса ждал, интерфейс
+отдавал человеку `httpx.ReadTimeout` вместо статуса, а перезапуск API убивал идущие
+прогоны. На профиле `final` — три варианта и судья-VLM — это гарантировано.
+
+С воркером цикл API свободен: замер на идущем прогоне (`3e31bf35b614`, профиль `demo`)
+— статус отвечает за **7–8 мс**, пока прогон идёт. Перезапуск API прогонов больше
+не убивает; убивает перезапуск **воркера** — задача живёт в нём.
+
+Прежний режим остался флагом: `QUEUE=inline bash ~/e2e-work/stand/api.sh`.
+
+**Профиль прогона** задаётся переменной: `PROFILE=demo bash ~/e2e-work/stand/ui-run-content.sh`
+(она уезжает в поле `profile` запроса `POST /runs`). Из интерфейса профиль выбирается
+выпадашкой — API его принимает и проверяет по `available_profiles()`.
+
+Что проверить после подъёма:
+
+```bash
+curl -s localhost:8080/profiles          # {"profiles":["demo","dev","final"]}
+podman logs --tail 3 deckforge-worker    # «Starting worker for 2 functions»
+podman ps                                # пять контейнеров: api, worker, ui, redis, languagetool
+```
+
+---
+
 ## 5. Секреты на сервере
 
 `.env` создаётся **на сервере руками**, из `.env.example`, и в git не уезжает:
