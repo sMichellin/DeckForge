@@ -1,8 +1,8 @@
 """Change 5б `no-example-goes-by-design`: слайд без примера верстается дизайн-системой.
 
-Назначение `RecipeAssignment` приедет из потока A (эпик #242, `composition/assign.py`); до его
-мержа тесты собирают слайд по подделке той же формы (TEAMWORK §9). Швы — `fit_slide`
-и `PptxWriter.write` (колода целиком). Шрифт — синтетический с фиксированной шириной знака:
+Слайд собирается по настоящему назначению `RecipeAssignment` потока A (`composition/assign.py`,
+#248). Швы — `fit_slide`, `PptxWriter.write` (колода целиком), `export_html` и общие для pptx
+и html `SlideDegrader`/`SlideValidator`. Шрифт — синтетический с фиксированной шириной знака:
 замер не зависит от шрифтов машины, и эталон прежнего пути совпадает в CI.
 """
 
@@ -14,8 +14,8 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from pydantic import BaseModel
 
+from deckforge.composition.assign import RecipeAssignment
 from deckforge.domain.content import Brief, ContentPackage, Dataset, Series
 from deckforge.domain.enums import CalloutTone, ChartType, SmartArtPattern, TextRole
 from deckforge.domain.slide import (
@@ -32,10 +32,11 @@ from deckforge.domain.slide import (
     TextBlock,
 )
 from deckforge.domain.template import TemplateManifest
+from deckforge.export.html import export_html
 from deckforge.layout.fitting import fit_slide
 from deckforge.layout.fonts import FontLibrary
 from deckforge.parsing import TemplateParser
-from deckforge.rendering.writer import PptxWriter
+from deckforge.rendering.writer import PptxWriter, SlideDegrader, SlideValidator, WriterError
 from tests.integration.test_native_objects import build_template
 from tests.unit.test_layout_fonts import make_font
 
@@ -52,15 +53,6 @@ LONG = [
     "Перенести данные из старой системы без простоя",
     "Запустить систему и собрать обратную связь",
 ]
-
-
-class RecipeAssignment(BaseModel):
-    """Подделка контракта из эпика #242: своего модуля в `composition/**` не заводится."""
-
-    slide_id: str
-    recipe_id: str | None
-    reason: str
-    row_fill: dict[str, int] = {}
 
 
 def template_and_manifest(tmp_path: Path) -> tuple[Path, TemplateManifest, FontLibrary]:
@@ -196,7 +188,7 @@ NATIVE = {
     **{f"sa-{p.value}": f'name="Компонент {p.value}"' for p in SmartArtPattern},
     "kpi": ">37",
     "quote": "Заказчик",
-    "callout": "<p:sp>",
+    "callout": 'name="Callout risk"',
     "chart": "<c:chart ",
     "chart-bad": "<a:tbl>",
     "table": "<a:tbl>",
@@ -234,3 +226,59 @@ def test_fitting_measures_every_pattern_only_on_the_by_example_path(tmp_path: Pa
                       block, manifest)
     assert "sa-hierarchy" in fit_slide(slide, manifest, fonts=fonts, by_example=True).fit_report
     assert "sa-hierarchy" not in fit_slide(slide, manifest, fonts=fonts).fit_report
+
+
+@pytest.mark.parametrize(("recipe_id", "as_before"), [(None, False), ("r1", True)])
+def test_only_the_slide_without_example_is_relaxed(
+    tmp_path: Path, recipe_id: str | None, as_before: bool
+) -> None:
+    """Путь `by_example` ослабляет проверку и деградацию только слайду без рецепта: рецептный
+    слайд того же пути с блоком вне зон отказывает из-за переполнения и сплющивает длинную
+    таблицу, как раньше."""
+    _, manifest, fonts = template_and_manifest(tmp_path)
+    package = content()
+    block = next(b for b in blocks(manifest) if b.block_id == "table-long")
+    assignment = RecipeAssignment(slide_id="s01", recipe_id=recipe_id, reason="назначение")
+    slide = fit_slide(slide_for(assignment, block, manifest), manifest, fonts=fonts,
+                      content=package, by_example=True)
+    problems = SlideValidator(manifest, by_example=True).problems(slide, package)
+    degrader = SlideDegrader(manifest, fonts, by_example=True)
+    degrader.degrade(slide, package)
+    assert any("переполнение" in p for p in problems) is as_before
+    assert any("таблица → буллеты" in d for d in degrader.degradations) is as_before
+
+
+def test_writer_refuses_a_diagram_the_fitting_path_did_not_measure(tmp_path: Path) -> None:
+    """Путь называют два независимых флага — вписывания и писателя. Вписывание прежним путём
+    иерархию не меряет; писатель пути `by_example` не пишет схему без замера молча, а отказывает:
+    рассинхрон флагов иначе дал бы схему кеглем наугад."""
+    template, manifest, fonts = template_and_manifest(tmp_path)
+    package = content()
+    block = next(b for b in blocks(manifest) if b.block_id == "sa-hierarchy")
+    assignment = RecipeAssignment(slide_id="s01", recipe_id=None, reason="примера нет")
+    slide = fit_slide(slide_for(assignment, block, manifest), manifest, fonts=fonts,
+                      content=package)
+    deck = DeckIR(deck_id="d1", variant="A", template_id=manifest.template_id, seed=7,
+                  slides=[slide])
+    writer = PptxWriter(template, manifest, fonts=fonts, by_example=True)
+    with pytest.raises(WriterError, match="s01/sa-hierarchy: нет замера вписывания"):
+        writer.write(deck, tmp_path / "deck.pptx", package)
+
+
+def test_html_shows_what_pptx_shows_on_the_by_example_path(tmp_path: Path) -> None:
+    """HTML-экспорт деградирует и проверяет тем же путём сборки, что и pptx: иерархия слайда
+    без примера остаётся схемой, а не превращается в список только в одном из форматов."""
+    _, manifest, fonts = template_and_manifest(tmp_path)
+    package = content()
+    block = next(b for b in blocks(manifest) if b.block_id == "sa-hierarchy")
+    assignment = RecipeAssignment(slide_id="s01", recipe_id=None, reason="примера нет")
+    slide = fit_slide(slide_for(assignment, block, manifest), manifest, fonts=fonts,
+                      content=package, by_example=True)
+    deck = DeckIR(deck_id="d1", variant="A", template_id=manifest.template_id, seed=7,
+                  slides=[slide])
+    html = export_html(deck, manifest, tmp_path / "d.html", package, fonts,
+                       by_example=True).read_text(encoding="utf-8")
+    legacy = export_html(deck, manifest, tmp_path / "legacy.html", package,
+                         fonts).read_text(encoding="utf-8")
+    assert 'class="block smartart"' in html and 'class="block bullets"' not in html
+    assert 'class="block bullets"' in legacy

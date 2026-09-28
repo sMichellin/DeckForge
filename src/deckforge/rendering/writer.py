@@ -56,7 +56,7 @@ from deckforge.domain.template import (
 )
 from deckforge.domain.units import EMU_PER_PT
 from deckforge.layout.by_design import DesignRules
-from deckforge.layout.diagram import NATIVE_PATTERNS, SUPPORTED_PATTERNS
+from deckforge.layout.diagram import buildable_patterns, goes_by_design
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fitting import fit_block, fit_table, table_row_heights
 from deckforge.layout.fonts import FontLibrary
@@ -188,10 +188,10 @@ class SlideValidator:
         by_example: bool = False,
     ) -> None:
         self.manifest = manifest
-        #: Путь `by_example` (5б): переполнение не отказ, а заметка деградации — блок
-        #: пишется своим видом, и строится любой паттерн с нативной раскладкой.
+        #: Путь `by_example` (5б): у слайда без примера переполнение не отказ, а заметка
+        #: деградации — блок пишется своим видом, и строится любой паттерн с нативной
+        #: раскладкой. Рецептный слайд того же пути проверяется как раньше.
         self.by_example = by_example
-        self.patterns = NATIVE_PATTERNS if by_example else SUPPORTED_PATTERNS
         #: Имена композиций шаблона. Каталог даёт тот, у кого он на руках: `domain`
         #: о дизайн-системе не знает (ADR-003), поэтому существование рецепта
         #: проверяется здесь, а не в `SlideIR.by_recipe`. Без каталога проверка молчит —
@@ -224,6 +224,7 @@ class SlideValidator:
         if all(isinstance(block, ImageBlock) for block in slide.blocks):
             out.append(f"{slide.slide_id}: слайд из одних картинок нарушает C3")
         taken: set[int] = set()
+        patterns = buildable_patterns(slide, by_example=self.by_example)
         for block in slide.blocks:
             where = f"{slide.slide_id}/{block.block_id}"
             # Блок слайда по рецепту стоит в зоне шаблона: рамку ему дал автор, кегль —
@@ -258,11 +259,18 @@ class SlideValidator:
                 out += self._fit_problems(where, block.block_id, slide)
             elif isinstance(block, SmartArtBlock):
                 out += self._box_problems(where, block.bbox, block.type)
-                if block.pattern not in self.patterns:
+                if block.pattern not in patterns:
                     out.append(f"{where}: паттерн {block.pattern.value} не строится, "
                                "а в буллеты не заменён")
                 if not all(item.strip() for item in block.items):
                     out.append(f"{where}: пустой элемент компонента")
+                if (goes_by_design(slide, by_example=self.by_example)
+                        and block.block_id not in slide.fit_report):
+                    # Путь называют два флага — вписывания и писателя (5б). Схему, которую
+                    # вписывание не мерило, этот путь не пишет кеглем наугад: рассинхрон
+                    # флагов называет себя здесь, а не прячется в заметке деградации.
+                    out.append(f"{where}: нет замера вписывания — путь by_example не передан "
+                               "вписыванию")
                 out += self._fit_problems(where, block.block_id, slide)
             elif isinstance(block, IconBlock):
                 out += self._box_problems(where, block.bbox, block.type)
@@ -293,7 +301,7 @@ class SlideValidator:
             # недостижима: до неё слайд не доживал.
             return []
         out = []
-        if fit.overflow and not self.by_example:
+        if fit.overflow and not goes_by_design(slide, by_example=self.by_example):
             out.append(f"{where}: переполнение, стратегия {fit.strategy}")
         if ladder and fit.final_size_pt not in ladder:
             out.append(f"{where}: кегль {fit.final_size_pt:g} вне шкалы шаблона {ladder}")
@@ -374,9 +382,9 @@ class SlideDegrader:
     ) -> None:
         self.manifest = manifest
         self.fonts = fonts
-        #: Путь `by_example` (5б): схема, таблица и диаграмма остаются своим видом.
+        #: Путь `by_example` (5б): у слайда без примера схема, таблица и диаграмма остаются
+        #: своим видом. Рецептный слайд того же пути деградирует как раньше.
         self.by_example = by_example
-        self.patterns = NATIVE_PATTERNS if by_example else SUPPORTED_PATTERNS
         #: Что подменено и почему — для аудита и интерфейса.
         self.degradations: list[str] = []
 
@@ -391,6 +399,8 @@ class SlideDegrader:
             return slide
         blocks: list[Block] = []
         report = dict(slide.fit_report)
+        by_design = goes_by_design(slide, by_example=self.by_example)
+        patterns = buildable_patterns(slide, by_example=self.by_example)
         for block in slide.blocks:
             replaced: tuple[Block, FitResult] | None = None
             where = f"{slide.slide_id}/{block.block_id}"
@@ -411,7 +421,7 @@ class SlideDegrader:
                         replaced = (table, fit)
                         self.degradations.append(f"{where}: диаграмма → таблица ({reason})")
                         bullets = dataset_bullets(dataset)
-                        if fit.overflow and bullets and not self.by_example:
+                        if fit.overflow and bullets and not by_design:
                             replaced = self._as_bullets(block.block_id, block.bbox, bullets,
                                                         layout)
                             self.degradations.append(f"{where}: таблица → буллеты (не влезла)")
@@ -427,17 +437,17 @@ class SlideDegrader:
                         for row in block.rows
                     ]
                 )
-                if table_fit is not None and table_fit.overflow and items and not self.by_example:
+                if table_fit is not None and table_fit.overflow and items and not by_design:
                     replaced = self._as_bullets(block.block_id, block.bbox, items, layout)
                     self.degradations.append(f"{where}: таблица → буллеты (не влезла)")
             elif isinstance(block, SmartArtBlock) and block.bbox is not None:
                 smartart_fit = report.get(block.block_id)
                 reason = (
-                    "паттерн не поддерживается" if block.pattern not in self.patterns
+                    "паттерн не поддерживается" if block.pattern not in patterns
                     else "не влез" if smartart_fit is not None and smartart_fit.overflow
                     else None
                 )
-                if reason is not None and not self.by_example:
+                if reason is not None and not by_design:
                     replaced = self._as_bullets(block.block_id, block.bbox, block.items, layout)
                     self.degradations.append(
                         f"{where}: smartart {block.pattern.value} → буллеты ({reason})"
@@ -468,7 +478,7 @@ class SlideDegrader:
             else:
                 blocks.append(replaced[0])
                 report[block.block_id] = replaced[1]
-        if self.by_example:
+        if by_design:
             # Путь `by_example` (5б): не влезший блок не сплющивается в текст и не снимается —
             # он пишется своим видом кеглем вписывания, а переполнение называется здесь.
             self.degradations += [

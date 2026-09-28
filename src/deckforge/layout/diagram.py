@@ -15,6 +15,7 @@ from typing import NamedTuple
 from deckforge.designsystem.models import ComponentCard
 from deckforge.domain.base import BBox
 from deckforge.domain.enums import SmartArtPattern
+from deckforge.domain.slide import SlideIR
 from deckforge.domain.template import ComponentKind, ComponentSpec
 from deckforge.layout.errors import LayoutFitError
 
@@ -30,10 +31,25 @@ SUPPORTED_PATTERNS = frozenset(
         SmartArtPattern.MATRIX,
     }
 )
-#: Паттерны с нативной раскладкой. Шире `SUPPORTED_PATTERNS` на `hierarchy` и `pyramid`:
-#: их строит только путь `by_example` (change 5б `no-example-goes-by-design`) — прежний путь
-#: и каталог паттернов композитора остаются на `SUPPORTED_PATTERNS` байт в байт.
-NATIVE_PATTERNS = frozenset(SmartArtPattern)
+#: Паттерны с нативной раскладкой — у каждого своя ветка в `diagram_geometry`. Шире
+#: `SUPPORTED_PATTERNS` на `hierarchy` и `pyramid`: их строит только слайд без примера на пути
+#: `by_example` (change 5б `no-example-goes-by-design`) — прежний путь и каталог паттернов
+#: композитора остаются на `SUPPORTED_PATTERNS` байт в байт. Список явный, а не «все значения
+#: перечисления»: новый паттерн без раскладки не должен попасть сюда сам.
+NATIVE_PATTERNS = SUPPORTED_PATTERNS | {SmartArtPattern.HIERARCHY, SmartArtPattern.PYRAMID}
+
+
+def goes_by_design(slide: SlideIR, *, by_example: bool) -> bool:
+    """Слайд без примера на пути `by_example` (5б): его верстает дизайн-система, и блок не
+    снимается и не сплющивается в текст. Рецептный слайд того же пути проверяется и
+    деградирует как раньше — ослабление только для слайда, которому примера нет."""
+    return by_example and slide.recipe_id is None
+
+
+def buildable_patterns(slide: SlideIR, *, by_example: bool) -> frozenset[SmartArtPattern]:
+    """Какие паттерны строятся на этом слайде. Одно ветвление путей на вписывание, проверку
+    и деградацию: разойдись они, писатель ждал бы замера, которого вписывание не сделало."""
+    return NATIVE_PATTERNS if goes_by_design(slide, by_example=by_example) else SUPPORTED_PATTERNS
 
 #: process: промежуток между шагами в долях ширины шага; отступ стрелки — в долях промежутка.
 _PROCESS_GAP, _PROCESS_LINK_MARGIN = 0.25, 0.2
@@ -122,7 +138,7 @@ def diagram_geometry(
         return _hierarchy(count, box)
     if pattern is SmartArtPattern.PYRAMID:
         return _pyramid(count, box)
-    raise LayoutFitError(f"паттерн {pattern.value} не поддерживается составными компонентами")
+    raise LayoutFitError(f"паттерн {pattern} не поддерживается составными компонентами")
 
 
 def _process(count: int, box: BBox) -> Diagram:
