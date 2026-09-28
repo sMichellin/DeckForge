@@ -53,7 +53,7 @@ def cards_example():
     """Пример «ряд карточек» на слайде 9144000 × 6858000 EMU.
 
     Заголовок; четыре карточки ряда — плашка, иконка на ней, подзаголовок и текст (четвёртая
-    в группе `p:grpSp`); широкая карточка — плашка и текст; линия от третьей карточки вниз,
+    в группе `p:grpSp`); широкая карточка — плашка, акцентная черта слева от неё и текст; линия от третьей карточки вниз,
     которой нет в паспорте; таблица автора, которую рецепт не адресует.
     """
     prs = Presentation()
@@ -72,6 +72,9 @@ def cards_example():
         found[f"text{n}"] = _text_box(target, x + 100000, 2200000, 1800000, 1200000, "Текст")
     found["wide_plate"] = shapes.add_shape(
         MSO_SHAPE.RECTANGLE, Emu(300000), Emu(3900000), Emu(8600000), Emu(1200000)
+    )
+    found["wide_bar"] = shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Emu(150000), Emu(3900000), Emu(100000), Emu(1200000)
     )
     found["wide_text"] = _text_box(shapes, 400000, 4000000, 8400000, 1000000, "Широкий текст")
     found["line"] = shapes.add_connector(
@@ -101,7 +104,7 @@ def cards_recipe(part_name: str, f, *, passport: bool) -> Recipe:
     """Рецепт примера: зоны `zt`, `zs1..4`/`zb1..4` (подзаголовок/текст карточки), `zw`.
 
     Паспорт: g01 — заголовок; g02–g05 — ряд `r1`, место 1 — подзаголовок, место 2 — текст,
-    декор — плашка и иконка; g06 — широкая карточка. Линии и таблицы в паспорте нет.
+    декор — плашка и иконка; g06 — широкая карточка с плашкой и чертой. Линии и таблицы в паспорте нет.
     """
     zones = [_zone("zt", f["title"], TypeLevel.SLIDE_TITLE)]
     for n in range(1, 5):
@@ -151,7 +154,7 @@ def cards_passport(f) -> ExamplePassport:
     groups.append(PlaceGroup(
         group_id="g06",
         places=[_place(10, zone("zw", f["wide_text"], TypeLevel.BODY))],
-        decor_xml_ids=[f["wide_plate"].shape_id],
+        decor_xml_ids=[f["wide_plate"].shape_id, f["wide_bar"].shape_id],
     ))
     return ExamplePassport(groups=groups)
 
