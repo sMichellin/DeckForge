@@ -21,6 +21,7 @@ from typing import Any
 from lxml import etree
 from pptx.oxml.ns import qn
 
+from deckforge.composition.passport import probe_size
 from deckforge.designsystem.models import (
     ExamplePassport,
     Place,
@@ -432,7 +433,7 @@ def _fill_by_passport(
                 if zone is None or zone.zone_id not in filled or zone.xml_id is None:
                     continue
                 shape = shapes[zone.xml_id]
-                _raise_to_floor(shape, zone.author_size_pt, design)
+                _raise_to_floor(shape, zone, design)
                 plate = _plate_hex(boxes.get(shape), decor, boxes, design, color_map)
                 unjudged = _ink_on_plate(shape, plate, design, color_map) if plate else None
                 if unjudged is not None and notes is not None:
@@ -508,20 +509,22 @@ def _ink_on_plate(
     return unjudged
 
 
-def _raise_to_floor(shape: Any, author_pt: float | None, design: DesignRules) -> None:
-    """Прогон ниже порога читаемости получает ступень `DesignRules.floor_size_pt` (5а, R19).
+def _raise_to_floor(shape: Any, zone: Zone, design: DesignRules) -> None:
+    """Прогон ниже порога читаемости получает ступень шкалы не ниже порога (5а, R19).
 
-    Кегль прогона — свой `sz`, а нет его — кегль автора зоны (`Zone.author_size_pt`, D04):
-    подставленную ступень лестницы писатель за кегль автора не считает. Неизвестен ни тот,
-    ни другой — прогон не трогается. Текст, не вставший после подъёма, писатель не режет:
-    ёмкость места под этот кегль уже померил паспорт (#249).
+    Правило одно на паспорт и писателя — `composition.passport.probe_size` (#249): тем же
+    кеглем паспорт мерил ёмкость места. Кегль прогона — свой `sz`, а нет его — кегль автора
+    зоны (`Zone.author_size_pt`, D04): подставленную ступень лестницы писатель за кегль автора
+    не считает (паспорт судит по `Zone.size_pt` — стык назван в proposal). Неизвестен ни тот,
+    ни другой — прогон не трогается. Текст, не вставший после подъёма, писатель не режет.
     """
-    floor = design.reading_floor_pt
     for props in shape.iter(qn("a:rPr")):
         own = props.get("sz")
-        size = int(own) / 100 if own is not None else author_pt
-        if size is not None and size < floor:
-            props.set("sz", size_hundredths(design.floor_size_pt()))
+        size = int(own) / 100 if own is not None else zone.author_size_pt
+        step = probe_size(zone.model_copy(update={"size_pt": size}), design.manifest,
+                          design.reading_floor_pt)
+        if step is not None:
+            props.set("sz", size_hundredths(step))
 
 
 def _group_xml_ids(group: PlaceGroup, zones: dict[str, Zone]) -> list[int]:

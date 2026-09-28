@@ -380,19 +380,6 @@ class DesignRules:
         ДС выводит его из полей или колонок, и блоки больше не встают вплотную."""
         return self.ds.grid.spacing.base_emu
 
-    # --- порог читаемости ---------------------------------------------------------
-
-    def floor_size_pt(self) -> float:
-        """Кегль, до которого поднимается текст ниже порога: наименьшая ступень шкалы шаблона
-        не ниже `reading_floor_pt` (правило 6 — кегль только из шкалы). Ступени нет — сам порог.
-
-        Тем же кеглем паспорт меряет ёмкость места (`composition/passport.probe_size`, #249):
-        писатель поднимает подпись ровно до того кегля, под который композиция писала текст
-        (change `the-design-system-lays-out-recipe-slides`, план Б, 5а).
-        """
-        steps = [size for size in self.manifest.size_ladder_pt if size >= self.reading_floor_pt]
-        return min(steps) if steps else self.reading_floor_pt
-
     # --- заметки прогона ----------------------------------------------------------
 
     def cold_notes(self) -> list[str]:
