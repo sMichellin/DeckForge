@@ -66,4 +66,13 @@
 
 ## Построено тасками
 
-(заполняется по мере готовности тасков)
+### Из таска 01 — change 4 `the-writer-removes-whole-groups` (ветка `feat/the-writer-removes-whole-groups`)
+
+- `clone_recipe(prs, recipe, slide_ir) -> slide` — сигнатура прежняя; при `recipe.passport is not None` — путь групп
+  (перенос в ряду → запись зон → снятие незаполненных групп и пустых мест → `_drop_unfilled_frames`), без паспорта —
+  прежняя последовательность `_drop_*`. Новые функции — приватные в `recipe_slide.py`.
+- Эталоны legacy: `tests/fixtures/the-writer-removes-whole-groups/{synthetic-legacy.xml,vk-tech-ex018-legacy.xml}`.
+- Место-картинку писатель не заполняет → группа только с картинкой (и декор-иллюстрация незаполненной группы) уходит;
+  на VK Tech вместе с широкой карточкой g06 уходит куб-иллюстрация (s02–s04, s09) — в proposal «незакрыто».
+- Холодный корпус локально: `tests/fixtures/templates/cold/{DNA,Focus,Piano,Portfolio}.pptx` из `.otp` LibreOffice
+  (`cold_corpus.py` ищет `.otp` только по пути Linux).

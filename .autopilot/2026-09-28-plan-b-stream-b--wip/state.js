@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": null,
   "skillDir": "C:/Users/gulin/.claude/skills/autopilot",
   "startedAt": "2026-09-28T19:48:43+03:00",
-  "updatedAt": "2026-09-28T20:01:44+03:00",
+  "updatedAt": "2026-09-28T20:43:05+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -52,7 +52,9 @@ window.STATE =
     },
     {
       "id": "review",
-      "status": "pending"
+      "status": "active",
+      "startedAt": "2026-09-28T20:40:08+03:00",
+      "note": "ревью таска 01"
     },
     {
       "id": "final",
@@ -100,10 +102,11 @@ window.STATE =
         "tests/unit/test_the_writer_removes_whole_groups.py",
         "openspec/changes/the-writer-removes-whole-groups/"
       ],
-      "status": "pending",
+      "status": "review",
       "retries": 0,
       "repairs": 0,
-      "handoffs": 0
+      "handoffs": 1,
+      "startedAt": "2026-09-28T20:02:05+03:00"
     },
     {
       "id": "02",
@@ -169,14 +172,18 @@ window.STATE =
         "rendering/{smartart,charts,tables}.py",
         "openspec/changes/no-example-goes-by-design/"
       ],
-      "status": "pending",
+      "status": "in-progress",
       "retries": 0,
       "repairs": 0,
-      "handoffs": 0
+      "handoffs": 0,
+      "startedAt": "2026-09-28T20:39:02+03:00"
     }
   ],
   "singlePass": null,
-  "tests": null,
+  "tests": {
+    "passed": 2385,
+    "failed": 0
+  },
   "debt": {
     "placeholders": [],
     "assumptions": [],
@@ -190,10 +197,15 @@ window.STATE =
     "extra": 15,
     "actions": "7 пропусков и 4 половины дописаны в spec (ист. 1,3,13,16,20,22,22a,25,27,28); 15 «лишних» — углубления R## (R08.1, R08.2, R10, R16.1 и т.п.), оставлены"
   },
-  "concerns": [],
+  "concerns": [
+    "T01 manifest: куб-иллюстрация VK Tech (s02–s04, s09) уходит с незаполненной g06 — место-картинку писатель не заполняет; в proposal «незакрыто», решает тимлид",
+    "T01 spec: recipe_slide.py:414 — пустое место-картинка в заполненной группе остаётся (ист. 8 говорит «удаляется»); решение записано в proposal",
+    "T01 spec: proposal.md:76 — замер audit через reaudit из скрипта, а не CLI `deckforge audit`; по смыслу то же",
+    "T01: после rebase на origin/plan-b (#249 — ёмкость паспорта кеглем порога) перемерить строку 3"
+  ],
   "reviewers": {
-    "manifestSpec": null,
-    "craft": null
+    "manifestSpec": "rev-ms (a86b1a6872adbaf5f)",
+    "craft": "rev-craft (a8578713ef4e9b863)"
   },
   "blind": null
 }
