@@ -11,14 +11,33 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 
 DEFAULT_BASE_URL = "http://app:8080"
 #: Долгая генерация — не повод ждать её в одном запросе: ждём мы опросом статуса.
-TIMEOUT_S = 30.0
+#: Но ждать ответа долго — нормально: стенд держит прогон в цикле событий API, а на
+#: рабочей топологии один слот инференса означает очередь. 30 с не хватало, и `final`
+#: с тремя вариантами и судьёй-VLM отдавал человеку `ReadTimeout` вместо статуса.
+TIMEOUT_S = 180.0
+#: Мёртвый адрес видно сразу: соединение либо устанавливается быстро, либо не устанавливается.
+CONNECT_TIMEOUT_S = 5.0
+#: Справочники рисуют страницу на каждый щелчок — ждать на них нечего.
+LOOKUP_TIMEOUT_S = 10.0
+#: Терпение к занятому серверу — число стенда, а не пакета: пересобирать образ ради него
+#: незачем.
+TIMEOUT_ENV = "DECKFORGE_UI_TIMEOUT_S"
+
+
+def default_timeout_s() -> float:
+    """Долгий таймаут чтения: из окружения, а нет его — умолчание пакета."""
+    try:
+        return float(os.environ[TIMEOUT_ENV])
+    except (KeyError, ValueError):
+        return TIMEOUT_S
 
 
 class ServiceError(RuntimeError):
@@ -35,13 +54,14 @@ class DeckForgeClient:
     """Тонкая обёртка над HTTP. Ни одного решения, кроме разбора ответа."""
 
     base_url: str = DEFAULT_BASE_URL
-    timeout_s: float = TIMEOUT_S
+    timeout_s: float = field(default_factory=default_timeout_s)
     _http: httpx.Client | None = None
 
     @property
     def http(self) -> httpx.Client:
         if self._http is None:
-            self._http = httpx.Client(base_url=self.base_url, timeout=self.timeout_s)
+            timeout = httpx.Timeout(self.timeout_s, connect=CONNECT_TIMEOUT_S)
+            self._http = httpx.Client(base_url=self.base_url, timeout=timeout)
         return self._http
 
     # --- справочники ---------------------------------------------------------
@@ -54,7 +74,7 @@ class DeckForgeClient:
         даже исправить адрес, по которому до него стучатся.
         """
         try:
-            payload = self._json(self.http.get("/profiles"))
+            payload = self._json(self.http.get("/profiles", timeout=LOOKUP_TIMEOUT_S))
         except Exception:
             return []
         names = payload.get("profiles") if isinstance(payload, dict) else None
