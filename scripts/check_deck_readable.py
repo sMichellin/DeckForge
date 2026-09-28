@@ -56,6 +56,9 @@ from deckforge.layout.metrics import LINE_HEIGHT_RATIO, measure_text
 #: доведённое до нечитаемости, меняет один брак на другой.
 DEFAULT_SIZE_FLOOR_PT = 10.0
 
+#: Вид находки «кегль ниже порога»: по нему строку 7 сводит мерило плана Б.
+BELOW_FLOOR = "кегль ниже порога"
+
 #: Гарнитура, которой считаем, когда шрифт фигуры в файле не назван. Имя ни к чему
 #: не привязывает: `FontLibrary` всё равно отдаст замену и пометит замер неточным.
 _UNNAMED_FAMILY = "Arial"
@@ -415,7 +418,7 @@ def check_deck(
                         Finding(
                             number,
                             name,
-                            "кегль ниже порога",
+                            BELOW_FLOOR,
                             f"{size_pt:g} pt при пороге {size_floor_pt:g} pt",
                         )
                     )
