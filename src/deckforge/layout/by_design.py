@@ -69,6 +69,13 @@ _CALLOUT_KIND: dict[CalloutTone, str] = {
 #: риск — следующий, чтобы два callout на слайде не выглядели одним.
 _CALLOUT_ACCENT: dict[CalloutTone, int] = {CalloutTone.INSIGHT: 0, CalloutTone.RISK: 1}
 
+#: Слоты, которыми `DesignRules.text_ink` набирает текст вместо нечитаемого цвета автора:
+#: все слоты темы, кроме ссылок. Цвет `hlink`/`folHlink` на простой подписи читается
+#: как «сюда можно нажать» — это обещание, которого слайд не даёт (5а, дозапрос 1).
+TEXT_INK_SLOTS: tuple[ColorRef, ...] = tuple(
+    ref for ref in ColorRef if ref not in (ColorRef.HLINK, ColorRef.FOL_HLINK)
+)
+
 
 @dataclass(frozen=True)
 class KpiSizes:
@@ -222,12 +229,39 @@ class DesignRules:
         `designsystem.contrast`). Нет и такого — `None`: текст берёт цвет текста слайда."""
         if background_hex is None:
             return ref
-        colors = self.manifest.theme.colors
+        reads, deeper = self._ink(
+            self.manifest.theme.colors.get(ref), background_hex, size_pt=size_pt, bold=bold,
+            slots=None,
+        )
+        return ref if reads else deeper
+
+    def text_ink(
+        self, foreground_hex: str, background_hex: str, *, size_pt: float | None, bold: bool
+    ) -> tuple[bool, ColorRef | None]:
+        """Читается ли цвет текста на этом фоне, а если нет — слот темы вместо него (5а, R18).
+
+        Правило то же, что у `accent_ink`: тот же цвет глубже — ближайший по цвету слот,
+        взявший порог своего класса текста (`designsystem.contrast`, по нему же ДС судит
+        свои `contrast_pairs`). Кроме слотов ссылок (`TEXT_INK_SLOTS`): на подписи VK Tech
+        `ex018` ближе всех к серому автора оказался `hlink`, и подпись стала выглядеть
+        кликабельной. `(False, None)` — читаемого слота нет вовсе: подставлять лучший
+        из плохих значит промолчать о дефекте шаблона, и вызывающий называет его заметкой.
+        """
+        return self._ink(
+            foreground_hex, background_hex, size_pt=size_pt, bold=bold, slots=TEXT_INK_SLOTS
+        )
+
+    def _ink(
+        self, color_hex: str, background_hex: str, *, size_pt: float | None, bold: bool,
+        slots: tuple[ColorRef, ...] | None,
+    ) -> tuple[bool, ColorRef | None]:
+        """Общее у `accent_ink` и `text_ink`: читается ли цвет как есть, а если нет —
+        ближайший к нему читаемый слот из `slots` (`None` — все слоты темы) или `None`."""
         kind = text_class(size_pt, bold=bold)
-        if readability(colors.get(ref), background_hex, kind, size_pt=size_pt, bold=bold).passes:
-            return ref
-        return readable_ref(
-            self.manifest.theme, background_hex, kind, prefer_hex=colors.get(ref)
+        if readability(color_hex, background_hex, kind, size_pt=size_pt, bold=bold).passes:
+            return True, None
+        return False, readable_ref(
+            self.manifest.theme, background_hex, kind, prefer_hex=color_hex, slots=slots
         )
 
     def block_accent(self, background_hex: str | None, *, size_pt: float | None = None) -> ColorRef:

@@ -21,6 +21,7 @@ from typing import Any
 from lxml import etree
 from pptx.oxml.ns import qn
 
+from deckforge.composition.passport import probe_size
 from deckforge.designsystem.models import (
     ExamplePassport,
     Place,
@@ -30,8 +31,11 @@ from deckforge.designsystem.models import (
     TypeLevel,
     Zone,
 )
+from deckforge.domain.enums import ColorRef
 from deckforge.domain.slide import Block, BulletsBlock, FitResult, SlideIR, TextBlock
+from deckforge.layout.by_design import DesignRules
 from deckforge.layout.nonbreaking import bind as nonbreaking
+from deckforge.parsing.ooxml.background import parse_color_map
 from deckforge.rendering.units import size_hundredths
 
 #: Атрибуты, которыми фигура ссылается на связь своей части: картинка, диаграмма, ссылка.
@@ -287,17 +291,30 @@ def _lowered_size(zone: Zone, fitted: FitResult | None) -> float | None:
     return fitted.final_size_pt
 
 
-def clone_recipe(prs: Any, recipe: Recipe, slide_ir: SlideIR) -> Any:
+def clone_recipe(
+    prs: Any, recipe: Recipe, slide_ir: SlideIR, design: DesignRules | None = None,
+    *, notes: list[str] | None = None,
+) -> Any:
     """Слайд колоды по рецепту: копия примера, наш текст по зонам, лишнее удалено.
 
     Развилка одна (change `the-writer-removes-whole-groups`, план Б, 4): у рецепта с паспортом
     лишнее снимается группами паспорта (`_fill_by_passport`), без паспорта — прежним угадыванием,
     байт в байт. Оба пути живут до приёмки плана Б, и расхождение должно быть видно здесь.
+
+    `design` — ответы дизайн-системы (change `the-design-system-lays-out-recipe-slides`, 5а):
+    при паспорте по ним перестраивается ряд, поднимается кегль до порога и выбирается цвет
+    текста на плашке. Без паспорта `design` не читается: `legacy` прежний байт в байт.
+    В `notes` (у писателя — `PptxWriter.degradations`) названо то, что ДС судить не смогла.
     """
     slide = clone_slide(prs, recipe)
     shapes = _by_xml_id(_shapes_tree(slide), recipe)
     if recipe.passport is not None:
-        _fill_by_passport(recipe, recipe.passport, slide_ir, slide, shapes)
+        kept = _fill_by_passport(
+            recipe, recipe.passport, slide_ir, slide, shapes, design,
+            notes if notes is not None else [],
+        )
+        if design is not None:
+            _lay_out_rows(recipe, recipe.passport, kept, slide, shapes, design.block_gap_emu())
         # Таблица и диаграмма автора в паспорт не попадают — ни местом, ни декором. Решение
         # Насти 28.09: незаполненную чужую таблицу «Убирать» и при паспорте (титул WorkSpace
         # `ex014`, «Заголовок / Текст»). Отступление от буквы issue — в proposal.
@@ -366,9 +383,9 @@ def _node(tree: Any, shapes: dict[int, Any], xml_id: int) -> Any | None:
 
 def _fill_by_passport(
     recipe: Recipe, passport: ExamplePassport, slide_ir: SlideIR, slide: Any,
-    shapes: dict[int, Any],
-) -> None:
-    """Наш текст по зонам, лишнее — группами паспорта, без угадывания.
+    shapes: dict[int, Any], design: DesignRules | None = None, notes: list[str] | None = None,
+) -> set[str]:
+    """Наш текст по зонам, лишнее — группами паспорта, без угадывания. Ответ — группы, что остались.
 
     1. Перенос в ряду (`_row_moves`) — до записи, кегль вписывания тот же (`fit_report` блока):
        группы ряда одного размера.
@@ -397,14 +414,219 @@ def _fill_by_passport(
         filled.add(zone.zone_id)
 
     tree = _shapes_tree(slide)
+    kept: set[str] = set()
     for group in passport.groups:
         titled = any(place.role is TypeLevel.SLIDE_TITLE for place in group.places)
         if titled or any(place.zone_id in filled for place in group.places):
             _drop_empty_places(group, filled, zones, shapes)
+            kept.add(group.group_id)
             continue
-        for xml_id in [_place_xml_id(place, zones) for place in group.places] + group.decor_xml_ids:
-            if xml_id is not None:
-                _remove(_node(tree, shapes, xml_id))
+        for xml_id in _group_xml_ids(group, zones):
+            _remove(_node(tree, shapes, xml_id))
+    if design is not None:
+        boxes = {node: box for node, box in _placed(tree) if box is not None}
+        color_map = parse_color_map(slide.slide_layout.slide_master.part.blob)
+        for group in passport.groups:
+            decor = [_node(tree, shapes, xml_id) for xml_id in group.decor_xml_ids]
+            for place in group.places:
+                zone = zones.get(place.zone_id or "")
+                if zone is None or zone.zone_id not in filled or zone.xml_id is None:
+                    continue
+                shape = shapes[zone.xml_id]
+                _raise_to_floor(shape, zone, design)
+                plate = _plate_hex(boxes.get(shape), decor, boxes, design, color_map)
+                unjudged = _ink_on_plate(shape, plate, design, color_map) if plate else None
+                if unjudged is not None and notes is not None:
+                    notes.append(f"{slide_ir.slide_id}/{zone.zone_id}: {unjudged}")
+    return kept
+
+
+#: Имена `a:schemeClr`, которые мастер отображает на слоты темы своей `p:clrMap`.
+_MAPPED_NAMES = frozenset({"tx1", "bg1", "tx2", "bg2"})
+
+
+def _fill_hex(fill: Any, design: DesignRules, color_map: dict[str, str]) -> str | None:
+    """Цвет `a:solidFill`: `srgbClr` или слот темы. С модификаторами (`lumMod`, `alpha`)
+    и прочими видами цвета — `None`: настоящего цвета писатель не знает, и мерить нечего.
+
+    `tx1/bg1/tx2/bg2` — через `p:clrMap` мастера скопированного слайда
+    (`parsing.ooxml.background.parse_color_map`): у тёмного шаблона `bg1` — это `dk1`.
+    Мастер карту не объявил — имя не разрешается, и цвет не судится."""
+    if fill is None or len(fill) != 1 or len(fill[0]):
+        return None
+    color, value = fill[0], fill[0].get("val") or ""
+    if color.tag == qn("a:srgbClr"):
+        return f"#{value.upper()}"
+    slot = color_map.get(value, "") if value in _MAPPED_NAMES else value
+    if color.tag != qn("a:schemeClr") or slot not in {ref.value for ref in ColorRef}:
+        return None
+    return design.manifest.theme.colors.get(ColorRef(slot))
+
+
+def _plate_hex(
+    box: _Box | None, decor: list[Any], boxes: dict[Any, _Box], design: DesignRules,
+    color_map: dict[str, str],
+) -> str | None:
+    """Заливка плашки под зоной: наименьшая фигура декора группы с заливкой, в которой
+    зона стоит целиком. Нет такой — текст не на плашке группы, и цвет не трогается."""
+    under = []
+    for node in decor:
+        frame = boxes.get(node) if node is not None else None
+        color = _fill_hex(node.find(f"{qn('p:spPr')}/{qn('a:solidFill')}"), design, color_map) if (
+            node is not None) else None
+        if box is not None and frame is not None and color is not None and _within(box, frame):
+            under.append((frame[2] * frame[3], color))
+    return min(under)[1] if under else None
+
+
+def _ink_on_plate(
+    shape: Any, plate_hex: str, design: DesignRules, color_map: dict[str, str]
+) -> str | None:
+    """Цвет нашего текста на плашке читается (5а, R18): нечитаемый цвет автора — ссылкой
+    на слот темы (`DesignRules.text_ink`, правило `accent_ink`); читаемый — байт в байт.
+    Класс текста — по кеглю прогона, уже поднятому до порога. Цвета в IR нет (правило 5).
+
+    Ответ — заметка о прогоне, чей цвет остался как у автора без проверки: без своего
+    `a:solidFill` прогон наследует цвет по цепочке стилей мастера, и писатель его не знает;
+    с модификаторами — тоже. Нечитаемый цвет, у которого нет читаемого слота вне ссылок, тоже
+    остаётся — это дефект шаблона. Такой цвет не трогается, но и не молча (дозапросы 1, 2)."""
+    unjudged = None
+    for run in shape.iter(qn("a:r")):
+        props = run.find(qn("a:rPr"))
+        fill = props.find(qn("a:solidFill")) if props is not None else None
+        author = _fill_hex(fill, design, color_map)
+        if props is None or fill is None or author is None:
+            how = "унаследован" if fill is None else "не разобран"
+            unjudged = unjudged or f"цвет текста на плашке {how} — контраст не проверен"
+            continue
+        own = props.get("sz")
+        reads, ref = design.text_ink(author, plate_hex, size_pt=int(own) / 100 if own else None,
+                                     bold=props.get("b") in ("1", "true"))
+        if ref is None:
+            if not reads:
+                unjudged = unjudged or (
+                    "цвет текста на плашке не читается, а читаемого слота нет (кроме ссылок) — "
+                    "оставлен цвет автора")
+            continue
+        for child in list(fill):
+            fill.remove(child)
+        etree.SubElement(fill, qn("a:schemeClr"), val=ref.value)
+    return unjudged
+
+
+def _raise_to_floor(shape: Any, zone: Zone, design: DesignRules) -> None:
+    """Прогон ниже порога читаемости получает ступень шкалы не ниже порога (5а, R19).
+
+    Правило одно на паспорт и писателя — `composition.passport.probe_size` (#249): тем же
+    кеглем паспорт мерил ёмкость места. Кегль прогона — свой `sz`, а нет его — кегль автора
+    зоны (`Zone.author_size_pt`, D04): подставленную ступень лестницы писатель за кегль автора
+    не считает (паспорт судит по `Zone.size_pt` — стык назван в proposal). Неизвестен ни тот,
+    ни другой — прогон не трогается. Текст, не вставший после подъёма, писатель не режет.
+
+    Копия зоны с `size_pt` = кегль прогона — временная подмена: `probe_size` принимает зону,
+    а не кегль, и другого входа в правило нет. Просьба к A (proposal, «Стык с A»): функция
+    «ступень по кеглю и порогу» — тогда подмена уходит, и правило зовётся напрямую.
+    """
+    for props in shape.iter(qn("a:rPr")):
+        own = props.get("sz")
+        size = int(own) / 100 if own is not None else zone.author_size_pt
+        step = probe_size(zone.model_copy(update={"size_pt": size}), design.manifest,
+                          design.reading_floor_pt)
+        if step is not None:
+            props.set("sz", size_hundredths(step))
+
+
+def _group_xml_ids(group: PlaceGroup, zones: dict[str, Zone]) -> list[int]:
+    """Адреса всех фигур группы: места и декор."""
+    ids = [_place_xml_id(place, zones) for place in group.places] + group.decor_xml_ids
+    return [xml_id for xml_id in ids if xml_id is not None]
+
+
+def _lines(groups: list[PlaceGroup]) -> list[list[PlaceGroup]]:
+    """Линии ряда сверху вниз: группа в линии, если её середина по высоте — в рамке первой
+    группы линии. Рамки — из паспорта (ADR-009), не угадываются по слайду."""
+    lines: list[list[PlaceGroup]] = []
+    for group in sorted(groups, key=lambda g: (g.y or 0, g.x or 0)):
+        middle = (group.y or 0) + (group.cy or 0) / 2
+        head = lines[-1][0] if lines else None
+        if head is not None and (head.y or 0) <= middle <= (head.y or 0) + (head.cy or 0):
+            lines[-1].append(group)
+        else:
+            lines.append([group])
+    return lines
+
+
+def _lay_out_rows(
+    recipe: Recipe, passport: ExamplePassport, kept: set[str], slide: Any,
+    shapes: dict[int, Any], gap: int,
+) -> None:
+    """Ряд перестраивается под число групп (5а, R16): без дыр на месте снятых карточек.
+
+    Линия, в которой осталось k групп из n (0 < k < n), встаёт на всю ширину ряда — от левого
+    края первой до правого края последней группы исходного ряда: автор уже поставил ряд в поля
+    сетки шаблона. Отступ — шаг сетки ДС (`DesignRules.block_gap_emu`), ширина группы
+    `(ширина − (k−1)·отступ)/k`. Линия со всеми своими группами — вёрстка автора, не трогается.
+    Группы, оставшиеся после change 4, — первые k по порядку ряда, то есть линии сверху вниз;
+    линия без групп уже ушла вместе с ними.
+    """
+    zones = {zone.zone_id: zone for zone in recipe.zones}
+    tree = _shapes_tree(slide)
+    frames = {node: (frame, origin) for node, frame, origin in _frames(tree)}
+    for groups in passport.rows.values():
+        if any(g.x is None or g.cx is None for g in groups):
+            continue
+        left = min(g.x or 0 for g in groups)
+        width = max((g.x or 0) + (g.cx or 0) for g in groups) - left
+        for line in _lines(groups):
+            staying = [g for g in line if g.group_id in kept]
+            if not staying or len(staying) == len(line):
+                continue
+            share = (width - (len(staying) - 1) * gap) // len(staying)
+            for index, group in enumerate(staying):
+                nodes = [_node(tree, shapes, xml_id) for xml_id in _group_xml_ids(group, zones)]
+                texts = {_place_xml_id(p, zones) for p in group.places if p.kind is PlaceKind.TEXT}
+                # Снятых пустых мест (`_drop_empty_places`) на слайде уже нет — и нет в `frames`.
+                _stretch(group, [n for n in nodes if n in frames], texts, frames,
+                         left + index * (share + gap), share)
+
+
+#: Мелкий декор группы — уже этой доли её ширины (иконка, точка): при перестроении ряда
+#: он сохраняет размер и отступ от левого края, а шире — плашка, растягивается с группой.
+#: Иконка карточки — малая доля ширины, плашка — вся группа: половина разводит их с запасом
+#: в обе стороны (5а, R16).
+SMALL_DECOR_SHARE = 0.5
+
+
+def _stretch(
+    group: PlaceGroup, nodes: list[Any], texts: set[int | None],
+    frames: dict[Any, tuple[_Box, tuple[float, float]]], x: int, cx: int,
+) -> None:
+    """Группа из рамки паспорта `(group.x, group.cx)` — в `(x, cx)`; пишутся только `a:off`/`a:ext`.
+
+    Плашка и текстовые места растягиваются с прежними отступами от краёв группы; мелкий декор
+    (иконка — уже `SMALL_DECOR_SHARE` группы) и картинка сохраняют размер и отступ от левого края:
+    растянутая иконка — уже другая иконка. Высоты и `y` не меняются. Фигура внутри другой
+    фигуры группы (`p:grpSp` декора) едет вместе с ней.
+    """
+    was_x, was_cx = group.x or 0, group.cx or 0
+    for node in nodes:
+        if any(other is not node and other in node.iterancestors() for other in nodes):
+            continue
+        xfrm = _xfrm(node)
+        off, ext = (xfrm.find(qn("a:off")), xfrm.find(qn("a:ext"))) if xfrm is not None else (
+            None, None)
+        if off is None or ext is None:
+            continue
+        (ox, _, b, _), origin = frames[node]
+        a = ox - origin[0] * b
+        left, width = a + b * int(off.get("x", 0)), b * int(ext.get("cx", 0))
+        wide = _xml_id(node) in texts or (
+            node.tag != qn("p:pic") and width >= SMALL_DECOR_SHARE * was_cx
+        )
+        new_left = x + (left - was_x)
+        new_width = width + (cx - was_cx) if wide else width
+        off.set("x", str(round((new_left - a) / b)))
+        ext.set("cx", str(round(new_width / b)))
 
 
 def _drop_empty_places(
@@ -561,32 +783,46 @@ def _pair(xfrm: Any | None, off: str, ext: str) -> _Box | None:
             float(size.get("cx", 0)), float(size.get("cy", 0)))
 
 
-def _placed(parent: Any, frame: _Box = (0, 0, 1, 1), origin: tuple[float, float] = (0, 0)) -> Any:
-    """Фигуры с рамкой в координатах слайда (или `None`), группы раскрыты с их масштабом.
+def _frames(parent: Any, frame: _Box = (0, 0, 1, 1), origin: tuple[float, float] = (0, 0)) -> Any:
+    """Фигуры и группы с системой координат родителя: `x_слайда = ox + (x_свой − origin_x) · sx`.
 
-    Геометрию линий разбор примеров не хранит (`cx = 0` он отбрасывает), поэтому она
-    берётся из самого слайда. `frame` — сдвиг и масштаб родителя, `origin` — `chOff`.
+    Единственное место, где читаются `chOff`/`chExt` групп: `frame` — сдвиг и масштаб
+    родителя `(ox, oy, sx, sy)`, `origin` — его `chOff`. Им пользуются и `_placed` (рамки
+    на слайде), и `_stretch` (запись рамки обратно в координаты группы).
     """
-    ox, oy, sx, sy = frame
     for node in parent:
         if node.tag not in (GROUP, *SHAPE_TAGS):
             continue
-        xfrm = _xfrm(node)
-        own = _pair(xfrm, "a:off", "a:ext")
-        box = None if own is None else (
-            ox + (own[0] - origin[0]) * sx, oy + (own[1] - origin[1]) * sy,
-            own[2] * sx, own[3] * sy,
-        )
+        yield node, frame, origin
         if node.tag != GROUP:
-            yield node, box
             continue
-        child = _pair(xfrm, "a:chOff", "a:chExt")
-        if box is None or child is None or not child[2] or not child[3]:
-            yield from _placed(node, frame, origin)
+        xfrm = _xfrm(node)
+        own, child = _pair(xfrm, "a:off", "a:ext"), _pair(xfrm, "a:chOff", "a:chExt")
+        if own is None or child is None or not child[2] or not child[3]:
+            yield from _frames(node, frame, origin)
             continue
-        yield from _placed(
+        box = _on_slide(own, frame, origin)
+        yield from _frames(
             node, (box[0], box[1], box[2] / child[2], box[3] / child[3]), (child[0], child[1])
         )
+
+
+def _on_slide(own: _Box, frame: _Box, origin: tuple[float, float]) -> _Box:
+    """Рамка `a:off`/`a:ext` фигуры — в координатах слайда по системе её родителя."""
+    ox, oy, sx, sy = frame
+    return ox + (own[0] - origin[0]) * sx, oy + (own[1] - origin[1]) * sy, own[2] * sx, own[3] * sy
+
+
+def _placed(parent: Any) -> Any:
+    """Фигуры с рамкой в координатах слайда (или `None`), группы раскрыты с их масштабом.
+
+    Геометрию линий разбор примеров не хранит (`cx = 0` он отбрасывает), поэтому она
+    берётся из самого слайда.
+    """
+    for node, frame, origin in _frames(parent):
+        if node.tag != GROUP:
+            own = _pair(_xfrm(node), "a:off", "a:ext")
+            yield node, None if own is None else _on_slide(own, frame, origin)
 
 
 def _gap(a: _Box, b: _Box) -> float:
