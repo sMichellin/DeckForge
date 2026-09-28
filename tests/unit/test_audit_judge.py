@@ -273,3 +273,74 @@ def test_parallelism_does_not_change_what_is_asked(manifest: TemplateManifest) -
 
     assert one.calls == many.calls == 3
     assert [f.finding_id for f in sequential] == [f.finding_id for f in parallel]
+
+
+# --- тело не пересказывает заголовок (change `the-body-does-not-repeat-the-headline`) ---
+
+
+def _repeats(colony: object, manifest: TemplateManifest) -> list[str]:
+    context = context_for("content.body_repeats_headline", colony, manifest)
+    return [f.slide_id for f in judge.body_repeats_headline(context)]
+
+
+def test_a_body_that_rephrases_the_headline_is_found(manifest: TemplateManifest) -> None:
+    """Нарушитель RG53: Education `de4fac624dc3` s06, дословный случай с прогона.
+
+    Аудит на этой колоде дал ноль ошибок: `content.body_matches_headline` спрашивает,
+    соответствует ли тело заголовку, а пересказ отвечает на это идеально.
+    """
+    colony = deck(
+        slide(
+            title("Автоматически верстаем результат"),
+            body("Автоматически сверстать результат"),
+            slide_id="s06",
+        )
+    )
+
+    assert _repeats(colony, manifest) == ["s06"]
+
+
+def test_a_body_that_says_something_new_is_not_found(manifest: TemplateManifest) -> None:
+    """Норма: тело говорит следующее, а не то же самое."""
+    colony = deck(
+        slide(
+            title("Правки занимают минуты, а не дни"),
+            body("Шаблон соблюдается сам, без ручной проверки"),
+        )
+    )
+
+    assert _repeats(colony, manifest) == []
+
+
+def test_one_repeated_word_of_the_topic_is_not_a_retelling(
+    manifest: TemplateManifest,
+) -> None:
+    """Норма: тема слайда названа и в заголовке, и в теле — это связность, не пересказ."""
+    colony = deck(
+        slide(
+            title("Выручка выросла на 37 % за год"),
+            body("Выручка растёт третий квартал подряд"),
+        )
+    )
+
+    assert _repeats(colony, manifest) == []
+
+
+def test_a_one_word_headline_is_not_judged(manifest: TemplateManifest) -> None:
+    """Норма: сравнивать нечего — одно значащее слово совпадёт по случайности."""
+    colony = deck(slide(title("Итоги"), body("Итоги года подвели в декабре")))
+
+    assert _repeats(colony, manifest) == []
+
+
+def test_a_slide_without_a_body_is_not_judged(manifest: TemplateManifest) -> None:
+    """Норма: тела нет — пересказывать нечем."""
+    colony = deck(slide(title("Автоматически верстаем результат")))
+
+    assert _repeats(colony, manifest) == []
+
+
+def test_word_forms_count_as_the_same_word() -> None:
+    """Формы слова меряются похожестью строк: словаря форм в зависимостях нет."""
+    assert judge.repeated_share("верстаем колоду", "сверстать колоды") == 1.0
+    assert judge.repeated_share("верстаем колоду", "проверки прошли") == 0.0

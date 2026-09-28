@@ -334,7 +334,7 @@
             }
           ],
           "default": null,
-          "description": "as_is | shrink | grow | shorten | split",
+          "description": "as_is | shrink | grow | shorten | split | below_reading; below_reading — кегль под порогом читаемости: зона уже одного слова на пороге, и текст оставлен вместо снятия (D06, RG35)",
           "title": "Strategy"
         }
       },

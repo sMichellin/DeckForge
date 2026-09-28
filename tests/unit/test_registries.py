@@ -99,8 +99,10 @@ def test_check_specs_cover_tz_appendix() -> None:
     # Семь: шесть из Приложения 1 плюс `integrity.content_lost` — потерю содержания
     # ТЗ отдельным вопросом не называет, но колода из одних заголовков ему не отвечает.
     assert len([i for i in ids if i.startswith("integrity.")]) == 7
-    # 11 вопросов валидации контента
-    assert len([i for i in ids if i.startswith("content.")]) == 11
+    # 11 вопросов валидации контента из Приложения 1 плюс `content.body_repeats_headline`:
+    # пересказ заголовка телом ТЗ отдельным вопросом не называет, а слайд, говорящий одно
+    # и то же дважды, не отвечает ни на один из его вопросов (RG53).
+    assert len([i for i in ids if i.startswith("content.")]) == 12
 
 
 def test_run_config_profiles_load() -> None:

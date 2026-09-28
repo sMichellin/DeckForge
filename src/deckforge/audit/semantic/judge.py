@@ -28,16 +28,19 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from functools import partial
 
 from deckforge.audit.findings import make_finding
-from deckforge.audit.geometry import slide_text
+from deckforge.audit.geometry import block_text, slide_text
 from deckforge.audit.registry import CheckContext, CheckUnavailable, check
 from deckforge.domain.audit import Finding
-from deckforge.domain.enums import AutoFix, Severity
+from deckforge.domain.enums import AutoFix, Severity, TextRole
+from deckforge.domain.slide import TextBlock
 from deckforge.registry import get_prompt_registry
 
 QUESTIONS: dict[str, str] = {
@@ -303,6 +306,90 @@ def dominant_script(text: str, share: float = _SCRIPT_SHARE) -> str | None:
     if latin / total >= share:
         return "latin"
     return None
+
+
+#: Слово короче этого — предлог, союз или частица: они повторяются в любой паре фраз
+#: и о пересказе ничего не говорят.
+_MEANING_LETTERS = 4
+
+#: Насколько похожи строки, чтобы считать их одним словом в разных формах. Замер:
+#: «верстаем» и «сверстать» — 0,71, «верстаем» и «проверки» — 0,38. Словаря форм
+#: в зависимостях нет, и заводить его ради одной проверки дороже, чем терпеть оценку.
+_SAME_WORD = 0.70
+
+#: Доля значащих слов заголовка, повторённых в теле, начиная с которой это пересказ.
+#: Замер на шести парах: два пересказа дают 1,00, четыре нормы — 0,00, 0,33, 0,33 и 0,50.
+#: Порог стоит между ними, а не впритык к норме.
+_REPEAT_SHARE = 2 / 3
+
+
+def meaning_words(text: str) -> list[str]:
+    """Значащие слова фразы: от четырёх букв, в нижнем регистре, `ё` сведено к `е`."""
+    words = re.findall(r"[^\W\d_]+", text.lower().replace("ё", "е"))
+    return [word for word in words if len(word) >= _MEANING_LETTERS]
+
+
+def repeated_share(headline: str, body: str) -> float:
+    """Какая доля значащих слов заголовка повторена в теле, с учётом форм слова."""
+    head = meaning_words(headline)
+    if not head:
+        return 0.0
+    said = meaning_words(body)
+    repeated = sum(
+        any(SequenceMatcher(None, word, other).ratio() >= _SAME_WORD for other in said)
+        for word in head
+    )
+    return repeated / len(head)
+
+
+@check(id="content.body_repeats_headline", deterministic=True, severity=Severity.WARNING,
+       title="Тело слайда не пересказывает заголовок")
+def body_repeats_headline(ctx: CheckContext) -> Iterable[Finding]:
+    """Тело слайда не пересказывает заголовок.
+
+    Без модели: пересказ виден по тексту, и спрашивать о нём VLM — лишний вызов на каждый
+    слайд. `content.body_matches_headline` спрашивает обратное — соответствует ли тело
+    заголовку, — и пересказ отвечает на этот вопрос идеально: Education `de4fac624dc3`
+    s06, «Автоматически верстаем результат» и под ним «Автоматически сверстать результат»,
+    ноль ошибок аудита.
+
+    Судится первый блок тела: пересказ живёт там, где зритель читает сразу после заголовка.
+    Заголовок короче двух значащих слов не судится — сравнивать нечего.
+    """
+    for slide in ctx.deck.slides:
+        headline = next(
+            (
+                block.text
+                for block in slide.blocks
+                if isinstance(block, TextBlock) and block.role is TextRole.TITLE
+            ),
+            None,
+        )
+        body = next(
+            (
+                block
+                for block in slide.blocks
+                if not (isinstance(block, TextBlock) and block.role is TextRole.TITLE)
+            ),
+            None,
+        )
+        if headline is None or body is None or len(meaning_words(headline)) < 2:
+            continue
+        text = block_text(body)
+        share = repeated_share(headline, text)
+        if share < _REPEAT_SHARE:
+            continue
+        yield make_finding(
+            check_id="content.body_repeats_headline",
+            slide_id=slide.slide_id,
+            block_id=body.block_id,
+            reason=f"share:{share:.2f}",
+            message=(
+                f"Тело пересказывает заголовок: повторено {share:.0%} его значащих слов — "
+                "слайд говорит одно и то же дважды"
+            ),
+            evidence={"headline": headline, "body": text, "repeated_share": f"{share:.2f}"},
+        )
 
 
 @check(id="content.single_language", deterministic=True, severity=Severity.WARNING,

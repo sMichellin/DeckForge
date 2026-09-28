@@ -38,19 +38,6 @@
     "BulletsBlock": {
       "additionalProperties": false,
       "properties": {
-        "zone_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
-          "title": "Zone Id"
-        },
         "block_id": {
           "title": "Block Id",
           "type": "string"
@@ -130,19 +117,6 @@
       "additionalProperties": false,
       "description": "Callout «инсайт» или «риск» (DG4, страница дизайн-системы #142).\n\n`tone` — закрытое перечисление: вид callout входит в контракт. Плашку, подпись вида\nи отступы рисует вёрстка; кегля здесь нет (правило 6).",
       "properties": {
-        "zone_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
-          "title": "Zone Id"
-        },
         "block_id": {
           "title": "Block Id",
           "type": "string"
@@ -194,19 +168,6 @@
     "ChartBlock": {
       "additionalProperties": false,
       "properties": {
-        "zone_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
-          "title": "Zone Id"
-        },
         "block_id": {
           "title": "Block Id",
           "type": "string"
@@ -347,19 +308,6 @@
     "IconBlock": {
       "additionalProperties": false,
       "properties": {
-        "zone_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
-          "title": "Zone Id"
-        },
         "block_id": {
           "title": "Block Id",
           "type": "string"
@@ -397,19 +345,6 @@
     "ImageBlock": {
       "additionalProperties": false,
       "properties": {
-        "zone_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
-          "title": "Zone Id"
-        },
         "block_id": {
           "title": "Block Id",
           "type": "string"
@@ -490,19 +425,6 @@
     "KpiBlock": {
       "additionalProperties": false,
       "properties": {
-        "zone_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
-          "title": "Zone Id"
-        },
         "block_id": {
           "title": "Block Id",
           "type": "string"
@@ -625,19 +547,6 @@
       "additionalProperties": false,
       "description": "Цитата с акцентной полосой (DG4, страница дизайн-системы #142).\n\nМодель задаёт только содержание и слот цвета. Ширину полосы, отбивку и кегль\nрешает вёрстка по дизайн-системе шаблона: кегля здесь нет (правило 6).",
       "properties": {
-        "zone_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
-          "title": "Zone Id"
-        },
         "block_id": {
           "title": "Block Id",
           "type": "string"
@@ -688,19 +597,6 @@
     "SmartArtBlock": {
       "additionalProperties": false,
       "properties": {
-        "zone_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
-          "title": "Zone Id"
-        },
         "block_id": {
           "title": "Block Id",
           "type": "string"
@@ -754,19 +650,6 @@
     "TableBlock": {
       "additionalProperties": false,
       "properties": {
-        "zone_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
-          "title": "Zone Id"
-        },
         "block_id": {
           "title": "Block Id",
           "type": "string"
@@ -826,19 +709,6 @@
     "TextBlock": {
       "additionalProperties": false,
       "properties": {
-        "zone_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Зона рецепта, в которую пишется блок (slide-recipes); не задан — блок идёт в плейсхолдер макета",
-          "title": "Zone Id"
-        },
         "block_id": {
           "title": "Block Id",
           "type": "string"
@@ -981,19 +851,6 @@
       ],
       "default": null,
       "title": "Speaker Note"
-    },
-    "recipe_id": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Рецепт (слайд-пример шаблона), по которому writer копирует слайд (slide-recipes)",
-      "title": "Recipe Id"
     }
   },
   "required": [
