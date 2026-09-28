@@ -7,6 +7,10 @@
 
 Старт — **30.09**, после промежуточной сдачи 29.09 23:59. До сдачи `main` не трогаем.
 
+**Работа идёт в ветке `plan-b`** (с 28.09): ветвиться от `origin/plan-b`, PR — в `plan-b`,
+после приёмки — один PR `plan-b → main`. Эпик и задачи потоков — issues #242 (эпик),
+#243 (A), #244 (B), #245 (C); там же контракт `RecipeAssignment` и стыки потоков.
+
 ## Почему по кругу и чем этот план другой
 
 С 24.09 заведено 35 RG, 87 коммитов из 218 — про них. Починенное возвращается: s10,
@@ -122,7 +126,7 @@
 | 0 | `the-example-comes-before-the-text` | — (ADR-009, ARCHITECTURE, флаг) | тимлид | Р1, Р5 | — | ADR принят; флаг читается графом; на `legacy` пересборка из кэша даёт тот же IR и тот же аудит, что `6922419` |
 | 1а | `the-example-passport-model` | `design-system-extraction` | A | 1 | 0 | Только модель `ExamplePassport`, `PlaceGroup`, `Place`; тест сериализации; **контракт A ↔ B** |
 | 1б | `the-example-passport` | `design-system-extraction` | A | 1, Д3 | 1а | Паспорт на трёх шаблонах кейса и холодном; ёмкость по `FontLibrary`; пример, не прошедший пробную заливку, в каталоге отсутствует; кэш по SHA |
-| 2 | `recipes-for-the-whole-deck` | `slide-composition` | A | 2, Д5 | 1б | `assign_recipes` — чистая функция, возвращает `RecipeAssignment` на каждый слайд (пример и причина); ≤ 2 на колоду, не подряд; нет подходящего → `None` (путь `by_design`); `_roomiest` удалён |
+| 2 | `recipes-for-the-whole-deck` | `slide-composition` | A | 2, Д5 | 1б | `assign_recipes` — чистая функция, возвращает `RecipeAssignment` на каждый слайд (пример и причина); ≤ 2 на колоду, не подряд; нет подходящего → `None` (путь `by_design`); `_roomiest` новым путём не зовётся — удаляется вместе с `legacy` |
 | 2п | `the-assign-node` | — (граф) | тимлид | 2 | 2 | Узел `assign` между `plan` и `compose` под флагом; назначения в `DeckState["assignments"]`, причина в `run.json` |
 | 3 | `the-text-is-written-for-the-places` | `slide-composition` | A | 3, Д4 | 2п | Схема ответа из паспорта с `maxLength`; `slide_composer` 2.0.0; ≤ 1 повтор на место; `bind_to_recipe` без сплющивания |
 | 4 | `the-writer-removes-whole-groups` | `pptx-writer` | B | 4 | 1а | Незаполненное место уходит с группой; `TOUCH_SHARE` и каскад по линиям удалены; холодный шаблон зелёный |
@@ -133,8 +137,9 @@
 
 Нужны два решения по владению — без них поток B упрётся в чужой файл:
 
-* `recipe_picker.py` принадлежит A, поэтому `_roomiest` удаляет A в change 2, а B
-  в 5б отвечает только за то, чтобы путь `by_design` принял такой слайд.
+* `recipe_picker.py` принадлежит A. `_roomiest` остаётся для `legacy`: новый путь его
+  не зовёт, а удаляется он вместе со старым путём. B в 5б отвечает за то, чтобы путь
+  `by_design` принял слайд без примера.
 * `clone_recipe` вызывается из `writer.py:524`, оба файла у B. Передать `DesignRules`
   в рецептную ветку — целиком работа B, чужих файлов change 5а не задевает.
 
