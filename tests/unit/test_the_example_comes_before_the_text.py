@@ -62,9 +62,12 @@ def test_a_typo_in_the_path_fails_loading() -> None:
         RunConfig.model_validate({"composition": {"path": "by-example"}})
 
 
-def test_by_example_refuses_before_the_assign_node() -> None:
-    """Нарушитель: без узла `assign` путь `by_example` отказывает и называет причину."""
-    with pytest.raises(PipelineError, match="assign"):
+def test_by_example_refuses_before_the_text_is_written_for_the_places() -> None:
+    """Нарушитель: без композиции под места путь `by_example` отказывает и называет причину.
+
+    До `the-assign-node` отказ называл недостающий узел `assign`; узел есть, недостаёт change 3.
+    """
+    with pytest.raises(PipelineError, match="the-text-is-written-for-the-places"):
         ensure_composition_path("by_example")
 
 
@@ -75,7 +78,7 @@ def test_a_run_on_by_example_does_not_start(tmp_path: Path) -> None:
         brief=Brief(purpose="report", audience="правление"), run=run, out_dir=tmp_path / "out"
     )
 
-    with pytest.raises(PipelineError, match="assign"):
+    with pytest.raises(PipelineError, match="the-text-is-written-for-the-places"):
         asyncio.run(
             generate_variant(tmp_path / "t.pptx", [], variant=None, deps=deps, seed=1)  # type: ignore[arg-type]
         )

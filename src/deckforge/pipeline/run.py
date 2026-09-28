@@ -208,6 +208,11 @@ class RunResult:
             "slides_decision": self.state.get("slides_decision"),
             # Почему каждый слайд собран так (Т7): рецепт или макет, путь выбора.
             "slide_choices": list(self.state.get("slide_choices") or []),
+            # Примеры, назначенные до текста (ADR-009): пример или его отсутствие и причина.
+            # Только на пути `by_example`; на `legacy` — пусто.
+            "assignments": [
+                a.model_dump(mode="json") for a in (self.state.get("assignments") or [])
+            ],
             "exports": {fmt: str(path) for fmt, path in self.exports.items()},
             # Дизайн-система файлами рядом с колодой (Т2): по ним проверяют, по какой
             # системе собрана колода, не запуская отдельную команду.
@@ -359,15 +364,19 @@ def initial_state(
 
 
 def ensure_composition_path(path: CompositionPath) -> None:
-    """Путь `by_example` без своего узла не подменяется старым (ADR-009).
+    """Путь `by_example` без композиции под места не подменяется старым (ADR-009).
 
-    Узел `assign` приедет change `the-assign-node`. До него прогон с `by_example`
-    собрал бы колоду путём `legacy`, и приёмка плана Б сравнила бы старый путь со старым.
+    Узел `assign` в графе есть (change `the-assign-node`), но `compose` пока пишет текст
+    по-старому — под макет, а не под места назначенного примера. Это change 3 потока A
+    (`the-text-is-written-for-the-places`). До него прогон с `by_example` собрал бы колоду
+    путём `legacy` с назначениями, которых никто не читает, и приёмка сравнила бы старый
+    путь со старым. Снимает отказ тимлид вместе с подключением change 3 к узлу `compose`.
     """
     if path == "by_example":
         raise PipelineError(
-            "composition.path = by_example: в графе ещё нет узла `assign` "
-            "(change the-assign-node) — колода собралась бы путём legacy"
+            "composition.path = by_example: узел `compose` ещё не пишет текст под места "
+            "назначенного примера (change the-text-is-written-for-the-places) — "
+            "колода собралась бы путём legacy"
         )
 
 

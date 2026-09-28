@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
+from deckforge.composition.assign import RecipeAssignment
 from deckforge.designsystem import DesignSystem
 from deckforge.domain.audit import AuditReport, Finding
 from deckforge.domain.content import ContentPackage
@@ -71,6 +72,9 @@ class DeckState(TypedDict, total=False):
     deck: DeckIR
     #: Почему каждый слайд собран так: рецепт или макет и фраза для человека (Т7).
     slide_choices: list[dict[str, Any]]
+    #: Примеры, назначенные до текста узлом `assign` (ADR-009, решение Р2 плана Б):
+    #: в состоянии, а не в `SlidePlan` — поле плана попало бы в схему ответа планировщика.
+    assignments: list[RecipeAssignment]
 
     pptx_path: Path
     #: `slide_id` → путь к png. Пусто, если LibreOffice недоступен.
