@@ -45,7 +45,7 @@ from deckforge.designsystem.contrast import (
     required_ratio,
     text_classes,
 )
-from deckforge.designsystem.models import Recipe
+from deckforge.designsystem.models import Recipe, TypeLevel
 from deckforge.domain.audit import Finding
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage
@@ -803,4 +803,222 @@ def slide_without_recipe(ctx: CheckContext) -> Iterable[Finding]:
                 f"в каталоге шаблона {len(catalogue)} рецептов"
             ),
             evidence={"recipe_id": slide.recipe_id or "", "layout_id": slide.layout_id},
+        )
+
+
+_Frame = tuple[float, float, float, float]
+
+#: Фон или полоса во всю ширину **или** высоту слайда — оформление слайда, не декор зоны
+#: (RG52). То же число, что `FULL_SPAN_SHARE` писателя (`rendering/recipe_slide.py`):
+#: владельцы разные, политика одна. Не `FULL_BLEED_SHARE`: та — подложка по обеим сторонам.
+SPAN_SHARE = 0.9
+
+_GROUP = qn("p:grpSp")
+_CONNECTOR = qn("p:cxnSp")
+_SHAPE = qn("p:sp")
+_PLACED_TAGS = (_SHAPE, qn("p:pic"), _CONNECTOR, qn("p:graphicFrame"))
+
+
+def _xfrm_pair(xfrm: Any, off: str, ext: str) -> _Frame | None:
+    start = xfrm.find(qn(off)) if xfrm is not None else None
+    size = xfrm.find(qn(ext)) if xfrm is not None else None
+    if start is None or size is None:
+        return None
+    return (float(start.get("x", 0)), float(start.get("y", 0)),
+            float(size.get("cx", 0)), float(size.get("cy", 0)))
+
+
+def _node_xfrm(node: Any) -> Any:
+    if node.tag == _GROUP:
+        return node.find(f"{qn('p:grpSpPr')}/{qn('a:xfrm')}")
+    found = node.find(f"{qn('p:spPr')}/{qn('a:xfrm')}")
+    return found if found is not None else node.find(qn("p:xfrm"))
+
+
+def _shapes_on_page(
+    parent: Any, scale: _Frame = (0, 0, 1, 1), origin: tuple[float, float] = (0, 0)
+) -> Iterable[tuple[Any, _Frame | None]]:
+    """Фигуры страницы на любой глубине групп с рамкой в координатах слайда.
+
+    Свой обход, а не писателя: проверка меряет файл, а не решение писателя. Линии разбор
+    примеров не хранит (`cx = 0` он отбрасывает) — их геометрия есть только в файле.
+    """
+    ox, oy, sx, sy = scale
+    for node in parent:
+        if node.tag not in (_GROUP, *_PLACED_TAGS):
+            continue
+        xfrm = _node_xfrm(node)
+        own = _xfrm_pair(xfrm, "a:off", "a:ext")
+        frame = None if own is None else (
+            ox + (own[0] - origin[0]) * sx, oy + (own[1] - origin[1]) * sy,
+            own[2] * sx, own[3] * sy,
+        )
+        if node.tag != _GROUP:
+            yield node, frame
+            continue
+        child = _xfrm_pair(xfrm, "a:chOff", "a:chExt")
+        if frame is None or child is None or not child[2] or not child[3]:
+            yield from _shapes_on_page(node, scale, origin)
+        else:
+            yield from _shapes_on_page(
+                node, (frame[0], frame[1], frame[2] / child[2], frame[3] / child[3]),
+                (child[0], child[1]),
+            )
+
+
+def _apart(a: _Frame, b: _Frame) -> float:
+    """Зазор между рамками; 0 — касаются или пересекаются."""
+    return max(b[0] - (a[0] + a[2]), a[0] - (b[0] + b[2]),
+               b[1] - (a[1] + a[3]), a[1] - (b[1] + b[3]), 0)
+
+
+def _line_ends(node: Any, frame: _Frame) -> tuple[_Frame, _Frame]:
+    """Концы линии — углы рамки с учётом `flipH`/`flipV`."""
+    xfrm = _node_xfrm(node)
+    x0, y0, x1, y1 = frame[0], frame[1], frame[0] + frame[2], frame[1] + frame[3]
+    if xfrm is not None and xfrm.get("flipH") == "1":
+        x0, x1 = x1, x0
+    if xfrm is not None and xfrm.get("flipV") == "1":
+        y0, y1 = y1, y0
+    return (x0, y0, 0, 0), (x1, y1, 0, 0)
+
+
+def _has_text(node: Any) -> bool:
+    return any((text.text or "").strip() for text in node.iter(qn("a:t")))
+
+
+def _shape_id(node: Any) -> str:
+    props = node.find(f"./*/{qn('p:cNvPr')}")
+    return props.get("id", "") if props is not None else ""
+
+
+def _spans_the_slide(frame: _Frame, size: tuple[float, float]) -> bool:
+    """Подложка или полоса во всю ширину или высоту — оформление слайда, не декор зоны."""
+    return frame[2] >= SPAN_SHARE * size[0] or frame[3] >= SPAN_SHARE * size[1]
+
+
+@check(id="template.decor_leads_nowhere", deterministic=True, severity=Severity.WARNING,
+       title="Стрелка или рамка примера ведёт к месту без текста")
+def decor_leads_nowhere(ctx: CheckContext) -> Iterable[Finding]:
+    """Стрелка или плашка примера ведёт к месту, где в файле нет текста (RG52).
+
+    Education s06, рецепт `ex013`: зоны схемы нашим текстом не заполнились, писатель их снял,
+    а стрелки и плашка остались — чертёж без подписей при нуле ошибок аудита. Проверка меряет
+    **готовый файл**, а не решение писателя (его правило она не импортирует — иначе замер
+    подтверждал бы сам себя): геометрия зон — из каталога, фигур — со страницы, с группами.
+
+    Пустое место — рамка зоны рецепта, у которой в файле нет фигуры или в фигуре нет текста.
+    Находка — линия (`p:cxnSp` или фигура, у которой меньшая сторона не больше `line_share`
+    большей), конец которой в пределах `touch_share` ширины слайда от пустого места и не у фигуры
+    с текстом; и плашка `p:sp` без текста, которая касается пустого места и ни одной фигуры
+    с текстом. Не декор примера: плейсхолдеры, фигуры, которые адресует рецепт, подложки во всю
+    сторону слайда (`SPAN_SHARE`); колонтитулы — не текст. Картинка рецепта — содержимое.
+    Заголовок — не пустое место: его писатель не снимает никогда.
+
+    Граница: только слайды по рецепту и только рамки зон рецепта. На слайде по макету декор —
+    оформление макета, и зон, к которым он «ведёт», нет. Страница — по номеру слайда в IR,
+    как у `template.sample_text_left`.
+    """
+    path = ctx.deck_path
+    if path is None:
+        raise CheckUnavailable("файла колоды ещё нет: декор примера виден только в .pptx")
+    if not ctx.manifest.examples:
+        raise CheckUnavailable("в шаблоне нет слайдов-примеров: рецептов не бывает")
+    recipes = catalogue(ctx)
+    recipe_slides = [
+        (number, slide, recipes[slide.recipe_id])
+        for number, slide in enumerate(ctx.deck.slides)
+        if slide.recipe_id and slide.recipe_id in recipes
+    ]
+    if not recipe_slides:
+        raise CheckUnavailable("ни одного слайда по рецепту из каталога: декора примера нет")
+    try:
+        from pptx import Presentation
+
+        prs = Presentation(str(path))
+        pages = list(prs.slides)
+        size = (float(prs.slide_width or 0), float(prs.slide_height or 0))
+    except Exception as error:
+        raise CheckUnavailable(f"файл колоды не открылся: {type(error).__name__}") from error
+    if len(pages) < len(ctx.deck.slides):
+        raise CheckUnavailable(
+            f"в файле {len(pages)} слайдов, а в IR {len(ctx.deck.slides)}: "
+            "страницу слайда по рецепту не найти"
+        )
+    tolerance = ctx.param("touch_share", 0.01) * size[0]
+    line_share = ctx.param("line_share", 0.02)
+    for number, slide, recipe in recipe_slides:
+        yield from _decor_findings(slide, recipe, pages[number], size, tolerance, line_share)
+
+
+def _decor_findings(
+    slide: SlideIR,
+    recipe: Recipe,
+    page: Any,
+    size: tuple[float, float],
+    tolerance: float,
+    line_share: float,
+) -> Iterable[Finding]:
+    placed = list(_shapes_on_page(page.shapes._spTree))
+    texts: list[_Frame] = []
+    written: set[str] = set()
+    for node, frame in placed:
+        mark = node.find(f"./*/{qn('p:nvPr')}/{qn('p:ph')}")
+        if mark is not None and mark.get("type") in FOOTER_PLACEHOLDERS:
+            continue
+        if _has_text(node):
+            written.add(_shape_id(node))
+        elif _shape_id(node) != str(recipe.picture_xml_id):
+            continue
+        if frame is not None:
+            texts.append(frame)
+    empty = [
+        (zone.zone_id, (float(zone.x), float(zone.y), float(zone.cx), float(zone.cy)))
+        for zone in recipe.zones
+        if zone.x is not None and zone.y is not None and zone.cx and zone.cy
+        and zone.role is not TypeLevel.SLIDE_TITLE and str(zone.xml_id) not in written
+    ]
+    if not empty:
+        return
+    addressed = {str(zone.xml_id) for zone in recipe.zones}
+    addressed.update(str(xml_id) for row in recipe.repeat_xml_ids for xml_id in row)
+    addressed.add(str(recipe.picture_xml_id))
+
+    def near(frame: _Frame, targets: list[_Frame]) -> bool:
+        return any(_apart(frame, target) <= tolerance for target in targets)
+
+    for node, frame in placed:
+        xml_id = _shape_id(node)
+        if (frame is None or _has_text(node) or xml_id in addressed
+                or node.find(f"./*/{qn('p:nvPr')}/{qn('p:ph')}") is not None
+                or _spans_the_slide(frame, size)):
+            continue
+        small, big = sorted((frame[2], frame[3]))
+        if node.tag == _CONNECTOR or (big > 0 and small <= line_share * big):
+            what, ends = "линия", [e for e in _line_ends(node, frame) if not near(e, texts)]
+        elif node.tag == _SHAPE and not near(frame, texts):
+            what, ends = "плашка", [frame]
+        else:
+            continue
+        zone_id = next(
+            (zone_id for end in ends for zone_id, zone in empty if near(end, [zone])), None
+        )
+        if zone_id is None:
+            continue
+        props = node.find(f"./*/{qn('p:cNvPr')}")
+        name = props.get("name", "") if props is not None else ""
+        yield make_finding(
+            check_id="template.decor_leads_nowhere",
+            slide_id=slide.slide_id,
+            reason=f"shape:{xml_id}",
+            message=(
+                f"На слайде {slide.slide_id} (рецепт {recipe.recipe_id}) {what} «{name}» "
+                f"ведёт к зоне {zone_id}, где в файле нет текста"
+            ),
+            evidence={
+                "recipe_id": recipe.recipe_id,
+                "xml_id": xml_id or "нет",
+                "shape": name,
+                "zone_id": zone_id,
+            },
         )

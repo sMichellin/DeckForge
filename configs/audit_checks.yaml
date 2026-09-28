@@ -77,6 +77,15 @@ checks:
     title: "На слайде по рецепту остался текст слайда-примера шаблона"
     # Слайд по рецепту — копия примера шаблона. Любой текст на нём, которого нет в IR
     # колоды, пришёл из примера: чужая фраза в колоде хуже пустой рамки.
+  template.decor_leads_nowhere:
+    deterministic: true
+    severity: warning
+    title: "Стрелка или рамка примера ведёт к месту без текста"
+    # RG52: зону писатель снял, а стрелка к ней и плашка вокруг неё остались (Education ex013).
+    # touch_share — допуск «примыкает», доля ширины слайда: 2 % задевают пагинатор VK Tech
+    # ex003, 1 % — нет. line_share — линия: меньшая сторона не больше этой доли большей.
+    # Те же числа у писателя (`rendering/recipe_slide.py`), владельцы разные. warning до стенда.
+    params: { touch_share: 0.01, line_share: 0.02 }
   template.recipe_not_in_catalogue:
     deterministic: true
     severity: error

@@ -295,6 +295,7 @@ def clone_recipe(prs: Any, recipe: Recipe, slide_ir: SlideIR) -> Any:
 
     _drop_spare_repeats(recipe, _used_repeats(recipe, list(slide_ir.blocks)), shapes)
     _drop_empty_zones(recipe, filled, shapes)
+    _drop_orphan_decor(recipe, slide, int(prs.slide_width), int(prs.slide_height))
     _drop_unfilled_frames(recipe, slide)
     return slide
 
@@ -381,3 +382,196 @@ def _drop_unfilled_frames(recipe: Recipe, slide: Any) -> None:
         rel = rels.get(rid)
         if rel is not None and any(kind in rel.reltype for kind in _FRAME_PARTS):
             rels.pop(rid)
+
+
+#: Допуск «примыкает» — доля ширины слайда (RG52). Политика вёрстки, а не свойство шаблона:
+#: линии схемы Education `ex013` лежат в 1–2 % от рамок зон. 2 % уже снимают оформление
+#: слайда — точки-пагинатор раздела VK Tech `ex003` рядом с подзаголовком; 1 % — нет.
+#: То же число у проверки `template.decor_leads_nowhere` (`configs/audit_checks.yaml`).
+TOUCH_SHARE = 0.01
+
+#: Линия — `p:cxnSp` любой формы или фигура, у которой меньшая сторона не больше этой доли
+#: большей: у линий схем одна сторона нулевая, у градиентных черт VK Tech — около 1 %.
+LINE_SHARE = 0.02
+
+#: Фон и полосы во всю ширину или высоту слайда — оформление слайда, не декор зоны.
+FULL_SPAN_SHARE = 0.9
+
+#: Колонтитулы — не текст слайда (как `FOOTER_PLACEHOLDERS` аудита).
+_FOOTERS = frozenset({"ftr", "dt", "sldNum", "hdr"})
+
+_Box = tuple[float, float, float, float]
+
+
+def _xfrm(node: Any) -> Any | None:
+    if node.tag == GROUP:
+        return node.find(f"{qn('p:grpSpPr')}/{qn('a:xfrm')}")
+    found = node.find(f"{qn('p:spPr')}/{qn('a:xfrm')}")
+    return found if found is not None else node.find(qn("p:xfrm"))
+
+
+def _pair(xfrm: Any | None, off: str, ext: str) -> _Box | None:
+    """Рамка из пары узлов `off/ext` (или `chOff/chExt` у группы)."""
+    start = xfrm.find(qn(off)) if xfrm is not None else None
+    size = xfrm.find(qn(ext)) if xfrm is not None else None
+    if start is None or size is None:
+        return None
+    return (float(start.get("x", 0)), float(start.get("y", 0)),
+            float(size.get("cx", 0)), float(size.get("cy", 0)))
+
+
+def _placed(parent: Any, frame: _Box = (0, 0, 1, 1), origin: tuple[float, float] = (0, 0)) -> Any:
+    """Фигуры с рамкой в координатах слайда (или `None`), группы раскрыты с их масштабом.
+
+    Геометрию линий разбор примеров не хранит (`cx = 0` он отбрасывает), поэтому она
+    берётся из самого слайда. `frame` — сдвиг и масштаб родителя, `origin` — `chOff`.
+    """
+    ox, oy, sx, sy = frame
+    for node in parent:
+        if node.tag not in (GROUP, *SHAPE_TAGS):
+            continue
+        xfrm = _xfrm(node)
+        own = _pair(xfrm, "a:off", "a:ext")
+        box = None if own is None else (
+            ox + (own[0] - origin[0]) * sx, oy + (own[1] - origin[1]) * sy,
+            own[2] * sx, own[3] * sy,
+        )
+        if node.tag != GROUP:
+            yield node, box
+            continue
+        child = _pair(xfrm, "a:chOff", "a:chExt")
+        if box is None or child is None or not child[2] or not child[3]:
+            yield from _placed(node, frame, origin)
+            continue
+        yield from _placed(
+            node, (box[0], box[1], box[2] / child[2], box[3] / child[3]), (child[0], child[1])
+        )
+
+
+def _gap(a: _Box, b: _Box) -> float:
+    """Зазор между рамками; 0 — касаются или пересекаются."""
+    dx = max(b[0] - (a[0] + a[2]), a[0] - (b[0] + b[2]), 0)
+    dy = max(b[1] - (a[1] + a[3]), a[1] - (b[1] + b[3]), 0)
+    return max(dx, dy)
+
+
+def _within(inner: _Box, outer: _Box) -> bool:
+    return (inner[0] >= outer[0] and inner[1] >= outer[1]
+            and inner[0] + inner[2] <= outer[0] + outer[2]
+            and inner[1] + inner[3] <= outer[1] + outer[3])
+
+
+def _is_line(node: Any, box: _Box) -> bool:
+    if node.tag == qn("p:cxnSp"):
+        return True
+    small, big = sorted((box[2], box[3]))
+    return big > 0 and small <= LINE_SHARE * big
+
+
+def _ends(node: Any, box: _Box) -> tuple[_Box, _Box]:
+    """Концы линии — углы рамки с учётом отражения `flipH`/`flipV`."""
+    xfrm = _xfrm(node)
+    x0, y0, x1, y1 = box[0], box[1], box[0] + box[2], box[1] + box[3]
+    if xfrm is not None and xfrm.get("flipH") == "1":
+        x0, x1 = x1, x0
+    if xfrm is not None and xfrm.get("flipV") == "1":
+        y0, y1 = y1, y0
+    return (x0, y0, 0, 0), (x1, y1, 0, 0)
+
+
+def _drop_orphan_decor(recipe: Recipe, slide: Any, width: int, height: int) -> None:
+    """Декор снятой зоны уходит вместе с ней (RG52).
+
+    Education `ex013` — схема из стрелок: зоны нашим текстом не заполнились и ушли
+    (`_drop_empty_zones`), а линии, плашка и иконка остались чертежом без подписей.
+    Привязок у линий нет (`a:stCxn`/`a:endCxn` — 2 на 45 линий трёх шаблонов), поэтому
+    декор зоны отличается только геометрией, в допуске `TOUCH_SHARE`:
+
+    1. Линия уходит, если её конец у рамки снятой зоны, или каскадом — если конец у уже снятой
+       линии, а ни один конец не у текста (ствол развилки между заполненными зонами остаётся);
+       разветвители схемы (`ex013`: цепочка в три шага) уходят до конца.
+    2. Фигура без текста уходит, если касается снятой зоны или конца снятой линии
+       **и** не касается ни одной фигуры с текстом: плашка, на которой остался наш
+       текст, — фигура автора (RG40).
+    3. Фигура без текста целиком внутри снятой плашки уходит с ней: иконка карточки.
+
+    Не трогаются никогда: фон и полосы во всю ширину или высоту, плейсхолдеры, всё, что
+    адресует рецепт (зоны, члены повторов — их правило `_drop_spare_repeats`, картинка),
+    таблицы и диаграммы (`_drop_unfilled_frames`), заголовок и всё, что касается его.
+    Замер на трёх шаблонах — в proposal change `a-decoration-leaves-with-its-zone`.
+    """
+    tree = _shapes_tree(slide)
+    placed = list(_placed(tree))
+    present = {_xml_id(node) for node, _ in placed}
+    framed: dict[int, _Box] = {
+        zone.xml_id: (float(zone.x), float(zone.y), float(zone.cx), float(zone.cy))
+        for zone in recipe.zones
+        if zone.xml_id is not None and zone.x is not None and zone.y is not None
+        and zone.cx is not None and zone.cy is not None
+    }
+    titles = {zone.xml_id for zone in recipe.zones if zone.role is TypeLevel.SLIDE_TITLE}
+    dropped = [box for xml_id, box in framed.items() if xml_id not in present | titles]
+    if not dropped:
+        return
+    tolerance = TOUCH_SHARE * width
+    addressed = _addressed(recipe)
+
+    def touches(box: _Box, targets: list[_Box]) -> bool:
+        return any(_gap(box, target) <= tolerance for target in targets)
+
+    content: list[_Box] = []
+    title_boxes: list[_Box] = []
+    decor: list[tuple[Any, _Box]] = []
+    for node, own in placed:
+        xml_id = _xml_id(node)
+        mark = node.find(f"./*/{qn('p:nvPr')}/{qn('p:ph')}")
+        if mark is not None and mark.get("type") in _FOOTERS:
+            continue
+        box = own if own is not None else framed.get(xml_id) if xml_id is not None else None
+        written = any((text.text or "").strip() for text in node.iter(qn("a:t")))
+        if written or xml_id in titles or xml_id == recipe.picture_xml_id:
+            if box is not None:
+                content.append(box)
+                if xml_id in titles:
+                    title_boxes.append(box)
+            continue
+        if (box is None or mark is not None or xml_id in addressed or node.tag == GRAPHIC_FRAME
+                or box[2] >= FULL_SPAN_SHARE * width or box[3] >= FULL_SPAN_SHARE * height):
+            continue
+        decor.append((node, box))
+    # Декор у заголовка — оформление слайда, даже если касается и снятой зоны.
+    decor = [(node, box) for node, box in decor if not touches(box, title_boxes)]
+
+    lines = [(node, box) for node, box in decor if _is_line(node, box)]
+    shapes = [(node, box) for node, box in decor if not _is_line(node, box)]
+    gone: list[tuple[Any, _Box]] = []
+    reach: list[_Box] = []
+
+    def orphaned(node: Any, box: _Box) -> bool:
+        """Конец у снятой зоны — линия ведёт в пустоту. Конец только у снятой линии — каскад,
+        если ни один конец не у текста: ствол развилки между заполненными зонами остаётся."""
+        ends = _ends(node, box)
+        if any(touches(end, dropped) for end in ends):
+            return True
+        return any(touches(end, reach) for end in ends) and not any(
+            touches(end, content) for end in ends
+        )
+
+    while more := [
+        (node, box) for node, box in lines
+        if all(node is not taken for taken, _ in gone) and orphaned(node, box)
+    ]:
+        gone += more
+        reach += [box for _, box in more]
+    line_ends = [end for node, box in gone for end in _ends(node, box)]
+    plates = [
+        (node, box) for node, box in shapes
+        if (touches(box, dropped) or touches(box, line_ends)) and not touches(box, content)
+    ]
+    inner = [
+        node for node, box in shapes
+        if all(node is not plate for plate, _ in plates)
+        and any(_within(box, plate_box) for _, plate_box in plates)
+    ]
+    for node in [node for node, _ in gone + plates] + inner:
+        _remove(node)
