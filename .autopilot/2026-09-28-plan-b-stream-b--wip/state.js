@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": null,
   "skillDir": "C:/Users/gulin/.claude/skills/autopilot",
   "startedAt": "2026-09-28T19:48:43+03:00",
-  "updatedAt": "2026-09-28T21:26:11+03:00",
+  "updatedAt": "2026-09-28T21:30:47+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -190,11 +190,14 @@ window.STATE =
         "rendering/{smartart,charts,tables}.py",
         "openspec/changes/no-example-goes-by-design/"
       ],
-      "status": "in-progress",
+      "status": "repair",
       "retries": 0,
-      "repairs": 0,
+      "repairs": 1,
       "handoffs": 1,
-      "startedAt": "2026-09-28T20:39:02+03:00"
+      "startedAt": "2026-09-28T20:39:02+03:00",
+      "repairFindings": [
+        "repair-03-1.md: callout-тест не может упасть (BLOCKING); ослабление переполнения на рецептных слайдах (Extra); + NATIVE_PATTERNS, инварианты, одна функция, два флага, HTML, proposal"
+      ]
     }
   ],
   "singlePass": null,
@@ -222,7 +225,10 @@ window.STATE =
     "T01: после rebase на origin/plan-b (#249 — ёмкость паспорта кеглем порога) перемерить строку 3",
     "Диск C: забит до 0 байт 28.09 — тесты оставляют папки tmp* по ~43 МБ в Temp (335 шт. за 24.09); удалено 340 с согласия Насти, +5 ГБ. Гигиена тестов — не наш файл, сообщить тимлиду",
     "T01 craft: test_an_empty_zone_outside_the_passport_is_not_guessed фиксирует текст шаблона у зоны вне паспорта как норму — уточнить тест/docstring",
-    "T01 craft: проверка дублей при паспорте не учитывает id самих p:grpSp в decor_xml_ids (только битый файл)"
+    "T01 craft: проверка дублей при паспорте не учитывает id самих p:grpSp в decor_xml_ids (только битый файл)",
+    "T03: путь by_example не подключён в графе — нужен by_example из state['composition_path'] в fit/writer и правка pipeline/nodes/fit.py (тимлид)",
+    "T03: переполнение пишется как есть — схема из 8 длинных шагов нечитаема, таблица в 30 строк вылезает; делить — композиция (split)",
+    "T03: подделка RecipeAssignment в тесте → после rebase заменить импортом настоящего (одна строка)"
   ],
   "reviewers": {
     "manifestSpec": "rev-ms (a86b1a6872adbaf5f)",

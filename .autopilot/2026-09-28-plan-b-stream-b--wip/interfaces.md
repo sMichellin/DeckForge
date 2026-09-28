@@ -78,3 +78,12 @@
   адрес текстового места — только `zone.xml_id`, у картинки — `place.xml_id`.
 - Холодный корпус локально: `tests/fixtures/templates/cold/{DNA,Focus,Piano,Portfolio}.pptx` из `.otp` LibreOffice
   (`cold_corpus.py` ищет `.otp` только по пути Linux).
+
+### Из таска 03 — change 5б `no-example-goes-by-design` (ветка `feat/no-example-goes-by-design`, от plan-b)
+
+- `PptxWriter.__init__(..., by_example: bool = False)`; `fit_slide(..., *, by_example: bool = False)`;
+  `SlideDegrader(manifest, fonts=None, *, by_example=False)`; `SlideValidator(manifest, recipes=None, *, by_example=False)`.
+  По умолчанию — прежний вывод байт в байт (golden `tests/fixtures/no-example-goes-by-design/legacy-slides.json`).
+- `layout.diagram.NATIVE_PATTERNS`; `diagram_geometry` строит HIERARCHY и PYRAMID.
+- Граф путь знает (`state["composition_path"]`, #254), но в `fit_slide`/`PptxWriter` не передаёт — запрос тимлиду в proposal 5б.
+- Правило для 5а: `writer.py` правят и 5а (передача `design` в `clone_recipe`), и 5б (параметр пути) — конфликт при rebase 5а решает оркестратор.
