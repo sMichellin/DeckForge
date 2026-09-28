@@ -1,0 +1,740 @@
+{
+  "run_id": "3a93c140202f",
+  "variant": "A",
+  "prompt_versions": [
+    "slide_composer@1.5.0"
+  ],
+  "seed": 1341,
+  "slides": 10,
+  "planned_slides": 10,
+  "slides_decision": {
+    "mode": "exact",
+    "requested": 12,
+    "count": 10,
+    "planned": 10,
+    "reason": "задано 12, но материала (24 фактов) хватает на 10: остальные вышли бы полупустыми"
+  },
+  "slide_choices": [
+    {
+      "slide_id": "s01",
+      "intent": "title",
+      "visual": null,
+      "recipe_id": "ex003",
+      "recipe_kind": "cover",
+      "layout_id": "L07",
+      "layout_kind": "title",
+      "why": "место в колоде задаёт вид «cover» — взят рецепт этого вида"
+    },
+    {
+      "slide_id": "s02",
+      "intent": "summary",
+      "visual": "callout:insight",
+      "recipe_id": "ex024",
+      "recipe_kind": "cards",
+      "layout_id": "L22",
+      "layout_kind": "bullets",
+      "why": "заказанного вида нет — из 14 вмещающих взят ближайший по местам"
+    },
+    {
+      "slide_id": "s03",
+      "intent": "problem",
+      "visual": null,
+      "recipe_id": "ex024",
+      "recipe_kind": "cards",
+      "layout_id": "L14",
+      "layout_kind": "two_column",
+      "why": "заказанного вида нет — из 16 вмещающих взят ближайший по местам"
+    },
+    {
+      "slide_id": "s04",
+      "intent": "evidence",
+      "visual": "callout:risk",
+      "recipe_id": "ex019",
+      "recipe_kind": "text",
+      "layout_id": "L22",
+      "layout_kind": "bullets",
+      "why": "заказанного вида нет — из 15 вмещающих взят ближайший по местам"
+    },
+    {
+      "slide_id": "s05",
+      "intent": "solution",
+      "visual": null,
+      "recipe_id": "ex024",
+      "recipe_kind": "cards",
+      "layout_id": "L14",
+      "layout_kind": "two_column",
+      "why": "заказанного вида нет — из 13 вмещающих взят ближайший по местам"
+    },
+    {
+      "slide_id": "s06",
+      "intent": "solution",
+      "visual": "smartart:process",
+      "recipe_id": "ex008",
+      "recipe_kind": "cards",
+      "layout_id": "L22",
+      "layout_kind": "bullets",
+      "why": "заказанного вида нет — из 13 вмещающих взят ближайший по местам"
+    },
+    {
+      "slide_id": "s07",
+      "intent": "evidence",
+      "visual": null,
+      "recipe_id": "ex015",
+      "recipe_kind": "text",
+      "layout_id": "L14",
+      "layout_kind": "two_column",
+      "why": "заказанного вида нет — из 17 вмещающих взят ближайший по местам"
+    },
+    {
+      "slide_id": "s08",
+      "intent": "evidence",
+      "visual": null,
+      "recipe_id": "ex024",
+      "recipe_kind": "cards",
+      "layout_id": "L22",
+      "layout_kind": "bullets",
+      "why": "заказанного вида нет — из 15 вмещающих взят ближайший по местам"
+    },
+    {
+      "slide_id": "s09",
+      "intent": "evidence",
+      "visual": "bullets:icon",
+      "recipe_id": "ex007",
+      "recipe_kind": "cards",
+      "layout_id": "L14",
+      "layout_kind": "two_column",
+      "why": "заказанного вида нет — из 15 вмещающих взят ближайший по местам"
+    },
+    {
+      "slide_id": "s10",
+      "intent": "closing",
+      "visual": null,
+      "recipe_id": "ex052",
+      "recipe_kind": "final",
+      "layout_id": "L27",
+      "layout_kind": "closing",
+      "why": "место в колоде задаёт вид «final» — взят рецепт этого вида"
+    }
+  ],
+  "exports": {
+    "pptx": "/work/e2e/artifacts/runs/3a93c140202f/out/deck.pptx",
+    "pdf": "/work/e2e/artifacts/runs/3a93c140202f/out/deck.pdf",
+    "html": "/work/e2e/artifacts/runs/3a93c140202f/out/deck.html"
+  },
+  "design_system_files": {
+    "html": "/work/e2e/artifacts/runs/3a93c140202f/out/design-system.html",
+    "json": "/work/e2e/artifacts/runs/3a93c140202f/out/design-system.json"
+  },
+  "stage_timings_s": {
+    "ingest_content": 0.003,
+    "parse_template": 32.111,
+    "plan": 47.569,
+    "compose": 104.653,
+    "fit": 0.011,
+    "render": 42.879,
+    "audit": 10.78,
+    "export": 2.991
+  },
+  "total_s": 240.997,
+  "audit": {
+    "errors": 20,
+    "warnings": 9,
+    "infos": 0,
+    "passed": 28,
+    "scores": null
+  },
+  "findings": 29,
+  "findings_detail": [
+    {
+      "severity": "error",
+      "check_id": "template.font_not_in_theme",
+      "slide_id": null,
+      "block_id": null,
+      "message": "В колоде 3 гарнитуры при допустимых 2: Arial, Consolas, Play",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s01",
+      "block_id": null,
+      "message": "На слайде s01 (рецепт ex003) в фигуре «Google Shape;249;p35» остался текст примера: «AI делает слайды по шаблону»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s01",
+      "block_id": null,
+      "message": "На слайде s01 (рецепт ex003) в фигуре «Google Shape;248;p35» остался текст примера: «Отчёт для правления о…»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s02",
+      "block_id": null,
+      "message": "На слайде s02 (рецепт ex024) в фигуре «Google Shape;543;p56» остался текст примера: «AI создаёт контент, но не дизайн»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s02",
+      "block_id": null,
+      "message": "На слайде s02 (рецепт ex024) в фигуре «Google Shape;541;p56» остался текст примера: «Генеративный ИИ быстро создаёт содержание, но не воспроизводит фирменный стиль к»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s02",
+      "block_id": null,
+      "message": "На слайде s02 (рецепт ex024) в фигуре «Google Shape;542;p56» остался текст примера: «Создание презентаций в корпоративном стиле по-прежнему требует участия дизайнеро»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s03",
+      "block_id": null,
+      "message": "На слайде s03 (рецепт ex024) в фигуре «Google Shape;542;p56» остался текст примера: «AI-инструменты хорошо генерируют содержание, но плохо воспроизводят структуру и »",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s03",
+      "block_id": null,
+      "message": "На слайде s03 (рецепт ex024) в фигуре «Google Shape;541;p56» остался текст примера: «Генеративный ИИ не заменяет дизайнеров при создании презентаций в фирменном стил»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s04",
+      "block_id": null,
+      "message": "На слайде s04 (рецепт ex019) в фигуре «Google Shape;456;p51» остался текст примера: «AI не воспроизводит структуру слайдов»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s05",
+      "block_id": null,
+      "message": "На слайде s05 (рецепт ex024) в фигуре «Google Shape;542;p56» остался текст примера: «Сервис анализирует презентационные шаблоны, извлекает их структуру, дизайн-систе»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s05",
+      "block_id": null,
+      "message": "На слайде s05 (рецепт ex024) в фигуре «Google Shape;543;p56» остался текст примера: «Система генерирует слайды из шаблона»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s06",
+      "block_id": null,
+      "message": "На слайде s06 (рецепт ex008) в фигуре «Google Shape;283;p40» остался текст примера: «Пайплайн из четырёх этапов»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s07",
+      "block_id": null,
+      "message": "На слайде s07 (рецепт ex015) в фигуре «Google Shape;407;p47» остался текст примера: «Оценивается не качество промптов, а способность участников строить полноценный A»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s08",
+      "block_id": null,
+      "message": "На слайде s08 (рецепт ex024) в фигуре «Google Shape;541;p56» остался текст примера: «Адаптируется к разным стилям оформления без ручного редактирования»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s08",
+      "block_id": null,
+      "message": "На слайде s08 (рецепт ex024) в фигуре «Google Shape;543;p56» остался текст примера: «Решение работает с любым стилем»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s09",
+      "block_id": null,
+      "message": "На слайде s09 (рецепт ex007) в фигуре «Google Shape;274;p39» остался текст примера: «Inference API для доступа к LLM»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s09",
+      "block_id": null,
+      "message": "На слайде s09 (рецепт ex007) в фигуре «Google Shape;275;p39» остался текст примера: «CLI для разработки и интеграции»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s09",
+      "block_id": null,
+      "message": "На слайде s09 (рецепт ex007) в фигуре «Google Shape;276;p39» остался текст примера: «Инструменты для разработки»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "integrity.empty_slide",
+      "slide_id": "s10",
+      "block_id": null,
+      "message": "На слайде только заголовок: содержания нет",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "template.sample_text_left",
+      "slide_id": "s10",
+      "block_id": null,
+      "message": "На слайде s10 (рецепт ex052) в фигуре «Google Shape;1075;p84» остался текст примера: «Ожидаем решения от команд»",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "design.ink_balance",
+      "slide_id": "s02",
+      "block_id": null,
+      "message": "На слайде пустая зона 100% ширины и 41% высоты: содержание не заняло отведённого",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "design.ink_balance",
+      "slide_id": "s03",
+      "block_id": null,
+      "message": "На слайде пустая зона 44% ширины и 42% высоты: содержание не заняло отведённого",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "template.size_not_in_scale",
+      "slide_id": "s04",
+      "block_id": "b1",
+      "message": "Кегль 40 pt в шаблоне не встречается: 88, 60, 48, 44, 39, 36, 24, 20",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "design.ink_balance",
+      "slide_id": "s06",
+      "block_id": null,
+      "message": "На слайде пустая зона 65% ширины и 74% высоты: содержание не заняло отведённого",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "design.unlike_the_template",
+      "slide_id": "s06",
+      "block_id": null,
+      "message": "Смещение центра тяжести — 2.88, а на слайдах шаблона 0.57 ± 0.41 (по 55 примерам)",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "design.ink_balance",
+      "slide_id": "s08",
+      "block_id": null,
+      "message": "На слайде пустая зона 100% ширины и 45% высоты: содержание не заняло отведённого",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "design.ink_balance",
+      "slide_id": "s09",
+      "block_id": null,
+      "message": "Содержание прижато к краю: центр тяжести смещён на 0.16 по горизонтали и 0.00 по вертикали — 1.6 допуска",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "design.ink_balance",
+      "slide_id": "s10",
+      "block_id": null,
+      "message": "На слайде пустая зона 52% ширины и 100% высоты: содержание не заняло отведённого",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "design.unlike_the_template",
+      "slide_id": "s10",
+      "block_id": null,
+      "message": "Смещение центра тяжести — 3.57, а на слайдах шаблона 0.57 ± 0.41 (по 55 примерам)",
+      "auto_fix_applied": false
+    }
+  ],
+  "fit": {
+    "s01/b01": {
+      "size_pt": 48.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s01/b02": {
+      "size_pt": 20.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s02/b1": {
+      "size_pt": 60.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s02/b2": {
+      "size_pt": 16.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 3
+    },
+    "s02/b2-1": {
+      "size_pt": 16.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s03/b1": {
+      "size_pt": 60.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s03/b2": {
+      "size_pt": 16.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s03/b2-1": {
+      "size_pt": 16.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 3
+    },
+    "s04/b1": {
+      "size_pt": 40.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s04/b2": {
+      "size_pt": 20.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s05/b05-0": {
+      "size_pt": 60.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s05/b05-1": {
+      "size_pt": 16.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s05/b05-2-1": {
+      "size_pt": 16.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 8
+    },
+    "s06/b1": {
+      "size_pt": 60.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s06/b2": {
+      "size_pt": 16.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 4
+    },
+    "s07/b1": {
+      "size_pt": 39.0,
+      "strategy": "shrink",
+      "overflow": false,
+      "lines": 1
+    },
+    "s07/b2": {
+      "size_pt": 16.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 3
+    },
+    "s08/b1": {
+      "size_pt": 60.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s08/b2": {
+      "size_pt": 16.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s08/b2-1": {
+      "size_pt": 16.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s09/b1": {
+      "size_pt": 60.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s09/b2": {
+      "size_pt": 18.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s09/b2-1": {
+      "size_pt": 18.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s09/b2-2": {
+      "size_pt": 18.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s09/b2-3": {
+      "size_pt": 18.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s10/b1": {
+      "size_pt": 39.0,
+      "strategy": "shrink",
+      "overflow": false,
+      "lines": 2
+    }
+  },
+  "design_metrics": {
+    "s01": {
+      "ink": 0.1174,
+      "imbalance": 0.09,
+      "zone_w": 0.12,
+      "zone_h": 0.32,
+      "chrome": 1.0
+    },
+    "s02": {
+      "ink": 0.0284,
+      "imbalance": 1.33,
+      "zone_w": 1.0,
+      "zone_h": 0.41,
+      "chrome": 1.0
+    },
+    "s03": {
+      "ink": 0.064,
+      "imbalance": 1.65,
+      "zone_w": 0.44,
+      "zone_h": 0.42,
+      "chrome": 1.0
+    },
+    "s04": {
+      "ink": 0.0315,
+      "imbalance": 0.97,
+      "zone_w": 1.0,
+      "zone_h": 0.33,
+      "chrome": 1.0
+    },
+    "s05": {
+      "ink": 0.0831,
+      "imbalance": 0.64,
+      "zone_w": 0.44,
+      "zone_h": 0.22,
+      "chrome": 1.0
+    },
+    "s06": {
+      "ink": 0.0197,
+      "imbalance": 2.88,
+      "zone_w": 0.65,
+      "zone_h": 0.74,
+      "chrome": 1.0
+    },
+    "s07": {
+      "ink": 0.0642,
+      "imbalance": 0.67,
+      "zone_w": 0.39,
+      "zone_h": 0.64,
+      "chrome": 1.0
+    },
+    "s08": {
+      "ink": 0.0264,
+      "imbalance": 1.56,
+      "zone_w": 1.0,
+      "zone_h": 0.45,
+      "chrome": 1.0
+    },
+    "s09": {
+      "ink": 0.0691,
+      "imbalance": 1.65,
+      "zone_w": 0.16,
+      "zone_h": 1.0,
+      "chrome": 1.0
+    },
+    "s10": {
+      "ink": 0.0189,
+      "imbalance": 3.57,
+      "zone_w": 0.52,
+      "zone_h": 1.0,
+      "chrome": 1.0
+    }
+  },
+  "design_system": {
+    "template_id": "sha256:9ef2323ed5f49f464aee5ae7065f1f57bb92c8be3a635be507d59819e285cfe0",
+    "type_levels": 8,
+    "theme_slots": 12,
+    "spacing_steps": 6,
+    "color_roles": 6,
+    "combinations": 9,
+    "contrast_pairs": 21,
+    "contrast_defects": 0,
+    "fonts_in_use": 3,
+    "components": 4,
+    "synthesized": 35,
+    "assembly_rules": 4
+  },
+  "design_system_usage": {
+    "slides": {
+      "s01": [
+        "recipe:ex003"
+      ],
+      "s02": [
+        "recipe:ex024"
+      ],
+      "s03": [
+        "recipe:ex024"
+      ],
+      "s04": [
+        "recipe:ex019"
+      ],
+      "s05": [
+        "recipe:ex024"
+      ],
+      "s06": [
+        "recipe:ex008"
+      ],
+      "s07": [
+        "recipe:ex015"
+      ],
+      "s08": [
+        "recipe:ex024"
+      ],
+      "s09": [
+        "recipe:ex007"
+      ],
+      "s10": [
+        "recipe:ex052"
+      ]
+    },
+    "recipe": {
+      "s01": "ex003",
+      "s02": "ex024",
+      "s03": "ex024",
+      "s04": "ex019",
+      "s05": "ex024",
+      "s06": "ex008",
+      "s07": "ex015",
+      "s08": "ex024",
+      "s09": "ex007",
+      "s10": "ex052"
+    },
+    "slides_total": 10,
+    "slides_with_elements": 10,
+    "share": 1.0,
+    "slides_by_recipe": 10,
+    "slides_title_only": 1,
+    "recipe_share": 1.0,
+    "elements": {
+      "recipe:ex003": 1,
+      "recipe:ex007": 1,
+      "recipe:ex008": 1,
+      "recipe:ex015": 1,
+      "recipe:ex019": 1,
+      "recipe:ex024": 4,
+      "recipe:ex052": 1
+    },
+    "unused": [
+      "kpi",
+      "smartart",
+      "quote",
+      "callout:insight",
+      "callout:risk",
+      "bullets:numbered",
+      "bullets:icon"
+    ]
+  },
+  "skipped_checks": [
+    "content.no_typos",
+    "content.body_matches_headline",
+    "content.has_substance",
+    "content.headline_is_conclusion",
+    "content.neighbours_connected",
+    "content.no_prompt_leftovers",
+    "content.one_sentence_summary",
+    "content.table_rows_meaningful",
+    "content.visuals_on_topic"
+  ],
+  "degradations": [
+    "parse_template: предел 25 с на разметку макетов моделью исчерпан, макетов размечено эвристикой: 1 (§15)",
+    "compose: остатка бюджета не хватает на расписание — основная модель заменена быстрой (§15)"
+  ],
+  "notes": [
+    "план: слайд s01: заголовок переписан под рамку: 40 → 27",
+    "план: слайд s03: заголовок переписан под рамку: 42 → 22",
+    "план: слайд s04: заголовок переписан под рамку: 41 → 37",
+    "план: слайд s05: заголовок переписан под рамку: 46 → 36",
+    "план: слайд s07: заголовок переписан под рамку: 38 → 26",
+    "план: слайд s08: заголовок переписан под рамку: 35 → 31",
+    "план: слайд s09: заголовок переписан под рамку: 36 → 26",
+    "план: слайдов 10 вместо запрошенных 12 — на 24 фактах больше вышло бы полупустыми",
+    "слайд s02: блок b2 — повторов в рецепте ex024 2, пунктов 4; последние 2 сняты",
+    "слайд s02: блок b3 снят — свободной зоны в рецепте ex024 не осталось (мест под тело 2, блоков тела 2)",
+    "слайд s03: блок b3 снят — свободной зоны в рецепте ex024 не осталось (мест под тело 2, блоков тела 2)",
+    "слайд s04: блок b3 снят — свободной зоны в рецепте ex019 не осталось (мест под тело 1, блоков тела 2)",
+    "слайд s05: текст b05-2 повторяет подписи схемы b05-1 (100%): схема должна заменять список, а не дублировать",
+    "слайд s05: блок b05-1 («smartart») поставлен в зону рецепта ex024 простым текстом — зона не несёт рисунка схемы — остались её шаги",
+    "слайд s06: факты f005 на слайд не попали: ни одного их значащего слова в тексте",
+    "слайд s06: блок b2 («smartart») поставлен в зону рецепта ex008 простым текстом — зона не несёт рисунка схемы — остались её шаги",
+    "слайд s07: блок b2 (body) — зоны своей ступени (body_large, body, card_title) в рецепте ex015 нет, взята z407 (caption, вместимость 946)",
+    "слайд s07: блок b3 снят — свободной зоны в рецепте ex015 не осталось (мест под тело 1, блоков тела 2)",
+    "слайд s08: блок b2 — повторов в рецепте ex024 2, пунктов 3; последние 1 сняты",
+    "слайд s09: иконочный список b2: в плейсхолдере 1 иконку к строке не привязать — маркированный",
+    "слайд s09: буллеты b2: иконки пунктов сняты — стиль списка bulleted",
+    "слайд s09: план заказал «bullets:icon», модель такого блока не дала",
+    "слайд s10: блок b2 снят — свободной зоны в рецепте ex052 не осталось (мест под тело 0, блоков тела 1)",
+    "s01/b02: текст сокращён, чтобы влезть",
+    "s04/b2: текст сокращён, чтобы влезть",
+    "s07/b1: текст сокращён, чтобы влезть",
+    "слайдов только с заголовком: 1 из 10 — тело слайда до файла не доехало"
+  ],
+  "errors": []
+}
