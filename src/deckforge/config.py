@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -70,6 +70,21 @@ class Settings(BaseSettings):
     profile: str | None = None
 
 
+#: Путь сборки слайда (ADR-009). `legacy` — текст пишется до выбора примера и раскладывается
+#: по его зонам; `by_example` — пример выбирается до текста, и текст пишется под его места.
+CompositionPath = Literal["legacy", "by_example"]
+
+
+class CompositionConfig(BaseModel):
+    """Раздел `composition` конфига прогона.
+
+    Путь — `Literal`, а не строка: опечатка в YAML должна валить загрузку, а не превращаться
+    в молчаливый `legacy`, иначе приёмка плана Б сравнила бы старый путь со старым.
+    """
+
+    path: CompositionPath = "legacy"
+
+
 class RunConfig(BaseModel):
     """Содержимое `configs/default.yaml` — воспроизводимый запуск конфиг-файлом."""
 
@@ -82,6 +97,7 @@ class RunConfig(BaseModel):
     parallel_slides: int = 6
     audit: dict[str, Any] = Field(default_factory=dict)
     models: dict[str, str] = Field(default_factory=dict)
+    composition: CompositionConfig = Field(default_factory=CompositionConfig)
 
 
 def load_yaml(path: Path) -> dict[str, Any]:

@@ -1278,6 +1278,19 @@ ARCHITECTURE §9.1а — таблица четырёх агентов с вхо�
 заготавливает смешанный слайд — запрос потоку C. Подробно —
 `openspec/changes/by-recipe-is-one-predicate/proposal.md`.
 
+### План Б, change 0: `the-example-comes-before-the-text` — готово (флаг, узла `assign` нет)
+
+ADR-009: пример выбирается до текста (`docs/adr/009-example-before-text.md`, сводка
+в ARCHITECTURE §2, правка к ADR-003). Путь сборки — флаг `composition.path` в
+`configs/default.yaml`: `legacy` (по умолчанию до приёмки) или `by_example`. Флаг строгий:
+опечатка валит загрузку конфига, `by_example` отказывает при старте прогона, пока в графе
+нет узла `assign`. Путь едет в состоянии графа и в `run.json` (`composition_path`).
+
+Тесты: 9 новых; полный прогон 2160 passed, 131 skipped.
+
+**Незакрыто:** узел `assign` — `the-assign-node`; поля плана `recipe_id` и `assign_reason` —
+`the-plan-names-the-example`. План работ трёх потоков — `docs/agents/tasks-plan-b.md`.
+
 ---
 
 ## Этап 5 — «со звёздочкой»

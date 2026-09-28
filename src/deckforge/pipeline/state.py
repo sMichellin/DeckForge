@@ -51,6 +51,9 @@ class DeckState(TypedDict, total=False):
     seed: int
     template_path: Path
     content_paths: list[Path]
+    #: Путь сборки слайда (`legacy` | `by_example`, ADR-009). Едет в состоянии, а не только
+    #: в конфиге: по нему маршрутизирует граф и его называет `run.json`.
+    composition_path: str
 
     manifest: TemplateManifest
     #: Производные шаблона: роли цветов, контрасты, лестница типографики, шкала

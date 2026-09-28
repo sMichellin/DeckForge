@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from deckforge.config import RunConfig, load_yaml
+from deckforge.config import CompositionPath, RunConfig, load_yaml
 from deckforge.designsystem import DesignSystem
 from deckforge.designsystem.usage import usage as design_system_usage
 from deckforge.domain.content import Brief
@@ -21,7 +21,7 @@ from deckforge.domain.enums import Severity
 from deckforge.domain.variants import VariantProfile
 from deckforge.layout.fonts import FontLibrary
 from deckforge.pipeline.budget import BudgetTracker
-from deckforge.pipeline.deps import Deps
+from deckforge.pipeline.deps import Deps, PipelineError
 from deckforge.pipeline.graph import build_graph
 from deckforge.pipeline.state import DeckState
 from deckforge.registry import load_variant_profiles
@@ -197,6 +197,10 @@ class RunResult:
             # (24.09) шли на `slide_composer@1.0.0` при активной `1.4.0` — профиль
             # закреплял версию молча, и по отчёту это было не видно.
             "prompt_versions": _prompt_versions(self.state),
+            # Каким путём собрана колода (ADR-009). Приёмка плана Б сравнивает два пути
+            # на одном контенте, и без этого поля их прогоны по отчёту не различить.
+            # Чекпойнт до 30.09 поля не несёт — он собран путём `legacy`.
+            "composition_path": self.state.get("composition_path", "legacy"),
             "seed": self.state.get("seed"),
             "slides": len(self.state["deck"].slides) if "deck" in self.state else 0,
             "planned_slides": len(plan.slides) if plan is not None else 0,
@@ -335,16 +339,36 @@ def build_deps(
 
 
 def initial_state(
-    template: Path, content_paths: Iterable[Path], variant: VariantProfile, seed: int, run_id: str
+    template: Path,
+    content_paths: Iterable[Path],
+    variant: VariantProfile,
+    seed: int,
+    run_id: str,
+    *,
+    composition_path: CompositionPath = "legacy",
 ) -> DeckState:
     return {
         "run_id": run_id,
         "seed": seed,
         "template_path": template,
         "content_paths": list(content_paths),
+        "composition_path": composition_path,
         "variant": variant,
         "fix_round": 0,
     }
+
+
+def ensure_composition_path(path: CompositionPath) -> None:
+    """Путь `by_example` без своего узла не подменяется старым (ADR-009).
+
+    Узел `assign` приедет change `the-assign-node`. До него прогон с `by_example`
+    собрал бы колоду путём `legacy`, и приёмка плана Б сравнила бы старый путь со старым.
+    """
+    if path == "by_example":
+        raise PipelineError(
+            "composition.path = by_example: в графе ещё нет узла `assign` "
+            "(change the-assign-node) — колода собралась бы путём legacy"
+        )
 
 
 def thread_id(run_id: str, variant: VariantProfile | str) -> str:
@@ -365,12 +389,17 @@ async def generate_variant(
 ) -> RunResult:
     """Один вариант вёрстки — один прогон графа."""
     identifier = run_id or uuid.uuid4().hex[:12]
+    composition_path = deps.run.composition.path
+    ensure_composition_path(composition_path)
     deps.out_dir.mkdir(parents=True, exist_ok=True)
 
     async with open_checkpointer(checkpoint_path) as saver:
         graph = build_graph(checkpointer=saver)
         final = await graph.ainvoke(
-            initial_state(template, content_paths, variant, seed, identifier),
+            initial_state(
+                template, content_paths, variant, seed, identifier,
+                composition_path=composition_path,
+            ),
             config={"configurable": {"thread_id": thread_id(identifier, variant)}},
             context=deps,
         )
