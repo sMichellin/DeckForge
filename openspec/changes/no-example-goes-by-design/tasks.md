@@ -1,0 +1,13 @@
+# Tasks — no-example-goes-by-design
+
+- [x] Разведка: где на слайде без примера блок снимается или сплющивается (писатель, вписывание, узел `fit`)
+- [x] Мерило «до» строк 5 и 9 на трёх шаблонах кейса без слайдов-примеров
+- [x] Эталон XML слайдов колоды без рецептов при `by_example=False` — до правки кода
+- [x] Тесты `tests/unit/test_no_example_goes_by_design.py` на `RecipeAssignment` из `composition/assign.py` (красные до правки)
+- [x] `layout/diagram.py`: раскладка `hierarchy` и `pyramid`, `NATIVE_PATTERNS`
+- [x] `layout/fitting.py`: `fit_slide(..., by_example=False)`
+- [x] `rendering/writer.py`: `PptxWriter(..., by_example=False)`, деградация и проверка без сплющивания
+- [x] Мерило «после», холодный шаблон, полный pytest, ruff, mypy, lint констант
+- [x] Proposal по факту, статус в «Поток B» `IMPLEMENTATION.md`
+- [x] Ревью: ослабление только слайду без рецепта, отказ схеме без замера, HTML тем же путём, эталон на холодном шаблоне
+- [ ] Передать `by_example=True` в `pipeline/**`, узел `fit` без сплющивания (запрос тимлиду)

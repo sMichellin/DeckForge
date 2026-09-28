@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -11,7 +13,7 @@ from deckforge.domain.enums import SmartArtPattern
 from deckforge.domain.slide import SlideIR, SmartArtBlock, TextBlock
 from deckforge.domain.template import TemplateManifest
 from deckforge.domain.units import EMU_PER_CM
-from deckforge.layout.diagram import SUPPORTED_PATTERNS, diagram_geometry
+from deckforge.layout.diagram import NATIVE_PATTERNS, SUPPORTED_PATTERNS, diagram_geometry
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fitting import fit_slide, fit_smartart
 from deckforge.layout.fonts import FontLibrary
@@ -27,7 +29,7 @@ def overlaps(a: BBox, b: BBox) -> bool:
 # --- геометрия ------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("pattern", sorted(SUPPORTED_PATTERNS))
+@pytest.mark.parametrize("pattern", sorted(NATIVE_PATTERNS))
 @pytest.mark.parametrize("count", [2, 3, 5, 8])
 def test_every_part_stays_inside_the_box_and_nodes_do_not_overlap(
     pattern: SmartArtPattern, count: int
@@ -108,9 +110,40 @@ def test_cycle_in_a_square_box_has_square_nodes() -> None:
         assert abs(node.cx - node.cy) <= 1
 
 
-def test_unsupported_pattern_is_an_error() -> None:
-    with pytest.raises(LayoutFitError, match="hierarchy"):
-        diagram_geometry(SmartArtPattern.HIERARCHY, 3, BOX)
+def test_hierarchy_is_laid_out_but_not_on_the_old_path() -> None:
+    """Change 5б `no-example-goes-by-design`: у иерархии есть раскладка (корень и два потомка),
+    но прежний путь её не строит — `SUPPORTED_PATTERNS` без неё, как до 5б."""
+    assert len(diagram_geometry(SmartArtPattern.HIERARCHY, 3, BOX).nodes) == 3
+    assert SmartArtPattern.HIERARCHY not in SUPPORTED_PATTERNS
+
+
+def test_pattern_without_layout_is_an_error() -> None:
+    """Паттерн, которому раскладки нет, называет себя, а не падает чужой ошибкой: каждый
+    паттерн `NATIVE_PATTERNS` проходит инварианты выше, так что ветка отказа — для прочих."""
+    with pytest.raises(LayoutFitError, match="spiral"):
+        diagram_geometry(cast(SmartArtPattern, "spiral"), 3, BOX)
+
+
+@pytest.mark.parametrize("count", [2, 4, 6])
+def test_hierarchy_puts_the_root_over_a_row_of_children(count: int) -> None:
+    """5б: первый пункт — корень над рядом остальных, связь от корня к каждому без стрелки."""
+    geometry = diagram_geometry(SmartArtPattern.HIERARCHY, count, BOX)
+    root, *kids = geometry.nodes
+    assert len({kid.y for kid in kids}) == 1
+    assert root.bottom <= kids[0].y
+    assert min(k.x for k in kids) <= root.x + root.cx // 2 <= max(k.right for k in kids)
+    assert len(geometry.links) == count - 1 and not geometry.arrows
+
+
+@pytest.mark.parametrize("count", [2, 3, 5])
+def test_pyramid_widens_from_top_to_bottom(count: int) -> None:
+    """5б: уровни стопкой сверху вниз, каждый следующий шире, все по центру рамки."""
+    nodes = diagram_geometry(SmartArtPattern.PYRAMID, count, BOX).nodes
+    assert [n.y for n in nodes] == sorted(n.y for n in nodes)
+    assert all(a.bottom <= b.y for a, b in pairwise(nodes))
+    assert all(a.cx < b.cx for a, b in pairwise(nodes))
+    centre = BOX.x + BOX.cx // 2
+    assert all(abs(n.x + n.cx // 2 - centre) <= 1 for n in nodes)
 
 
 # --- вписывание -----------------------------------------------------------------

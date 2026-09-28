@@ -842,18 +842,22 @@ def export_html(
     content: ContentPackage | None = None,
     fonts: FontLibrary | None = None,
     design_system: DesignSystem | None = None,
+    *,
+    by_example: bool = False,
 ) -> Path:
     """Один самодостаточный html на колоду: то же представление, что и в pptx.
 
-    `design_system` — та же, что у вписывания и pptx (DG3); нет — считается из манифеста."""
+    `design_system` — та же, что у вписывания и pptx (DG3); нет — считается из манифеста.
+    `by_example` — путь сборки, тот же, что у `PptxWriter` (change 5б `no-example-goes-by-design`):
+    слайд без примера деградирует и проверяется одинаково в обоих форматах."""
     if deck.template_id != manifest.template_id:
         raise WriterError(
             f"template_id колоды {deck.template_id} не совпадает с манифестом "
             f"{manifest.template_id}"
         )
-    degrader = SlideDegrader(manifest, fonts)
+    degrader = SlideDegrader(manifest, fonts, by_example=by_example)
     slides = [degrader.degrade(slide, content) for slide in deck.slides]
-    validator = SlideValidator(manifest)
+    validator = SlideValidator(manifest, by_example=by_example)
     problems = [p for slide in slides for p in validator.problems(slide, content)]
     if problems:
         raise WriterError("\n".join(problems))

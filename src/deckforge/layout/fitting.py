@@ -42,7 +42,7 @@ from deckforge.domain.template import (
 from deckforge.domain.units import EMU_PER_PT, TEXT_FRAME_INSET_Y_EMU
 from deckforge.layout.boxed import BoxedBlock, paragraphs, style_of, text_frame
 from deckforge.layout.by_design import READING_FLOOR_PT, DesignRules, KpiSizes
-from deckforge.layout.diagram import SUPPORTED_PATTERNS, diagram_geometry
+from deckforge.layout.diagram import buildable_patterns, diagram_geometry
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fonts import FontLibrary
 from deckforge.layout.lists import draws_icons, icon_column, icon_text_frame
@@ -1000,10 +1000,15 @@ def fit_slide(
     fonts: FontLibrary | None = None,
     content: ContentPackage | None = None,
     design: DesignRules | None = None,
+    by_example: bool = False,
 ) -> SlideIR:
     """Возвращает слайд с заполненным `fit_report` по текстовым блокам, таблицам, KPI,
     составным компонентам, цитатам и callout. Неподдерживаемый паттерн не вписывается:
     писатель заменит его буллетами и впишет их сам.
+
+    `by_example` — путь сборки по примерам (change 5б `no-example-goes-by-design`): слайд без
+    примера верстается дизайн-системой, и схема любого паттерна вписывается по своей
+    раскладке, а не ждёт замены списком. По умолчанию — прежний путь.
 
     `design` — ответы дизайн-системы (DG3). Узел `fit` передаёт их из состояния графа;
     без них они считаются из манифеста здесь же.
@@ -1031,13 +1036,14 @@ def fit_slide(
     if layout is None:
         raise LayoutFitError(f"слайд {slide.slide_id}: макета {slide.layout_id} нет в манифесте")
     outside = [block for block in slide.blocks if block.zone_id is None]
+    patterns = buildable_patterns(slide, by_example=by_example)
     for block in outside:
         if isinstance(block, TextBlock | BulletsBlock):
             report[block.block_id] = fit_block(
                 block, layout, manifest, fonts=fonts, design=rules
             )
         elif isinstance(block, SmartArtBlock):
-            if block.pattern not in SUPPORTED_PATTERNS:
+            if block.pattern not in patterns:
                 continue
             if block.bbox is None:
                 raise LayoutFitError(f"блок {block.block_id}: smartart требует координат")
