@@ -69,6 +69,13 @@ _CALLOUT_KIND: dict[CalloutTone, str] = {
 #: риск — следующий, чтобы два callout на слайде не выглядели одним.
 _CALLOUT_ACCENT: dict[CalloutTone, int] = {CalloutTone.INSIGHT: 0, CalloutTone.RISK: 1}
 
+#: Слоты, которыми `DesignRules.text_ink` набирает текст вместо нечитаемого цвета автора:
+#: все слоты темы, кроме ссылок. Цвет `hlink`/`folHlink` на простой подписи читается
+#: как «сюда можно нажать» — это обещание, которого слайд не даёт (5а, дозапрос 1).
+TEXT_INK_SLOTS: tuple[ColorRef, ...] = tuple(
+    ref for ref in ColorRef if ref not in (ColorRef.HLINK, ColorRef.FOL_HLINK)
+)
+
 
 @dataclass(frozen=True)
 class KpiSizes:
@@ -222,11 +229,13 @@ class DesignRules:
         `designsystem.contrast`). Нет и такого — `None`: текст берёт цвет текста слайда."""
         if background_hex is None:
             return ref
-        color = self.manifest.theme.colors.get(ref)
+        colors = self.manifest.theme.colors
         kind = text_class(size_pt, bold=bold)
-        if readability(color, background_hex, kind, size_pt=size_pt, bold=bold).passes:
+        if readability(colors.get(ref), background_hex, kind, size_pt=size_pt, bold=bold).passes:
             return ref
-        return self.text_ink(color, background_hex, size_pt=size_pt, bold=bold)
+        return readable_ref(
+            self.manifest.theme, background_hex, kind, prefer_hex=colors.get(ref)
+        )
 
     def text_ink(
         self, foreground_hex: str, background_hex: str, *, size_pt: float | None, bold: bool
@@ -235,14 +244,17 @@ class DesignRules:
 
         Правило то же, что у `accent_ink`: тот же цвет глубже — ближайший по цвету слот,
         взявший порог своего класса текста (`designsystem.contrast`, по нему же ДС судит
-        свои `contrast_pairs`). `None` — менять нечего: цвет и так читается, либо читаемого
-        слота нет вовсе, и подставлять лучший из плохих значит промолчать о дефекте шаблона.
+        свои `contrast_pairs`). Кроме слотов ссылок (`TEXT_INK_SLOTS`): на подписи VK Tech
+        `ex018` ближе всех к серому автора оказался `hlink`, и подпись стала выглядеть
+        кликабельной. `None` — менять нечего: цвет и так читается, либо читаемого слота
+        нет вовсе, и подставлять лучший из плохих значит промолчать о дефекте шаблона.
         """
         kind = text_class(size_pt, bold=bold)
         if readability(foreground_hex, background_hex, kind, size_pt=size_pt, bold=bold).passes:
             return None
         return readable_ref(
-            self.manifest.theme, background_hex, kind, prefer_hex=foreground_hex
+            self.manifest.theme, background_hex, kind, prefer_hex=foreground_hex,
+            slots=TEXT_INK_SLOTS,
         )
 
     def block_accent(self, background_hex: str | None, *, size_pt: float | None = None) -> ColorRef:

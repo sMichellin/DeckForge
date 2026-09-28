@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from lxml import etree
 from pptx import Presentation
@@ -20,7 +22,8 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Pt
 
-from deckforge.composition.passport import probe_size
+from deckforge.composition.passport import probe_size, with_passports
+from deckforge.designsystem import derive
 from deckforge.designsystem.models import (
     ExamplePassport,
     Place,
@@ -33,12 +36,19 @@ from deckforge.designsystem.models import (
 )
 from deckforge.domain.enums import ColorRef
 from deckforge.domain.rules import contrast_ratio
+from deckforge.domain.slide import DeckIR
 from deckforge.domain.template import TemplateManifest
 from deckforge.layout.by_design import DesignRules
+from deckforge.layout.fonts import FontLibrary
+from deckforge.pipeline.replay import from_fixture
 from deckforge.rendering.recipe_slide import clone_recipe
+from deckforge.rendering.writer import PptxWriter
+from tests.case_templates import case_template
 from tests.unit.test_recipe_leaves_no_sample_text import slide_ir
 from tests.unit.test_the_writer_removes_whole_groups import (
     GOLDEN,
+    RUNS,
+    VK_TECH,
     cards_example,
     cards_recipe,
     slide_xml,
@@ -294,3 +304,54 @@ def test_an_unreadable_author_ink_takes_a_readable_theme_slot(
         assert [child.tag for child in fill] == [qn("a:schemeClr")]
         slot = ColorRef(fill[0].get("val"))
         assert contrast_ratio(manifest.theme.colors.get(slot), "#EEF1F6") >= 4.5
+
+
+def vk_tech_ex018(design: bool = True):
+    """VK Tech `ex018` по первому слайду IR 28.09, который его берёт, с паспортом и ДС шаблона."""
+    prs = Presentation(str(case_template(VK_TECH)))
+    run = from_fixture(RUNS / "vk-tech")
+    ds, _ = with_passports(run.design_system, run.manifest, FontLibrary.default())
+    recipe = next(r for r in ds.recipes if r.recipe_id == "ex018")
+    ir = next(s for s in run.deck.slides if s.recipe_id == "ex018")
+    rules = DesignRules(run.manifest, ds) if design else None
+    return clone_recipe(prs, recipe, ir, rules), run.manifest
+
+
+#: Слоты ссылок: цвет гиперссылки на подписи выглядит кликабельным — это не цвет текста.
+LINK_SLOTS = {ColorRef.HLINK.value, ColorRef.FOL_HLINK.value}
+
+
+def test_a_caption_on_a_plate_is_not_inked_as_a_link() -> None:
+    """История 18 на VK Tech `ex018`: серый автора на белой плашке не читается, и подпись
+    получает читаемый слот темы — но не `hlink`/`folHlink`, хотя `hlink` ближе всех по цвету."""
+    slide, manifest = vk_tech_ex018()
+    slots = [fill[0].get("val") for fill in slide._element.iter(qn("a:solidFill"))
+             if fill.getparent().tag == qn("a:rPr") and fill[0].tag == qn("a:schemeClr")]
+    assert slots, "подписи на плашке не получили слота темы"
+    assert not set(slots) & LINK_SLOTS
+    for slot in slots:
+        assert contrast_ratio(manifest.theme.colors.get(ColorRef(slot)), "#FFFFFF") >= 4.5
+
+
+def test_the_writer_hands_its_design_rules_to_the_recipe(
+    manifest: TemplateManifest, tmp_path: Path
+) -> None:
+    """История 15 через `PptxWriter.write`: писатель передаёт в `clone_recipe` свои ответы ДС —
+    синтетический шаблон с паспортом, 2 пункта из 4, и две карточки на всю ширину ряда."""
+    prs, part_name, found, cards = grid_example()
+    # Макеты python-pptx под именами синтетического манифеста — писатель сверяет их по имени.
+    for spec in manifest.layouts:
+        prs.slide_layouts[spec.index]._element.cSld.set("name", spec.name)
+    template = tmp_path / "template.pptx"
+    prs.save(str(template))
+    recipe = grid_recipe(part_name, found, cards)
+    ds = derive(manifest).model_copy(update={"recipes": [recipe]})
+    ir = slide_ir(recipe, ["zt", "zb1", "zb2"]).model_copy(
+        update={"layout_id": manifest.layouts[0].layout_id})
+    deck = DeckIR(deck_id="d01", template_id=manifest.template_id, variant="A", seed=1,
+                  slides=[ir])
+    out = PptxWriter(template, manifest, design_system=ds).write(deck, tmp_path / "deck.pptx")
+    slide = Presentation(str(out)).slides[0]
+    width = (ROW_RIGHT - ROW_LEFT - GAP) // 2
+    assert own_box(slide, cards[0]["plate"]) == (ROW_LEFT, TOP, width, PLATE_CY)
+    assert own_box(slide, cards[1]["plate"]) == (ROW_LEFT + width + GAP, TOP, width, PLATE_CY)
