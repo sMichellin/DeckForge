@@ -13,7 +13,7 @@ import math
 import re
 from collections import Counter
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, TypeGuard
 
 from deckforge.audit.findings import make_finding
 from deckforge.audit.geometry import block_bbox, block_text, layout_of, slide_text
@@ -125,12 +125,31 @@ def content_lost(ctx: CheckContext) -> Iterable[Finding]:
     Картинка и иконка содержанием не считаются: слайд из одних картинок не засчитывается
     и по ТЗ (C3, `integrity.slide_is_image`), а факт, который нигде не написан, ею
     не передан.
+
+    **Заголовок без слов** (план Б, круг 2): у каждого слайда плана заголовок — утверждение
+    словами. Обложка WorkSpace 29.09 вышла с «1» вместо заголовка и без единого блока: фактов
+    план ей не давал, и слайд проходил как «титул из одного заголовка по замыслу». Слайд,
+    на котором кроме заголовка без слов ничего нет, потерял содержание — с фактами или без.
     """
     for slide in ctx.deck.slides:
-        if not slide.provenance.fact_refs:
-            continue
         substance = [block for block in slide.blocks if _is_substance(block)]
         if substance:
+            continue
+        titles = [block for block in slide.blocks if _is_title(block)]
+        if titles and not any(_has_words(block.text) for block in titles):
+            yield make_finding(
+                check_id="integrity.content_lost",
+                slide_id=slide.slide_id,
+                reason="headline_lost",
+                message=(
+                    f"Вместо заголовка на слайде «{titles[0].text}» — ни одного слова, "
+                    "и больше на слайде ничего нет: содержание потеряно"
+                ),
+                evidence={"title": titles[0].text, "fact_refs": ", ".join(
+                    slide.provenance.fact_refs) or "нет"},
+            )
+            continue
+        if not slide.provenance.fact_refs:
             continue
         yield make_finding(
             check_id="integrity.content_lost",
@@ -145,6 +164,18 @@ def content_lost(ctx: CheckContext) -> Iterable[Finding]:
                 "blocks": ", ".join(block.block_id for block in slide.blocks) or "нет",
             },
         )
+
+
+#: Слово — две буквы подряд: «1», «10x», «2024» словом не считаются.
+_WORD = re.compile(r"[^\W\d_]{2,}")
+
+
+def _is_title(block: object) -> TypeGuard[TextBlock]:
+    return isinstance(block, TextBlock) and block.role is TextRole.TITLE
+
+
+def _has_words(text: str) -> bool:
+    return _WORD.search(text) is not None
 
 
 def _is_substance(block: object) -> bool:
