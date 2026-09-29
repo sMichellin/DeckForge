@@ -370,8 +370,9 @@ class SlideComposer:
 
         `assignment` — назначенный до текста пример (ADR-009, узел `assign`). Есть
         назначение с примером и паспортом — слайд идёт путём `by_example`: модель пишет
-        текст **под места этого примера**, а не под макет. Нет назначения или примера
-        в нём нет (`recipe_id is None`) — путь прежний, байт в байт.
+        текст **под места этого примера**, а не под макет. Нет назначения — путь прежний,
+        байт в байт. В назначении примера нет (`recipe_id is None`) — слайд собирается по
+        макету и дизайн-системе, **без** подбора примера: «нет» — это решение, не пропуск.
         """
         layout = pick_layout(slide, manifest, variant)
         if assignment is not None and design_system is not None:
@@ -406,6 +407,12 @@ class SlideComposer:
         #: до ответа модели (RG23).
         needs_chars = len(slide.headline) + sum(len(fact.text) for fact in facts)
         explain: dict[str, object] = {}
+        # Назначение «примера нет» (`recipe_id is None`: схема, callout, KPI без примера) —
+        # решение узла `assign`, а не пропуск: ближайший пример здесь не подбирается.
+        # Иначе слайд, который назначение отправило путём дизайн-системы, получал бы старым
+        # счётом «самый вместительный» пример — на VK Tech 29.09 `ex018` четыре раза подряд,
+        # а выноски и схемы ложились в его карточки (change `no-example-means-no-example`).
+        unassigned = assignment is not None and assignment.recipe_id is None
         recipe = (
             pick_recipe(
                 slide,
@@ -418,7 +425,7 @@ class SlideComposer:
                 notes=self.notes,
                 explain=explain,
             )
-            if design_system is not None
+            if design_system is not None and not unassigned
             else None
         )
         self.choices[slide.slide_id] = {
@@ -429,7 +436,10 @@ class SlideComposer:
             "recipe_kind": recipe.kind.value if recipe is not None else None,
             "layout_id": layout.layout_id,
             "layout_kind": layout.kind.value,
-            "why": why_recipe(explain, recipe)
+            # Причина — из назначения: выбор «без примера» сделан до текста (ADR-009).
+            "why": assignment.reason
+            if unassigned and assignment is not None
+            else why_recipe(explain, recipe)
             if design_system is not None
             else "дизайн-системы нет — слайд собран по макету",
         }

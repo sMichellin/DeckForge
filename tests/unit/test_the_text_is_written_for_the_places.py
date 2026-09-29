@@ -5,6 +5,8 @@
 о ширине букв, замер идёт настоящим вписыванием (`passport.fit_measure`) — тем же, которым
 мерился паспорт: если проверять подделкой, обещание «место держит столько знаков» ничем
 не подтверждено.
+
+Назначение без примера ближайшим примером не подменяется — change `no-example-means-no-example`.
 """
 
 from __future__ import annotations
@@ -541,8 +543,9 @@ async def test_an_assignment_without_an_example_goes_the_old_way(
 ) -> None:
     """Нарушитель: назначение без примера (`recipe_id is None`) путём мест не идёт.
 
-    Рецепт слайду при этом достаётся — его берёт прежний путь своим отбором
-    (`pick_recipe`): назначение без примера не запрещает старый выбор, а обходит новый.
+    И ближайшего примера старым счётом (`pick_recipe`) не получает: «без примера» — решение
+    узла `assign`, слайд собирается по макету и дизайн-системе (change
+    `no-example-means-no-example`; до него на VK Tech 29.09 `ex018` вставал четыре раза подряд).
     """
     llm = FakeLlm(
         {
@@ -566,6 +569,8 @@ async def test_an_assignment_without_an_example_goes_the_old_way(
     )
 
     assert composed.provenance.prompt_version.endswith("@1.5.0"), "промпт прежнего пути"
+    assert composed.recipe_id is None, "пример подобран старым счётом вопреки назначению"
+    assert composer.choices["s03"]["why"] == "примера вида smartart у шаблона нет"
 
 
 @pytest.mark.asyncio
