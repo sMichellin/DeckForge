@@ -104,7 +104,8 @@ def test_deterministic_checks_cover_three_content_questions() -> None:
     Тридцать вторая — пустая карточка примера на слайде (план Б, RG63, `integrity.empty_group`).
     Тридцать третья — таблица или схема, записанная с переполнением (`layout.object_overflow`).
     Пятая из `semantic/` — текст, оборванный посреди слова (план Б, круг 2, `content.word_cut`).
-    Тридцать четвёртая в `deterministic/` — текст за своей плашкой (круг 3, `layout.text_beyond_plate`).
+    Тридцать четвёртая в `deterministic/` — текст за своей плашкой
+    (круг 3, `layout.text_beyond_plate`).
     """
     deterministic = {c.check_id for c in REGISTRY.deterministic()}
     assert len(deterministic) == 39
