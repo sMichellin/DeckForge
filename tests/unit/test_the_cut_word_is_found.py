@@ -105,14 +105,15 @@ def run(manifest: TemplateManifest, body: str, number: str = "37%") -> list:
     design = derive(with_examples).model_copy(update={"recipes": [_recipe()]})
     content = ContentPackage(
         brief=Brief(purpose="report", audience="правление", target_slides=10),
-        facts=[Fact(fact_id="f001", text="AI не копирует фирменный стиль шаблона")],
+        facts=[Fact(fact_id="f001", text="AI не копирует фирменный стиль шаблона"),
+               Fact(fact_id="f002", text="Сервис с открытым кодом собирает сотни слайдов")],
     )
     ctx = context_for(CHECK, deck(slide), with_examples, content=content)
     return list(word_cut(replace(ctx, design_system=design)))
 
 
 def test_a_text_at_the_limit_of_its_place_is_cut(manifest: TemplateManifest) -> None:
-    """Нарушитель: 23 знака в месте на 23 — грамматика оборвала на знаке."""
+    """Нарушитель: 23 знака в месте на 23, «фирменны» в материалах нет — оборвано на знаке."""
     findings = run(manifest, "AI не копирует фирменны")
 
     assert [(f.block_id, f.evidence["sign"]) for f in findings] == [("b1", "limit")]
@@ -158,8 +159,18 @@ def _found(day: str) -> set[tuple[str, str, str]]:
     return out
 
 
-def test_the_by_example_runs_of_29_09_have_seven_cut_texts() -> None:
-    """Мерило К1: ровно семь обрезанных текстов, которые видны глазами."""
+def test_a_whole_word_at_the_limit_is_not_cut(manifest: TemplateManifest) -> None:
+    """Норма (ревью тимлида, WorkSpace `c950b5936b7a` s10): «Open-source для слайдов» ровно
+    в 23 знака, «слайдов» в материалах целиком. После #269 схема даёт полторы ёмкости —
+    текст ровно в ёмкость законен, длина сама по себе обрыва не доказывает."""
+    assert len("Open-source для слайдов") == 23
+    assert run(manifest, "Open-source для слайдов") == []
+
+
+def test_the_by_example_runs_of_29_09_have_six_cut_words() -> None:
+    """Мерило К1, строка 6б: шесть слов, оборванных посреди. «Паттерн под новый» (VK Tech s07)
+    не находка: ровно в предел, но «новый» — целое слово материалов; оборвана фраза,
+    а не слово (ревью тимлида)."""
     expected = {
         ("workspace", "s03"): "копирует фирменны",
         ("workspace", "s04"): "с часов до мин",
@@ -169,11 +180,11 @@ def test_the_by_example_runs_of_29_09_have_seven_cut_texts() -> None:
     }
     found = _found("2026-09-29")
 
-    assert len(found) == 7
+    assert len(found) == 6
     for (name, slide), tail in expected.items():
         assert any(n == name and s == slide and t.endswith(tail) for n, s, t in found), tail
     vk_s07 = sorted(t for n, s, t in found if (n, s) == ("vk-tech", "s07"))
-    assert vk_s07 == ["Паттерн под новый", "Подобранный пат."]
+    assert vk_s07 == ["Подобранный пат."]
 
 
 def test_the_legacy_runs_of_28_09_have_none() -> None:
