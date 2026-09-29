@@ -78,4 +78,5 @@ def test_the_page_still_offers_variants_without_the_service() -> None:
 
     assert not app.exception
     radio = next(item for item in app.radio if item.label == "Вариант вёрстки")
-    assert list(radio.options) == ["A", "B", "C"]
+    # Последний пункт — «все сразу» (change `three-variants-at-once`), до него — буквы.
+    assert list(radio.options)[:3] == ["A", "B", "C"]
