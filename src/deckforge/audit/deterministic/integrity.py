@@ -17,11 +17,11 @@ from typing import Any, TypeGuard
 
 from deckforge.audit.findings import make_finding
 from deckforge.audit.geometry import block_bbox, block_text, layout_of, slide_text
-from deckforge.audit.recipes import catalogue_with_passports
+from deckforge.audit.recipes import catalogue, catalogue_with_passports
 from deckforge.audit.registry import CheckContext, CheckUnavailable, check
-from deckforge.designsystem.models import PlaceKind, Recipe
+from deckforge.designsystem.models import PlaceKind, Recipe, RecipeKind
 from deckforge.domain.audit import Finding
-from deckforge.domain.enums import ChartType, Severity, TextRole
+from deckforge.domain.enums import ChartType, LayoutKind, Severity, TextRole
 from deckforge.domain.slide import ChartBlock, IconBlock, ImageBlock, SlideIR, TextBlock
 
 #: Заглушки, которые остаются от шаблонов промптов и от ручной правки.
@@ -76,7 +76,15 @@ def placeholder_text(ctx: CheckContext) -> Iterable[Finding]:
 @check(id="integrity.empty_slide", deterministic=True, severity=Severity.ERROR,
        title="Пустой слайд или слайд с одним заголовком")
 def empty_slide(ctx: CheckContext) -> Iterable[Finding]:
-    """Пустой слайд или слайд с одним заголовком."""
+    """Пустой слайд или слайд с одним заголовком.
+
+    Один заголовок по замыслу бывает только у **раздела**. Обложке и финалу строка помимо
+    заголовка нужна всегда — «о чём колода и для кого», «что будет после» (#287, К3): такой
+    слайд из одного заголовка — пустое тело, даже если у его макета нет места под текст.
+    Прогон `a3a8f3a2319b` s01: обложка на `ex014` вышла одним заголовком, фактов план ей
+    не давал, и её не называл никто (план Б, круг 3, C3).
+    """
+    recipes = catalogue(ctx)
     for slide in ctx.deck.slides:
         if not slide.blocks:
             yield make_finding(
@@ -87,10 +95,6 @@ def empty_slide(ctx: CheckContext) -> Iterable[Finding]:
             )
             continue
 
-        # Титул и перебивка состоят из заголовка по замыслу — это не пустой слайд.
-        layout = layout_of(slide, ctx.manifest)
-        if layout is not None and layout.capacity.max_chars_body == 0:
-            continue
         meaningful = [
             block
             for block in slide.blocks
@@ -98,12 +102,33 @@ def empty_slide(ctx: CheckContext) -> Iterable[Finding]:
         ]
         if meaningful:
             continue
+        layout = layout_of(slide, ctx.manifest)
+        bookend = _is_bookend(slide, recipes.get(slide.recipe_id or ""), layout)
+        # Перебивка состоит из заголовка по замыслу — это не пустой слайд.
+        if not bookend and layout is not None and layout.capacity.max_chars_body == 0:
+            continue
         yield make_finding(
             check_id="integrity.empty_slide",
             slide_id=slide.slide_id,
-            reason="title_only",
-            message="На слайде только заголовок: содержания нет",
+            reason="bookend_title_only" if bookend else "title_only",
+            message=(
+                "Обложка или финал из одного заголовка: строки о колоде или о следующем шаге нет"
+                if bookend
+                else "На слайде только заголовок: содержания нет"
+            ),
         )
+
+
+#: Обложка и финал — слайды, которым строка помимо заголовка нужна всегда (#287).
+_BOOKEND_RECIPES = frozenset({RecipeKind.COVER, RecipeKind.FINAL})
+_BOOKEND_LAYOUTS = frozenset({LayoutKind.TITLE, LayoutKind.CLOSING})
+
+
+def _is_bookend(slide: SlideIR, recipe: Recipe | None, layout: Any) -> bool:
+    """Обложка или финал: по виду рецепта, а без рецепта — по виду макета."""
+    if recipe is not None:
+        return recipe.kind in _BOOKEND_RECIPES
+    return layout is not None and layout.kind in _BOOKEND_LAYOUTS
 
 
 @check(id="integrity.content_lost", deterministic=True, severity=Severity.ERROR,
