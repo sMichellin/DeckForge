@@ -5,11 +5,14 @@
 
 from __future__ import annotations
 
+import importlib
 import json
+import pkgutil
 import uuid
 from collections.abc import AsyncIterator, Iterable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -110,22 +113,73 @@ def design_system_summary(ds: DesignSystem | None) -> dict[str, Any] | None:
     }
 
 
+#: Модули, чьи модели и перечисления лежат в состоянии графа и потому в чекпойнте:
+#: весь `domain`, модели дизайн-системы и назначения примеров (план Б, решение Р2).
+#: Пакет обходится целиком, модуль — сам по себе.
+CHECKPOINT_MODULES = (
+    "deckforge.domain",
+    "deckforge.designsystem.models",
+    "deckforge.composition.assign",
+)
+
+
+def checkpoint_types() -> list[type]:
+    """Типы, которые сериализатор чекпойнта вправе восстанавливать (msgpack-allowlist).
+
+    LangGraph восстанавливает из чекпойнта только названные типы, а неназванные пока
+    пропускает с предупреждением на каждом — и скоро начнёт блокировать: тогда снимки
+    прогонов (`pipeline/replay.py`, `deckforge audit`) перестали бы читаться. Список
+    собирается обходом модулей, а не перечнем имён: новая модель домена попадает в него
+    сама, и забыть её негде (change `the-checkpoint-knows-its-types`).
+    """
+    modules = []
+    for name in CHECKPOINT_MODULES:
+        module = importlib.import_module(name)
+        modules.append(module)
+        for info in pkgutil.iter_modules(getattr(module, "__path__", None) or []):
+            modules.append(importlib.import_module(f"{name}.{info.name}"))
+    from pydantic import BaseModel
+
+    found: dict[tuple[str, str], type] = {}
+    for module in modules:
+        for value in vars(module).values():
+            if (
+                isinstance(value, type)
+                and value.__module__ == module.__name__
+                and issubclass(value, BaseModel | Enum)
+            ):
+                found[(value.__module__, value.__qualname__)] = value
+    return [found[key] for key in sorted(found)]
+
+
+def checkpoint_serde() -> Any:
+    """Сериализатор чекпойнта с явным списком наших типов (`checkpoint_types`)."""
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+    return JsonPlusSerializer(allowed_msgpack_modules=checkpoint_types())
+
+
 @asynccontextmanager
 async def open_checkpointer(path: Path | None) -> AsyncIterator[Any]:
     """Чекпойнт sqlite по пути, иначе — память.
 
-    Без чекпойнтера HITL невозможен: прерванный граф нечем возобновить.
+    Без чекпойнтера HITL невозможен: прерванный граф нечем возобновить. Сериализатор —
+    со списком наших типов (`checkpoint_serde`): без него LangGraph восстанавливает модели
+    с предупреждением на каждом типе, а в строгом режиме не восстанавливает вовсе.
     """
     if path is None:
         from langgraph.checkpoint.memory import InMemorySaver
 
-        yield InMemorySaver()
+        yield InMemorySaver(serde=checkpoint_serde())
         return
 
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
     path.parent.mkdir(parents=True, exist_ok=True)
     async with AsyncSqliteSaver.from_conn_string(str(path)) as saver:
+        # Конструктор `from_conn_string` сериализатор не принимает; подменяем на готовом
+        # сохранителе, до первого чтения или записи.
+        saver.serde = checkpoint_serde()
         yield saver
 
 
