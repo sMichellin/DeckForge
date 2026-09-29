@@ -36,6 +36,7 @@ from deckforge.designsystem.models import (
     PlaceGroup,
     PlaceKind,
     Recipe,
+    RecipeKind,
     TypeLevel,
     Zone,
 )
@@ -63,6 +64,19 @@ MIN_WORDS = 2
 
 #: Потолок поиска в долях оценки 0,52 × кегль: оценка грубая, но не в разы.
 SEARCH_CEILING = 3
+
+#: Ступени, на которых стоит заголовок слайда. Место такой ступени — всегда текст, каким бы
+#: тесным оно ни было (К2, круг 2 плана Б): заголовок слайда утверждён планировщиком и
+#: числом не бывает. Прежде вид места решала одна ёмкость — «держит меньше двух слов, значит
+#: число», — и числом становились заголовки на 8–16 знаков (обложка WorkSpace, `ex003`,
+#: `ex024`). Модель, у которой в фактах чисел нет, писала в такое место «1», и колода
+#: открывалась единицей вместо названия.
+TITLE_LEVELS = (TypeLevel.SLIDE_TITLE,)
+
+#: На обложке заголовок законно набран кеглем `display` — там это и есть заголовок
+#: (та же оговорка, что у раскладки по зонам, `recipe_binding.COVER_TITLE_LEVELS`).
+#: На остальных видах `display` — крупное число плитки, и текстом оно не становится.
+COVER_TITLE_LEVELS = (TypeLevel.SLIDE_TITLE, TypeLevel.DISPLAY)
 
 #: Пробное число — для мест, которые двух слов не держат: номер шага, показатель, метка.
 #: Автор ставит туда «01», «+12 %», «2024», и мерить их словами прозы значит получить ноль.
@@ -342,13 +356,20 @@ def build_passport(
     by_xml = {shape.xml_id: shape for shape in example.shapes if shape.xml_id is not None}
     places = count(1)
 
+    titles = COVER_TITLE_LEVELS if recipe.kind is RecipeKind.COVER else TITLE_LEVELS
+
     def place(zone: Zone) -> Place | str:
-        """Место под прозу, если держит два слова; иначе — под число или метку."""
+        """Место под прозу, если держит два слова; иначе — под число или метку.
+
+        Место заголовка слайда из этого правила исключено (К2): заголовок утверждён
+        планировщиком, и тесная рамка не делает его числом — она делает пример негодным
+        для этого слайда, а это решает отбор примеров, а не паспорт.
+        """
         shape = by_xml.get(zone.xml_id) if zone.xml_id is not None else None
         ceiling = _ceiling(zone, shape)
         chars = capacity(recipe, zone, fits, ceiling=ceiling)
         kind = PlaceKind.TEXT
-        if len(sample(chars).split()) < MIN_WORDS:
+        if zone.role not in titles and len(sample(chars).split()) < MIN_WORDS:
             kind = PlaceKind.NUMBER
             chars = capacity(recipe, zone, fits, ceiling=ceiling, make=sample_number)
         if chars == 0:
