@@ -181,6 +181,54 @@ def audit(
 
 
 @app.command()
+def rebuild(
+    run: Path = typer.Argument(..., exists=True, file_okay=False),
+    out: Path = typer.Option(..., "--out", "-o", help="Каталог новой колоды"),
+    variant: str = typer.Option("A", "--variant"),
+) -> None:
+    """Колода заново без модели: текст из чекпойнта прогона, вёрстка и аудит — текущим кодом.
+
+    `RUN` — каталог прогона стенда (`checkpoint.sqlite`, `request.json`). Бриф и профиль
+    прогона берутся из его запроса. Change `the-deck-is-rebuilt-without-a-model`.
+    """
+    import json
+    import time
+
+    from deckforge.config import get_settings, load_run_config
+    from deckforge.domain.content import Brief
+    from deckforge.layout.fonts import FontLibrary
+    from deckforge.pipeline.deps import Deps
+    from deckforge.pipeline.replay import rebuild as rebuild_run
+
+    request_path = run / "request.json"
+    request = (
+        json.loads(request_path.read_text(encoding="utf-8")) if request_path.is_file() else {}
+    )
+    profile = request.get("profile")
+    deps = Deps(
+        brief=Brief(
+            purpose=str(request.get("purpose", "report")),
+            audience=str(request.get("audience", "правление")),
+            target_slides=request.get("target_slides", 12),
+            language=str(request.get("language", "ru")),
+        ),
+        run=load_run_config(profile=str(profile) if profile else None),
+        out_dir=out / "out",
+        fonts=FontLibrary.default(),
+        cache_dir=Path(get_settings().artifacts_dir) / "template-cache",
+        asset_dir=out / "out" / "assets",
+        work_dir=out / "out",
+    )
+    started = time.monotonic()
+    result = rebuild_run(run, out, deps, variant=variant)
+    audit = result.report().get("audit") or {}
+    typer.echo(
+        f"{result.run_id}: пересобрано без модели за {time.monotonic() - started:.0f} с, "
+        f"ошибок аудита {audit.get('errors', '—')} → {out}"
+    )
+
+
+@app.command()
 def export(
     deck: Path = typer.Argument(..., exists=True),
     formats: str = typer.Option("pptx,pdf,html", "--format", "-f"),
