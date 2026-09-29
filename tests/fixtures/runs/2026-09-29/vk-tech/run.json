@@ -1,0 +1,966 @@
+{
+  "run_id": "1a0512176a2c",
+  "variant": "A",
+  "prompt_versions": [
+    "slide_composer@1.5.0",
+    "slide_composer@2.0.0"
+  ],
+  "composition_path": "by_example",
+  "seed": 1341,
+  "slides": 10,
+  "planned_slides": 10,
+  "slides_decision": {
+    "mode": "exact",
+    "requested": 12,
+    "count": 10,
+    "planned": 10,
+    "reason": "задано 12, но материала (24 фактов) хватает на 10: остальные вышли бы полупустыми"
+  },
+  "slide_choices": [
+    {
+      "slide_id": "s01",
+      "intent": "title",
+      "visual": null,
+      "recipe_id": "ex001",
+      "recipe_kind": "cover",
+      "layout_id": "L35",
+      "layout_kind": "title",
+      "why": "место в колоде — «title»: пример вида «cover», одиночные места"
+    },
+    {
+      "slide_id": "s02",
+      "intent": "summary",
+      "visual": "callout:insight",
+      "recipe_id": null,
+      "recipe_kind": null,
+      "layout_id": "L17",
+      "layout_kind": "custom",
+      "why": "заказ плана «callout:insight» примером не показывается: слайд собирается дизайн-системой"
+    },
+    {
+      "slide_id": "s03",
+      "intent": "problem",
+      "visual": "callout:risk",
+      "recipe_id": null,
+      "recipe_kind": null,
+      "layout_id": "L18",
+      "layout_kind": "custom",
+      "why": "заказ плана «callout:risk» примером не показывается: слайд собирается дизайн-системой"
+    },
+    {
+      "slide_id": "s04",
+      "intent": "evidence",
+      "visual": "smartart:process",
+      "recipe_id": null,
+      "recipe_kind": null,
+      "layout_id": "L17",
+      "layout_kind": "custom",
+      "why": "заказ плана «smartart:process» примером не показывается: слайд собирается дизайн-системой"
+    },
+    {
+      "slide_id": "s05",
+      "intent": "evidence",
+      "visual": "smartart:process",
+      "recipe_id": null,
+      "recipe_kind": null,
+      "layout_id": "L18",
+      "layout_kind": "custom",
+      "why": "заказ плана «smartart:process» примером не показывается: слайд собирается дизайн-системой"
+    },
+    {
+      "slide_id": "s06",
+      "intent": "evidence",
+      "visual": null,
+      "recipe_id": "ex052",
+      "recipe_kind": "text",
+      "layout_id": "L17",
+      "layout_kind": "custom",
+      "why": "заказ плана «не назван», пунктов 1: пример вида «text», одиночные места"
+    },
+    {
+      "slide_id": "s07",
+      "intent": "evidence",
+      "visual": null,
+      "recipe_id": "ex020",
+      "recipe_kind": "text",
+      "layout_id": "L18",
+      "layout_kind": "custom",
+      "why": "заказ плана «не назван», пунктов 1: пример вида «text», одиночные места"
+    },
+    {
+      "slide_id": "s08",
+      "intent": "evidence",
+      "visual": null,
+      "recipe_id": "ex027",
+      "recipe_kind": "text",
+      "layout_id": "L17",
+      "layout_kind": "custom",
+      "why": "заказ плана «не назван», пунктов 1: пример вида «text», одиночные места"
+    },
+    {
+      "slide_id": "s09",
+      "intent": "solution",
+      "visual": "kpi",
+      "recipe_id": "ex045",
+      "recipe_kind": "metrics",
+      "layout_id": "L18",
+      "layout_kind": "custom",
+      "why": "заказ плана «kpi», пунктов 1: пример вида «metrics», одиночные места"
+    },
+    {
+      "slide_id": "s10",
+      "intent": "closing",
+      "visual": null,
+      "recipe_id": "ex006",
+      "recipe_kind": "final",
+      "layout_id": "L05",
+      "layout_kind": "closing",
+      "why": "место в колоде — «closing»: пример вида «final», одиночные места"
+    }
+  ],
+  "assignments": [
+    {
+      "slide_id": "s01",
+      "recipe_id": "ex001",
+      "reason": "место в колоде — «title»: пример вида «cover», одиночные места",
+      "row_fill": {}
+    },
+    {
+      "slide_id": "s02",
+      "recipe_id": null,
+      "reason": "заказ плана «callout:insight» примером не показывается: слайд собирается дизайн-системой",
+      "row_fill": {}
+    },
+    {
+      "slide_id": "s03",
+      "recipe_id": null,
+      "reason": "заказ плана «callout:risk» примером не показывается: слайд собирается дизайн-системой",
+      "row_fill": {}
+    },
+    {
+      "slide_id": "s04",
+      "recipe_id": null,
+      "reason": "заказ плана «smartart:process» примером не показывается: слайд собирается дизайн-системой",
+      "row_fill": {}
+    },
+    {
+      "slide_id": "s05",
+      "recipe_id": null,
+      "reason": "заказ плана «smartart:process» примером не показывается: слайд собирается дизайн-системой",
+      "row_fill": {}
+    },
+    {
+      "slide_id": "s06",
+      "recipe_id": "ex052",
+      "reason": "заказ плана «не назван», пунктов 1: пример вида «text», одиночные места",
+      "row_fill": {}
+    },
+    {
+      "slide_id": "s07",
+      "recipe_id": "ex020",
+      "reason": "заказ плана «не назван», пунктов 1: пример вида «text», одиночные места",
+      "row_fill": {}
+    },
+    {
+      "slide_id": "s08",
+      "recipe_id": "ex027",
+      "reason": "заказ плана «не назван», пунктов 1: пример вида «text», одиночные места",
+      "row_fill": {}
+    },
+    {
+      "slide_id": "s09",
+      "recipe_id": "ex045",
+      "reason": "заказ плана «kpi», пунктов 1: пример вида «metrics», одиночные места",
+      "row_fill": {}
+    },
+    {
+      "slide_id": "s10",
+      "recipe_id": "ex006",
+      "reason": "место в колоде — «closing»: пример вида «final», одиночные места",
+      "row_fill": {}
+    }
+  ],
+  "exports": {
+    "pptx": "/work/e2e/plan-b/artifacts/runs/1a0512176a2c/out/deck.pptx",
+    "pdf": "/work/e2e/plan-b/artifacts/runs/1a0512176a2c/out/deck.pdf",
+    "html": "/work/e2e/plan-b/artifacts/runs/1a0512176a2c/out/deck.html"
+  },
+  "design_system_files": {
+    "html": "/work/e2e/plan-b/artifacts/runs/1a0512176a2c/out/design-system.html",
+    "json": "/work/e2e/plan-b/artifacts/runs/1a0512176a2c/out/design-system.json"
+  },
+  "stage_timings_s": {
+    "ingest_content": 0.003,
+    "parse_template": 0.091,
+    "plan": 34.832,
+    "assign": 1.333,
+    "compose": 57.569,
+    "fit": 0.01,
+    "render": 22.462,
+    "audit": 17.403,
+    "fix": 0.018,
+    "export": 2.978
+  },
+  "total_s": 136.699,
+  "audit": {
+    "errors": 11,
+    "warnings": 14,
+    "infos": 4,
+    "passed": 29,
+    "scores": null
+  },
+  "findings": 25,
+  "findings_detail": [
+    {
+      "severity": "error",
+      "check_id": "content.numbers_grounded",
+      "slide_id": "s06",
+      "block_id": "b12",
+      "message": "Числа «1» нет в исходных материалах: либо оно выдумано, либо факт потерялся при разборе контента",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "content.numbers_grounded",
+      "slide_id": "s06",
+      "block_id": "b08",
+      "message": "Числа «1» нет в исходных материалах: либо оно выдумано, либо факт потерялся при разборе контента",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "content.numbers_grounded",
+      "slide_id": "s06",
+      "block_id": "b10",
+      "message": "Числа «1» нет в исходных материалах: либо оно выдумано, либо факт потерялся при разборе контента",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "content.numbers_grounded",
+      "slide_id": "s06",
+      "block_id": "b07",
+      "message": "Числа «1» нет в исходных материалах: либо оно выдумано, либо факт потерялся при разборе контента",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "content.numbers_grounded",
+      "slide_id": "s06",
+      "block_id": "b11",
+      "message": "Числа «1» нет в исходных материалах: либо оно выдумано, либо факт потерялся при разборе контента",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "content.numbers_grounded",
+      "slide_id": "s06",
+      "block_id": "b09",
+      "message": "Числа «1» нет в исходных материалах: либо оно выдумано, либо факт потерялся при разборе контента",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "content.numbers_grounded",
+      "slide_id": "s08",
+      "block_id": "b04",
+      "message": "Числа «1» нет в исходных материалах: либо оно выдумано, либо факт потерялся при разборе контента",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "content.numbers_grounded",
+      "slide_id": "s08",
+      "block_id": "b03",
+      "message": "Числа «1» нет в исходных материалах: либо оно выдумано, либо факт потерялся при разборе контента",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "content.numbers_grounded",
+      "slide_id": "s08",
+      "block_id": "b02",
+      "message": "Числа «1» нет в исходных материалах: либо оно выдумано, либо факт потерялся при разборе контента",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "content.numbers_grounded",
+      "slide_id": "s08",
+      "block_id": "b05",
+      "message": "Числа «1» нет в исходных материалах: либо оно выдумано, либо факт потерялся при разборе контента",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "error",
+      "check_id": "content.numbers_grounded",
+      "slide_id": "s09",
+      "block_id": "b10",
+      "message": "Числа «100%» нет в исходных материалах: либо оно выдумано, либо факт потерялся при разборе контента",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "content.no_typos",
+      "slide_id": "s01",
+      "block_id": "b02",
+      "message": "«слай» — Возможно найдена орфографическая ошибка.; возможно: слой, свой, слух",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "design.ink_balance",
+      "slide_id": "s01",
+      "block_id": null,
+      "message": "Содержание прижато к краю: центр тяжести смещён на 0.11 по горизонтали и 0.04 по вертикали — 1.1 допуска",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "layout.off_guides",
+      "slide_id": "s02",
+      "block_id": "b03",
+      "message": "Блок b03 не дотянут до направляющей по y на 0.10 см",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "content.body_repeats_headline",
+      "slide_id": "s03",
+      "block_id": "b2",
+      "message": "Тело пересказывает заголовок: повторено 75% его значащих слов — слайд говорит одно и то же дважды",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "density.fill_ratio",
+      "slide_id": "s03",
+      "block_id": null,
+      "message": "Слайд полупустой: занято 16% площади при допустимых 25%–75%",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "layout.off_guides",
+      "slide_id": "s03",
+      "block_id": "b3",
+      "message": "Блок b3 не дотянут до направляющей по y на 0.06 см",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "layout.off_guides",
+      "slide_id": "s04",
+      "block_id": "b04_process",
+      "message": "Блок b04_process не дотянут до направляющей по y на 0.10 см",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "layout.off_guides",
+      "slide_id": "s05",
+      "block_id": "b2",
+      "message": "Блок b2 не дотянут до направляющей по y на 0.06 см",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "content.no_typos",
+      "slide_id": "s06",
+      "block_id": "b06",
+      "message": "«в» — Это предложение не начинается с заглавной буквы.; возможно: В",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "content.no_typos",
+      "slide_id": "s06",
+      "block_id": "b04",
+      "message": "«разных» — Это предложение не начинается с заглавной буквы.; возможно: Разных",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "design.ink_balance",
+      "slide_id": "s06",
+      "block_id": null,
+      "message": "Содержание прижато к краю: центр тяжести смещён на 0.09 по горизонтали и 0.10 по вертикали — 1.2 допуска",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "design.ink_balance",
+      "slide_id": "s07",
+      "block_id": null,
+      "message": "На слайде пустая зона 61% ширины и 99% высоты: содержание не заняло отведённого",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "design.unlike_the_template",
+      "slide_id": "s07",
+      "block_id": null,
+      "message": "Смещение центра тяжести — 3.18, а на слайдах шаблона 0.59 ± 0.38 (по 54 примерам)",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "warning",
+      "check_id": "design.ink_balance",
+      "slide_id": "s09",
+      "block_id": null,
+      "message": "Содержание прижато к краю: центр тяжести смещён на 0.14 по горизонтали и 0.06 по вертикали — 1.5 допуска",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "info",
+      "check_id": "template.slide_without_recipe",
+      "slide_id": "s02",
+      "block_id": null,
+      "message": "Слайд s02 собран по макету L17, а не по рецепту: в каталоге шаблона 54 рецептов",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "info",
+      "check_id": "template.slide_without_recipe",
+      "slide_id": "s03",
+      "block_id": null,
+      "message": "Слайд s03 собран по макету L18, а не по рецепту: в каталоге шаблона 54 рецептов",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "info",
+      "check_id": "template.slide_without_recipe",
+      "slide_id": "s04",
+      "block_id": null,
+      "message": "Слайд s04 собран по макету L17, а не по рецепту: в каталоге шаблона 54 рецептов",
+      "auto_fix_applied": false
+    },
+    {
+      "severity": "info",
+      "check_id": "template.slide_without_recipe",
+      "slide_id": "s05",
+      "block_id": null,
+      "message": "Слайд s05 собран по макету L18, а не по рецепту: в каталоге шаблона 54 рецептов",
+      "auto_fix_applied": false
+    }
+  ],
+  "fit": {
+    "s01/b01": {
+      "size_pt": 24.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s01/b02": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s02/b01": {
+      "size_pt": 15.6,
+      "strategy": "shrink",
+      "overflow": false,
+      "lines": 2
+    },
+    "s02/b02": {
+      "size_pt": 15.6,
+      "strategy": "grow",
+      "overflow": false,
+      "lines": 8
+    },
+    "s02/b03": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 4
+    },
+    "s03/b1": {
+      "size_pt": 15.6,
+      "strategy": "shrink",
+      "overflow": false,
+      "lines": 2
+    },
+    "s03/b2": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 4
+    },
+    "s03/b3": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 3
+    },
+    "s04/b04_title": {
+      "size_pt": 15.6,
+      "strategy": "shrink",
+      "overflow": false,
+      "lines": 2
+    },
+    "s04/b04_body": {
+      "size_pt": 7.8,
+      "strategy": "below_reading",
+      "overflow": false,
+      "lines": 1
+    },
+    "s04/b04_process": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s05/b1": {
+      "size_pt": 15.6,
+      "strategy": "shrink",
+      "overflow": false,
+      "lines": 2
+    },
+    "s05/b2": {
+      "size_pt": 15.6,
+      "strategy": "grow",
+      "overflow": false,
+      "lines": 1
+    },
+    "s06/b01": {
+      "size_pt": 24.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s06/b02": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s06/b03": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s06/b04": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s06/b05": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s06/b06": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s06/b07": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s06/b08": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s06/b09": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s06/b10": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s06/b11": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s06/b12": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s07/b01": {
+      "size_pt": 14.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s07/b02": {
+      "size_pt": 14.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s07/b03": {
+      "size_pt": 14.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s07/b04": {
+      "size_pt": 14.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s08/b01": {
+      "size_pt": 24.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s08/b02": {
+      "size_pt": 13.22,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s08/b03": {
+      "size_pt": 13.22,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s08/b04": {
+      "size_pt": 13.22,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s08/b05": {
+      "size_pt": 13.22,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s09/b01": {
+      "size_pt": 24.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s09/b02": {
+      "size_pt": 12.0,
+      "strategy": "shrink",
+      "overflow": false,
+      "lines": 1
+    },
+    "s09/b03": {
+      "size_pt": 14.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s09/b04": {
+      "size_pt": 14.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s09/b05": {
+      "size_pt": 10.5,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s09/b06": {
+      "size_pt": 10.5,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s09/b07": {
+      "size_pt": 10.5,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s09/b08": {
+      "size_pt": 32.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s09/b09": {
+      "size_pt": 15.6,
+      "strategy": "shrink",
+      "overflow": false,
+      "lines": 1
+    },
+    "s09/b10": {
+      "size_pt": 32.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 1
+    },
+    "s10/b01": {
+      "size_pt": 24.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    },
+    "s10/b02": {
+      "size_pt": 12.0,
+      "strategy": "as_is",
+      "overflow": false,
+      "lines": 2
+    }
+  },
+  "design_metrics": {
+    "s01": {
+      "ink": 0.1085,
+      "imbalance": 1.14,
+      "zone_w": 0.26,
+      "zone_h": 0.72,
+      "chrome": 1.0
+    },
+    "s02": {
+      "ink": 0.0513,
+      "imbalance": 0.95,
+      "zone_w": 1.0,
+      "zone_h": 0.29,
+      "chrome": 1.0
+    },
+    "s03": {
+      "ink": 0.0328,
+      "imbalance": 0.9,
+      "zone_w": 1.0,
+      "zone_h": 0.32,
+      "chrome": 1.0
+    },
+    "s04": {
+      "ink": 0.0369,
+      "imbalance": 0.59,
+      "zone_w": 1.0,
+      "zone_h": 0.18,
+      "chrome": 1.0
+    },
+    "s05": {
+      "ink": 0.0429,
+      "imbalance": 0.86,
+      "zone_w": 0.28,
+      "zone_h": 0.46,
+      "chrome": 1.0
+    },
+    "s06": {
+      "ink": 0.0311,
+      "imbalance": 1.17,
+      "zone_w": 0.37,
+      "zone_h": 0.47,
+      "chrome": 1.0
+    },
+    "s07": {
+      "ink": 0.0215,
+      "imbalance": 3.18,
+      "zone_w": 0.61,
+      "zone_h": 0.99,
+      "chrome": 1.0
+    },
+    "s08": {
+      "ink": 0.0445,
+      "imbalance": 0.45,
+      "zone_w": 1.0,
+      "zone_h": 0.21,
+      "chrome": 1.0
+    },
+    "s09": {
+      "ink": 0.041,
+      "imbalance": 1.5,
+      "zone_w": 0.64,
+      "zone_h": 0.24,
+      "chrome": 1.0
+    },
+    "s10": {
+      "ink": 0.1346,
+      "imbalance": 0.21,
+      "zone_w": 0.48,
+      "zone_h": 0.21,
+      "chrome": 1.0
+    }
+  },
+  "design_system": {
+    "template_id": "sha256:cbbe3aa6a21d23cebc4d1383b93dd07a9cea460d683de1903567b616c839485d",
+    "type_levels": 8,
+    "theme_slots": 12,
+    "spacing_steps": 6,
+    "color_roles": 10,
+    "combinations": 9,
+    "contrast_pairs": 22,
+    "contrast_defects": 0,
+    "fonts_in_use": 3,
+    "components": 24,
+    "synthesized": 35,
+    "assembly_rules": 4
+  },
+  "design_system_usage": {
+    "slides": {
+      "s01": [
+        "recipe:ex001"
+      ],
+      "s02": [
+        "callout:insight"
+      ],
+      "s03": [
+        "callout:risk"
+      ],
+      "s04": [
+        "smartart"
+      ],
+      "s05": [
+        "smartart"
+      ],
+      "s06": [
+        "recipe:ex052"
+      ],
+      "s07": [
+        "recipe:ex020"
+      ],
+      "s08": [
+        "recipe:ex027"
+      ],
+      "s09": [
+        "recipe:ex045"
+      ],
+      "s10": [
+        "recipe:ex006"
+      ]
+    },
+    "recipe": {
+      "s01": "ex001",
+      "s02": null,
+      "s03": null,
+      "s04": null,
+      "s05": null,
+      "s06": "ex052",
+      "s07": "ex020",
+      "s08": "ex027",
+      "s09": "ex045",
+      "s10": "ex006"
+    },
+    "slides_total": 10,
+    "slides_with_elements": 10,
+    "share": 1.0,
+    "slides_by_recipe": 6,
+    "slides_title_only": 0,
+    "recipe_share": 0.6,
+    "elements": {
+      "callout:insight": 1,
+      "callout:risk": 1,
+      "recipe:ex001": 1,
+      "recipe:ex006": 1,
+      "recipe:ex020": 1,
+      "recipe:ex027": 1,
+      "recipe:ex045": 1,
+      "recipe:ex052": 1,
+      "smartart": 2
+    },
+    "unused": [
+      "kpi",
+      "quote",
+      "bullets:numbered",
+      "bullets:icon"
+    ]
+  },
+  "skipped_checks": [
+    "content.body_matches_headline",
+    "content.has_substance",
+    "content.headline_is_conclusion",
+    "content.neighbours_connected",
+    "content.no_prompt_leftovers",
+    "content.one_sentence_summary",
+    "content.table_rows_meaningful",
+    "content.visuals_on_topic"
+  ],
+  "checks_known": [
+    "content.body_matches_headline",
+    "content.body_repeats_headline",
+    "content.has_substance",
+    "content.headline_is_conclusion",
+    "content.neighbours_connected",
+    "content.no_prompt_leftovers",
+    "content.no_typos",
+    "content.numbers_grounded",
+    "content.one_sentence_summary",
+    "content.single_language",
+    "content.table_rows_meaningful",
+    "content.visuals_on_topic",
+    "density.bullet_too_long",
+    "density.fill_ratio",
+    "density.table_too_big",
+    "density.too_many_bullets",
+    "density.too_many_series",
+    "design.ink_balance",
+    "design.unlike_the_template",
+    "integrity.chart_labels_missing",
+    "integrity.content_lost",
+    "integrity.duplicate_slides",
+    "integrity.empty_group",
+    "integrity.empty_slide",
+    "integrity.file_opens",
+    "integrity.placeholder_text",
+    "integrity.slide_is_image",
+    "layout.image_aspect_distorted",
+    "layout.margin_violation",
+    "layout.object_overflow",
+    "layout.off_guides",
+    "layout.out_of_bounds",
+    "layout.overlap",
+    "layout.text_clipped",
+    "layout.text_overflow",
+    "template.color_not_in_palette",
+    "template.contrast_below_wcag",
+    "template.decor_leads_nowhere",
+    "template.decor_moved",
+    "template.font_not_in_theme",
+    "template.layout_not_from_template",
+    "template.recipe_not_in_catalogue",
+    "template.sample_text_left",
+    "template.size_not_in_scale",
+    "template.slide_without_recipe"
+  ],
+  "degradations": [],
+  "notes": [
+    "план: слайдов 10 вместо запрошенных 12 — на 24 фактах больше вышло бы полупустыми",
+    "паспорт у 48 примеров из 54",
+    "паспорт ex013: нет — зона z590 не держит и одного знака кеглем автора",
+    "паспорт ex021: нет — зона z915 не держит и одного знака кеглем автора",
+    "паспорт ex030: нет — зона z1189 не держит и одного знака кеглем автора",
+    "паспорт ex037: нет — зона z1936 не держит и одного знака кеглем автора",
+    "паспорт ex039: нет — зона z2123 не держит и одного знака кеглем автора",
+    "паспорт ex053: нет — зона z2654 не держит и одного знака кеглем автора",
+    "примеры назначены до текста: с примером 6, путём дизайн-системы 4",
+    "заголовок под макет: слайд s01: заголовок переписан под рамку: 45 → 22",
+    "заголовок под макет: слайд s08: заголовок переписан под рамку: 44 → 24",
+    "заголовок под макет: слайд s09: заголовок переписан под рамку: 48 → 25",
+    "заголовок под макет: слайд s10: заголовок переписан под рамку: 54 → 28",
+    "слайд s09: места p02, p09 не держат и одного слова этого текста: он остаётся, кегль ему спустит вёрстка",
+    "слайд s09: блок b02 обрезан по словам под место: 13 → 13 знаков — место держит 0, а первое слово длиннее: кегль ему спустит вёрстка",
+    "слайд s09: блок b09 обрезан по словам под место: 6 → 6 знаков — место держит 0, а первое слово длиннее: кегль ему спустит вёрстка",
+    "s02/b02: кегль поднят до 15.6 pt — текста было мало для отведённой рамки",
+    "s04/b04_body: текст сокращён, чтобы влезть",
+    "s04/b04_body: кегль 7.8 pt ниже порога читаемости — зона уже одного слова на пороге",
+    "s05/b2: кегль поднят до 15.6 pt — текста было мало для отведённой рамки",
+    "виток починки 1: применено находок — 0 из 4",
+    "не починено layout.off_guides на s02: направляющая положила бы блок на b01 (3.03 → 2.94 см)",
+    "не починено layout.off_guides на s03: направляющая вывела бы блок за поля шаблона (2.88 → 2.94 см)",
+    "не починено layout.off_guides на s04: направляющая положила бы блок на b04_title (3.03 → 2.94 см)",
+    "не починено layout.off_guides на s05: направляющая вывела бы блок за поля шаблона (2.88 → 2.94 см)"
+  ],
+  "errors": []
+}
