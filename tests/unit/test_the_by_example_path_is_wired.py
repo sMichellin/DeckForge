@@ -212,3 +212,18 @@ def test_fit_and_export_on_by_example_write_the_scheme(tmp_path: Path) -> None:
 
     assert out.is_file()
     assert block.pattern is SmartArtPattern.HIERARCHY
+
+
+def test_the_plan_b_profile_differs_from_the_base_only_by_the_path() -> None:
+    """Норма: профиль `plan_b` — база прогонов 28.09 с путём `by_example`, и больше ничем.
+
+    Иначе приёмка сравнила бы не пути, а два разных конфига."""
+    from deckforge.config import load_run_config
+
+    base = load_run_config().model_dump()
+    plan_b = load_run_config(profile="plan_b").model_dump()
+
+    assert plan_b["composition"]["path"] == "by_example"
+    assert {k: v for k, v in plan_b.items() if k != "composition"} == {
+        k: v for k, v in base.items() if k != "composition"
+    }
