@@ -20,7 +20,7 @@ from collections.abc import Iterable
 
 from deckforge.audit.findings import make_finding
 from deckforge.audit.geometry import block_bbox, block_text, layout_of
-from deckforge.audit.recipes import catalogue_with_passports
+from deckforge.audit.recipes import catalogue
 from deckforge.audit.registry import CheckContext, CheckUnavailable, check
 from deckforge.designsystem.models import PlaceKind
 from deckforge.domain.audit import Finding
@@ -207,9 +207,14 @@ def word_cut(ctx: CheckContext) -> Iterable[Finding]:
       с него начинается и длиннее на две буквы и больше, и это не падежное окончание:
       модель сократила слово сама («пат.» при «паттерн»). Словарём этого не поймать:
       «пат», «мин», «презент» — словарные слова.
+
+    Предел — только из паспорта **дизайн-системы прогона** (`catalogue`), по которому модели
+    строили схему ответа. Паспорт, посчитанный задним числом для прогона `legacy`, модель
+    не видела, а его ёмкость зависит от шрифтов машины: в CI текст VK Tech 28.09 s09 случайно
+    совпал с ней по длине.
     """
     words = _source_words(ctx)
-    recipes = catalogue_with_passports(ctx)
+    recipes = catalogue(ctx)
     for slide in ctx.deck.slides:
         recipe = recipes.get(slide.recipe_id or "")
         places = {
