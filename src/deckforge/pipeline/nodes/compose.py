@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 from typing import Any
 
 from langgraph.runtime import Runtime
@@ -19,7 +20,7 @@ from langgraph.runtime import Runtime
 from deckforge.composition.assign import RecipeAssignment
 from deckforge.composition.composer import SlideComposer
 from deckforge.composition.layout_picker import LayoutPickError, pick_layout
-from deckforge.composition.passport import fit_measure
+from deckforge.composition.passport import Fits, fit_measure
 from deckforge.designsystem import DesignSystem
 from deckforge.designsystem.models import PlaceKind, Recipe, TypeLevel
 from deckforge.domain.plan import DeckPlan, SlidePlan
@@ -87,12 +88,15 @@ def _bands_of_assigned_places(
         )
         if place is None or place.zone_id is None:
             continue
-
-        def landed(text: str, recipe: Recipe = recipe, zone_id: str = place.zone_id) -> bool:
-            return fits(recipe, {zone_id: text}).get(zone_id, False)
-
-        bands[slide_id] = Band(fits=landed, limit=place.capacity_chars)
+        bands[slide_id] = Band(
+            fits=partial(_lands_in, fits, recipe, place.zone_id), limit=place.capacity_chars
+        )
     return bands
+
+
+def _lands_in(fits: Fits, recipe: Recipe, zone_id: str, text: str) -> bool:
+    """Встаёт ли заголовок в место заголовка примера кеглем автора (мерило паспорта)."""
+    return fits(recipe, {zone_id: text}).get(zone_id, False)
 
 
 async def compose_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
