@@ -21,7 +21,7 @@ from deckforge.domain.enums import Severity
 from deckforge.domain.variants import VariantProfile
 from deckforge.layout.fonts import FontLibrary
 from deckforge.pipeline.budget import BudgetTracker
-from deckforge.pipeline.deps import Deps, PipelineError
+from deckforge.pipeline.deps import Deps
 from deckforge.pipeline.graph import build_graph
 from deckforge.pipeline.state import DeckState
 from deckforge.registry import load_variant_profiles
@@ -375,23 +375,6 @@ def initial_state(
     }
 
 
-def ensure_composition_path(path: CompositionPath) -> None:
-    """Путь `by_example` без композиции под места не подменяется старым (ADR-009).
-
-    Узел `assign` в графе есть (change `the-assign-node`), но `compose` пока пишет текст
-    по-старому — под макет, а не под места назначенного примера. Это change 3 потока A
-    (`the-text-is-written-for-the-places`). До него прогон с `by_example` собрал бы колоду
-    путём `legacy` с назначениями, которых никто не читает, и приёмка сравнила бы старый
-    путь со старым. Снимает отказ тимлид вместе с подключением change 3 к узлу `compose`.
-    """
-    if path == "by_example":
-        raise PipelineError(
-            "composition.path = by_example: узел `compose` ещё не пишет текст под места "
-            "назначенного примера (change the-text-is-written-for-the-places) — "
-            "колода собралась бы путём legacy"
-        )
-
-
 def thread_id(run_id: str, variant: VariantProfile | str) -> str:
     """Ключ чекпойнта. Возобновление обязано попасть в ту же нить, что и прогон."""
     name = variant if isinstance(variant, str) else variant.variant_id
@@ -411,7 +394,6 @@ async def generate_variant(
     """Один вариант вёрстки — один прогон графа."""
     identifier = run_id or uuid.uuid4().hex[:12]
     composition_path = deps.run.composition.path
-    ensure_composition_path(composition_path)
     deps.out_dir.mkdir(parents=True, exist_ok=True)
 
     async with open_checkpointer(checkpoint_path) as saver:

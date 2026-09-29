@@ -2,13 +2,13 @@
 
 План Б переставляет шаги: пример выбирается до текста. Новый путь вводится за флагом
 `composition.path`, и до приёмки старый путь остаётся базой для сравнения. Поэтому флаг
-обязан быть строгим: опечатка — ошибка, а `by_example` без узла `assign` — отказ, а не
-молчаливый `legacy`. Иначе приёмка сравнила бы старый путь со старым.
+обязан быть строгим: опечатка — ошибка, а не молчаливый `legacy`. Отказ старта на пути
+`by_example`, живший до композиции под места, снят change `the-by-example-path-is-wired`:
+путь собран целиком, и его проверяют тесты того change.
 """
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -16,9 +16,7 @@ from pydantic import ValidationError
 
 from deckforge import config
 from deckforge.config import RunConfig, load_run_config
-from deckforge.domain.content import Brief
-from deckforge.pipeline.deps import Deps, PipelineError
-from deckforge.pipeline.run import RunResult, ensure_composition_path, generate_variant
+from deckforge.pipeline.run import RunResult
 
 
 def _configs(root: Path, default: str, profiles: dict[str, str] | None = None) -> Path:
@@ -60,34 +58,6 @@ def test_a_typo_in_the_path_fails_loading() -> None:
     """Нарушитель: опечатка в пути — ошибка загрузки, а не молчаливый `legacy`."""
     with pytest.raises(ValidationError):
         RunConfig.model_validate({"composition": {"path": "by-example"}})
-
-
-def test_by_example_refuses_before_the_text_is_written_for_the_places() -> None:
-    """Нарушитель: без композиции под места путь `by_example` отказывает и называет причину.
-
-    До `the-assign-node` отказ называл недостающий узел `assign`; узел есть, недостаёт change 3.
-    """
-    with pytest.raises(PipelineError, match="the-text-is-written-for-the-places"):
-        ensure_composition_path("by_example")
-
-
-def test_a_run_on_by_example_does_not_start(tmp_path: Path) -> None:
-    """Нарушитель: прогон с `by_example` падает до графа — ни модели, ни файлов."""
-    run = RunConfig.model_validate({"composition": {"path": "by_example"}})
-    deps = Deps(
-        brief=Brief(purpose="report", audience="правление"), run=run, out_dir=tmp_path / "out"
-    )
-
-    with pytest.raises(PipelineError, match="the-text-is-written-for-the-places"):
-        asyncio.run(
-            generate_variant(tmp_path / "t.pptx", [], variant=None, deps=deps, seed=1)  # type: ignore[arg-type]
-        )
-    assert not deps.out_dir.exists()
-
-
-def test_legacy_passes_the_start() -> None:
-    """Норма: старый путь проверку старта проходит."""
-    ensure_composition_path("legacy")
 
 
 @pytest.mark.parametrize(
