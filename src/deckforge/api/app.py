@@ -29,6 +29,7 @@ from deckforge.api.queue import RESUME_JOB, RUN_JOB, ArqQueue, Queue
 from deckforge.api.schemas import FindingView, FixSelection, RunCreated, RunRequest, RunStatus
 from deckforge.api.store import FINAL_STATES, RunStore
 from deckforge.config import available_profiles, get_settings
+from deckforge.registry.variants import load_variant_profiles
 
 #: Форматы экспорта и их типы. Список закрыт: отдавать по имени расширения что угодно
 #: из каталога прогона значило бы раздавать чекпойнт и загруженные материалы.
@@ -102,6 +103,20 @@ def _router(store: RunStore, queue: Queue, cache_root: Path) -> APIRouter:
     async def profiles() -> dict[str, list[str]]:
         """Какие профили прогона есть. Интерфейсу — чтобы не знать их наперечёт."""
         return {"profiles": available_profiles()}
+
+    @router.get("/variants")
+    async def variants() -> dict[str, list[dict[str, str]]]:
+        """Варианты вёрстки с названиями из `configs/variants.yaml`.
+
+        Человек выбирает подачу, а не букву: «Плотный аналитический» говорит, что он
+        получит, а «A» — нет. Названия живут в конфиге, интерфейс их не знает наперечёт.
+        """
+        return {
+            "variants": [
+                {"variant_id": vid, "name": profile.name, "rationale": profile.rationale.strip()}
+                for vid, profile in load_variant_profiles().items()
+            ]
+        }
 
     @router.post("/runs", status_code=201)
     async def create_run(request: RunRequest) -> RunCreated:
