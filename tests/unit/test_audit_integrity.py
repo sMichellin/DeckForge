@@ -18,7 +18,7 @@ from deckforge.audit.deterministic.integrity import (
     slide_is_image,
 )
 from deckforge.audit.registry import CheckUnavailable
-from deckforge.domain.enums import ChartType
+from deckforge.domain.enums import ChartType, LayoutKind
 from deckforge.domain.template import TemplateManifest
 from tests.unit._audit_builders import (
     body,
@@ -79,10 +79,20 @@ def test_empty_slide_catches_a_title_only_content_slide(manifest: TemplateManife
     assert [f.slide_id for f in findings] == ["s01"]
 
 
-def test_empty_slide_allows_a_title_layout(manifest: TemplateManifest) -> None:
-    """У макета `L01` вместимость тела нулевая: заголовок там и есть всё содержание."""
+def test_empty_slide_allows_a_section_layout(manifest: TemplateManifest) -> None:
+    """Раздел из одного заголовка — по замыслу: он и есть строка между частями колоды.
+
+    Прежде так пропускался любой макет с нулевой вместимостью тела, в том числе титул.
+    После #287 обложке и финалу строка помимо заголовка нужна всегда — исключение
+    осталось только разделу (`an-empty-body-is-an-error`).
+    """
+    section = manifest.model_copy(update={"layouts": [
+        layout.model_copy(update={"kind": LayoutKind.SECTION}) if layout.layout_id == "L01"
+        else layout
+        for layout in manifest.layouts
+    ]})
     colony = deck(slide(title(), layout_id="L01"))
-    assert list(empty_slide(context_for("integrity.empty_slide", colony, manifest))) == []
+    assert list(empty_slide(context_for("integrity.empty_slide", colony, section))) == []
 
 
 def test_empty_slide_silent_when_there_is_content(manifest: TemplateManifest) -> None:
@@ -104,8 +114,10 @@ def test_content_lost_catches_a_title_only_slide_on_a_title_layout(
     findings = list(content_lost(context_for("integrity.content_lost", colony, manifest)))
     assert [f.slide_id for f in findings] == ["s01"]
     assert findings[0].evidence["fact_refs"] == "f001, f002"
-    # Та же колода у соседней проверки нареканий не вызывает — в этом и была дыра.
-    assert list(empty_slide(context_for("integrity.empty_slide", colony, manifest))) == []
+    # 19.09 соседняя проверка такой слайд пропускала — в этом и была дыра. После #287
+    # обложка из одного заголовка — пустое тело и для неё (`an-empty-body-is-an-error`).
+    assert [f.slide_id for f in empty_slide(context_for("integrity.empty_slide", colony,
+                                                         manifest))] == ["s01"]
 
 
 def test_content_lost_silent_when_the_body_survived(manifest: TemplateManifest) -> None:
