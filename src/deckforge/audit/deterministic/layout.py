@@ -41,7 +41,7 @@ from deckforge.domain.slide import (
     TextBlock,
 )
 from deckforge.domain.template import ShapeKind
-from deckforge.domain.units import emu_to_cm
+from deckforge.domain.units import TEXT_FRAME_INSET_X_EMU, TEXT_FRAME_INSET_Y_EMU, emu_to_cm
 
 
 @check(
@@ -628,3 +628,147 @@ def object_overflow(ctx: CheckContext) -> Iterable[Finding]:
                     ),
                     evidence={"source": "fit_report", "pattern": block.pattern.value},
                 )
+
+
+# --- текст за плашкой (план Б, круг 3, C4; change `a-text-beyond-its-plate`) --------------
+
+def _inset(body: Any, key: str, default: int) -> int:
+    """Отступ рамки из `a:bodyPr`; нет его — умолчание OOXML (`TEXT_FRAME_INSET_*`)."""
+    value = body.get(key) if body is not None else None
+    return int(value) if value is not None and str(value).lstrip("-").isdigit() else default
+
+
+def _is_filled(node: Any) -> bool:
+    """Залита ли фигура: явной заливкой в `spPr` или по стилю темы (`p:style/a:fillRef`),
+    если заливка не снята `a:noFill`."""
+    from pptx.oxml.ns import qn
+
+    props = node.find(qn("p:spPr"))
+    if props is not None:
+        if any(props.find(qn(tag)) is not None for tag in ("a:solidFill", "a:gradFill",
+                                                           "a:pattFill", "a:blipFill")):
+            return True
+        if props.find(qn("a:noFill")) is not None:
+            return False
+    ref = node.find(f"{qn('p:style')}/{qn('a:fillRef')}")
+    return ref is not None and ref.get("idx", "0") != "0"
+
+
+def _text_height(shape: Any, manifest: Any, fonts: Any) -> tuple[int, str]:
+    """Высота текста фигуры шрифтом, с её отступами; и якорь (`t`, `ctr`, `b`)."""
+    from pptx.oxml.ns import qn
+
+    from deckforge.layout.metrics import line_height_emu, measure_text
+    from deckforge.rendering.theme_binding import font_family_for_token
+
+    body = shape._element.find(".//" + qn("a:bodyPr"))
+    left = _inset(body, "lIns", TEXT_FRAME_INSET_X_EMU)
+    right = _inset(body, "rIns", TEXT_FRAME_INSET_X_EMU)
+    top = _inset(body, "tIns", TEXT_FRAME_INSET_Y_EMU)
+    bottom = _inset(body, "bIns", TEXT_FRAME_INSET_Y_EMU)
+    width = max(1, int(shape.width) - left - right + 2 * TEXT_FRAME_INSET_X_EMU)
+    body_step = manifest.typography(TextRole.BODY)
+    fallback_pt = body_step.size_pt if body_step is not None else 18.0
+    total = 0.0
+    for paragraph in shape.text_frame.paragraphs:
+        runs = list(paragraph.runs)
+        size = next((run.font.size.pt for run in runs if run.font.size), None) or fallback_pt
+        face = next((run.font.name for run in runs if run.font.name), None) or "+mn-lt"
+        family = font_family_for_token(face, manifest) or face
+        measured = measure_text(
+            paragraph.text or " ", font_family=family, size_pt=size,
+            box=BBox(x=0, y=0, cx=width, cy=1), bold=False, fonts=fonts,
+        )
+        total += measured.height_emu or line_height_emu(size)
+    anchor = (body.get("anchor") if body is not None else None) or "t"
+    return round(total) + top + bottom, anchor
+
+
+@check(
+    id="layout.text_beyond_plate",
+    deterministic=True,
+    severity=Severity.ERROR,
+    title="Текст вышел за свою плашку",
+)
+def text_beyond_plate(ctx: CheckContext) -> Iterable[Finding]:
+    """Текст вышел за свою плашку (план Б, круг 3, C4 — мерило B2).
+
+    Прогон `a3a8f3a2319b`, WorkSpace s03: карточка — сама текстовая фигура с заливкой и верхним
+    отступом под иконку (`tIns` 756 000 EMU). Вписывание намерило 4 строки и сравнило их
+    с высотой зоны без отступа — «влезло», а на слайде последняя строка ушла за край карточки.
+    Ни `layout.text_overflow` (верит вписыванию), ни `layout.object_overflow` этого не видели.
+
+    Меряется **готовый файл**: текст — шрифтом (`measure_text`) по ширине фигуры за вычетом её
+    отступов, плюс её верхний и нижний отступ, её кеглем, с её якорем. Плашка — сама фигура,
+    если у неё есть заливка, иначе наименьшая залитая фигура страницы, в которой лежит угол
+    текстовой. Судится только наш текст — фигуры зон рецепта; без плашки — не эта проверка.
+    """
+    path = ctx.deck_path
+    if path is None:
+        raise CheckUnavailable("файла колоды ещё нет: вылет текста виден только в .pptx")
+    recipes = catalogue(ctx)
+    ours = {
+        number: {zone.xml_id for zone in recipes[slide.recipe_id].zones if zone.xml_id}
+        for number, slide in enumerate(ctx.deck.slides)
+        if slide.recipe_id in recipes
+    }
+    if not ours:
+        raise CheckUnavailable("ни одного слайда по рецепту: наших плашек примера нет")
+    try:
+        from pptx import Presentation
+
+        pages = list(Presentation(str(path)).slides)
+    except Exception as error:
+        raise CheckUnavailable(f"файл колоды не открылся: {type(error).__name__}") from error
+    if len(pages) < len(ctx.deck.slides):
+        raise CheckUnavailable(
+            f"в файле {len(pages)} слайдов, а в IR {len(ctx.deck.slides)}: страницу не найти"
+        )
+
+    from deckforge.layout.fonts import FontLibrary
+
+    fonts = FontLibrary.default()
+    tolerance = ctx.param("overflow_share", 0.03)
+    for number, zone_ids in ours.items():
+        page, slide = pages[number], ctx.deck.slides[number]
+        shapes = list(page.shapes)
+        for shape in shapes:
+            if shape.shape_id not in zone_ids or not getattr(shape, "has_text_frame", False):
+                continue
+            if not shape.text_frame.text.strip():
+                continue
+            if _is_filled(shape._element):
+                plate = shape
+            else:
+                under = [
+                    other for other in shapes
+                    if other is not shape and _is_filled(other._element)
+                    and other.left <= shape.left < other.left + other.width
+                    and other.top <= shape.top < other.top + other.height
+                ]
+                if not under:
+                    continue
+                plate = min(under, key=lambda other: int(other.width) * int(other.height))
+            need, anchor = _text_height(shape, ctx.manifest, fonts)
+            top = int(shape.top)
+            if anchor == "b":
+                top = int(shape.top) + int(shape.height) - need
+            elif anchor == "ctr":
+                top = int(shape.top) + (int(shape.height) - need) // 2
+            beyond = top + need - (int(plate.top) + int(plate.height))
+            if beyond <= tolerance * int(plate.height):
+                continue
+            yield make_finding(
+                check_id="layout.text_beyond_plate",
+                slide_id=slide.slide_id,
+                reason=f"plate:{shape.shape_id}",
+                message=(
+                    f"Текст фигуры {shape.shape_id} выходит за её плашку на "
+                    f"{emu_to_cm(beyond):.1f} см ({beyond / int(plate.height):.0%} высоты)"
+                ),
+                evidence={
+                    "shape_id": str(shape.shape_id),
+                    "beyond_emu": str(beyond),
+                    "plate_cy": str(int(plate.height)),
+                },
+            )

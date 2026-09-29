@@ -94,8 +94,9 @@ def test_check_specs_cover_tz_appendix() -> None:
     ids = {c.check_id for c in specs.checks}
     # Приложение 1 ТЗ: вёрстка, шаблон, плотность, целостность
     # Восемь: семь из Приложения 1 плюс `layout.object_overflow` — таблица или схема,
-    # записанная с переполнением на пути `by_example` (план Б, после 5б).
-    assert len([i for i in ids if i.startswith("layout.")]) == 8
+    # записанная с переполнением на пути `by_example` (план Б, после 5б), и
+    # `layout.text_beyond_plate` — текст за своей плашкой (план Б, круг 3, C4).
+    assert len([i for i in ids if i.startswith("layout.")]) == 9
     assert len([i for i in ids if i.startswith("template.")]) == 10
     assert len([i for i in ids if i.startswith("density.")]) == 5
     # Восемь: шесть из Приложения 1 плюс `integrity.content_lost` — потерю содержания

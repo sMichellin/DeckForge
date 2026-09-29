@@ -40,6 +40,11 @@ checks:
     severity: error
     title: "Таблица или схема записана с переполнением"
     params: { height_tolerance: 0.02, position_share: 0.005 }
+  layout.text_beyond_plate:
+    deterministic: true
+    severity: error
+    title: "Текст вышел за свою плашку"
+    params: { overflow_share: 0.03 }
 
   # --- шаблон ---
   template.font_not_in_theme:
