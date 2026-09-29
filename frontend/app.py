@@ -59,12 +59,12 @@ def main() -> None:
     with st.sidebar:
         settings = sidebar()
 
-    run_id = st.session_state.get("run_id")
-    if not run_id:
+    runs: dict[str, str] = dict(st.session_state.get("runs") or {})
+    if not runs:
         upload_form(settings)
         return
 
-    show_run(str(run_id))
+    show_runs(runs)
 
 
 def sidebar() -> dict[str, Any]:
@@ -96,7 +96,7 @@ def sidebar() -> dict[str, Any]:
         # не остановится посреди записи демо, если смотреть за ним некому.
         "interactive": st.checkbox("Спросить меня перед починкой находок", value=True),
     }
-    if st.session_state.get("run_id"):
+    if st.session_state.get("runs"):
         st.divider()
         if st.button("Начать заново", use_container_width=True):
             forget_run()
@@ -106,23 +106,46 @@ def sidebar() -> dict[str, Any]:
 #: Варианты, когда сервис их не назвал: выбрать всё равно можно, только буквой.
 FALLBACK_VARIANTS = ["A", "B", "C"]
 
+#: Выбор «все варианты разом»: один шаблон и одни материалы — по прогону на каждый вариант.
+ALL_VARIANTS = "*"
 
-def variant_choice() -> str:
-    """Вариант вёрстки по названию, а не по букве: человек выбирает подачу колоды."""
+
+def variant_names() -> dict[str, str]:
+    """Буква варианта → название с сервиса; без сервиса — буквы."""
     base = st.session_state.get("base_url")
     if st.session_state.get("_variants_base") != base or not st.session_state.get("_variants"):
         st.session_state["_variants"] = client().variants()
         st.session_state["_variants_base"] = base
     names: dict[str, str] = dict(st.session_state["_variants"])
+    return names or {vid: vid for vid in FALLBACK_VARIANTS}
+
+
+def variant_choice() -> str:
+    """Вариант вёрстки по названию, а не по букве: человек выбирает подачу колоды.
+
+    Последний пункт — все варианты сразу: файлы загружаются один раз, а сервис получает
+    по прогону на каждый вариант. Три колоды из одних материалов удобно сравнивать рядом.
+    """
+    names = variant_names()
     return str(
         st.radio(
             "Вариант вёрстки",
-            list(names) or FALLBACK_VARIANTS,
-            format_func=lambda vid: names.get(vid, vid),
+            [*names, ALL_VARIANTS],
+            format_func=lambda vid: all_variants_label(names) if vid == ALL_VARIANTS
+            else names.get(vid, vid),
             help="Подача колоды: плотность, порядок слайдов и как показаны данные. "
             "Шаблон и материалы одни и те же",
         )
     )
+
+
+def all_variants_label(names: dict[str, str]) -> str:
+    return f"Все {len(names)} сразу — сравнить рядом" if len(names) > 1 else "Все сразу"
+
+
+def variants_to_run(choice: str, names: dict[str, str]) -> list[str]:
+    """Какие варианты собрать: один выбранный или все, что назвал сервис."""
+    return list(names) if choice == ALL_VARIANTS else [choice]
 
 
 def known_profiles() -> list[str]:
@@ -162,7 +185,7 @@ def upload_form(settings: dict[str, Any]) -> None:
         return
 
     try:
-        run_id = send(settings, template, materials or [])
+        runs = send(client(), settings, template, materials or [], variant_names())
     except ServiceError as error:
         st.error(f"Сервис отказал — {error.detail}")
         return
@@ -171,7 +194,7 @@ def upload_form(settings: dict[str, Any]) -> None:
         st.error(f"Не удалось связаться с сервисом: {error}")
         return
 
-    st.session_state["run_id"] = run_id
+    st.session_state["runs"] = runs
     st.rerun()
 
 
@@ -186,34 +209,64 @@ def chosen_slides(settings: dict[str, Any]) -> int | None:
     return int(settings["target_slides"])
 
 
-def send(settings: dict[str, Any], template: Any, materials: list[Any]) -> str:
-    """Создать прогон, загрузить файлы, запустить. Порядок важен: старт — последним."""
-    api = client()
-    run_id = api.create_run(
-        variant=str(settings["variant"]),
-        purpose=str(settings["purpose"]),
-        audience=str(settings["audience"]),
-        target_slides=chosen_slides(settings),
-        language=str(settings["language"]),
-        seed=int(settings["seed"]),
-        interactive=bool(settings["interactive"]),
-        profile=chosen_profile(settings),
-    )
-    api.upload_template(run_id, template.name, template.getvalue())
-    for item in materials:
-        api.upload_content(run_id, item.name, item.getvalue())
-    api.start(run_id)
-    return run_id
+def send(
+    api: DeckForgeClient,
+    settings: dict[str, Any],
+    template: Any,
+    materials: list[Any],
+    names: dict[str, str],
+) -> dict[str, str]:
+    """Создать прогоны, загрузить файлы, запустить: вариант → номер прогона.
+
+    Один прогон — один вариант (`api/schemas.py::RunRequest`), поэтому «все варианты» —
+    это несколько прогонов с одними и теми же файлами. Старт каждого — последним, после
+    загрузки. Очередь сервиса ведёт их сама: закрыть страницу можно, колоды досчитаются.
+    """
+    runs: dict[str, str] = {}
+    for variant in variants_to_run(str(settings["variant"]), names):
+        run_id = api.create_run(
+            variant=variant,
+            purpose=str(settings["purpose"]),
+            audience=str(settings["audience"]),
+            target_slides=chosen_slides(settings),
+            language=str(settings["language"]),
+            seed=int(settings["seed"]),
+            interactive=bool(settings["interactive"]),
+            profile=chosen_profile(settings),
+        )
+        api.upload_template(run_id, template.name, template.getvalue())
+        for item in materials:
+            api.upload_content(run_id, item.name, item.getvalue())
+        api.start(run_id)
+        runs[variant] = run_id
+    return runs
 
 
-def show_run(run_id: str) -> None:
+def show_runs(runs: dict[str, str]) -> None:
+    """Один прогон — как раньше; несколько — вкладка на вариант, подписанная названием."""
+    names = variant_names()
+    if len(runs) == 1:
+        going = show_run(next(iter(runs.values())))
+    else:
+        going = False
+        tabs = st.tabs([names.get(variant, variant) for variant in runs])
+        for tab, run_id in zip(tabs, runs.values(), strict=True):
+            with tab:
+                going = show_run(run_id) or going
+    if going:
+        # Прогон идёт: страница перерисовывается сама, чтобы не жать «обновить».
+        time.sleep(REFRESH_S)
+        st.rerun()
+
+
+def show_run(run_id: str) -> bool:
+    """Состояние одного прогона. `True` — прогон ещё идёт, странице пора перерисоваться."""
     api = client()
     try:
         status = api.status(run_id)
     except ServiceError as error:
-        st.error(f"Прогон не читается — {error.detail}")
-        forget_run()
-        return
+        st.error(f"Прогон {run_id} не читается — {error.detail}")
+        return False
 
     state = str(status.get("state", "queued"))
     progress(status, state)
@@ -225,9 +278,8 @@ def show_run(run_id: str) -> None:
     elif state == "done":
         finished(run_id, status)
     else:
-        # Прогон идёт: страница перерисовывается сама, чтобы не жать «обновить».
-        time.sleep(REFRESH_S)
-        st.rerun()
+        return True
+    return False
 
 
 def progress(status: dict[str, Any], state: str) -> None:
@@ -256,12 +308,17 @@ def choose_fixes(run_id: str, findings: list[dict[str, Any]]) -> None:
             with text:
                 st.markdown(f"**Слайд {slide_id or '—'}**")
                 for finding in group:
-                    chosen.extend(finding_row(finding))
+                    chosen.extend(finding_row(run_id, finding))
 
     left, right = st.columns(2)
-    if left.button(f"Исправить выбранное ({len(chosen)})", type="primary", disabled=not chosen):
+    if left.button(
+        f"Исправить выбранное ({len(chosen)})",
+        type="primary",
+        disabled=not chosen,
+        key=f"fix-send-{run_id}",
+    ):
         send_choice(run_id, chosen)
-    if right.button("Оставить как есть"):
+    if right.button("Оставить как есть", key=f"fix-skip-{run_id}"):
         send_choice(run_id, [])
 
 
@@ -275,7 +332,7 @@ def slide_preview(run_id: str, slide_id: str, group: list[dict[str, Any]]) -> No
     st.image(draw_findings(png, group), use_container_width=True)
 
 
-def finding_row(finding: dict[str, Any]) -> list[str]:
+def finding_row(run_id: str, finding: dict[str, Any]) -> list[str]:
     severity = str(finding.get("severity", "warning"))
     mark = {"error": "🔴", "warning": "🟠", "info": "🔵"}.get(severity, "⚪")
     finding_id = str(finding.get("finding_id"))
@@ -285,7 +342,7 @@ def finding_row(finding: dict[str, Any]) -> list[str]:
         # Чинить нечем — но показать надо: пользователь увидит это в отчёте и на слайде.
         st.markdown(f"{mark} {message}  \n*починить автоматически нельзя*")
         return []
-    picked = st.checkbox(f"{mark} {message}", key=f"fix-{finding_id}")
+    picked = st.checkbox(f"{mark} {message}", key=f"fix-{run_id}-{finding_id}")
     return [finding_id] if picked else []
 
 
@@ -316,10 +373,14 @@ def finished(run_id: str, status: dict[str, Any]) -> None:
         data = client().export(run_id, fmt)
         with column:
             if data is None:
-                st.button(label, disabled=True, use_container_width=True)
+                st.button(label, disabled=True, use_container_width=True, key=f"no-{run_id}-{fmt}")
             else:
                 st.download_button(
-                    label, data, file_name=f"{run_id}.{fmt}", use_container_width=True
+                    label,
+                    data,
+                    file_name=f"{run_id}.{fmt}",
+                    use_container_width=True,
+                    key=f"get-{run_id}-{fmt}",
                 )
 
 
@@ -390,7 +451,7 @@ def deck_sheet(run_id: str, report: dict[str, Any]) -> None:
 
 
 def forget_run() -> None:
-    for key in [k for k in st.session_state if k == "run_id" or str(k).startswith("fix-")]:
+    for key in [k for k in st.session_state if k == "runs" or str(k).startswith("fix-")]:
         del st.session_state[key]
     st.rerun()
 
