@@ -15,15 +15,18 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 
 from deckforge.audit.findings import make_finding
 from deckforge.audit.geometry import block_bbox, block_text, layout_of
+from deckforge.audit.recipes import catalogue_with_passports
 from deckforge.audit.registry import CheckContext, CheckUnavailable, check
+from deckforge.designsystem.models import PlaceKind
 from deckforge.domain.audit import Finding
 from deckforge.domain.content import Number
 from deckforge.domain.enums import Severity
-from deckforge.domain.slide import BulletsBlock, KpiBlock, SlideIR, SmartArtBlock
+from deckforge.domain.slide import BulletsBlock, KpiBlock, SlideIR, SmartArtBlock, TextBlock
 from deckforge.parsing.content import extract_numbers
 
 #: Допуск сравнения: числа на слайде округляют, «37,5 %» превращается в «38 %».
@@ -123,4 +126,119 @@ def numbers_grounded(ctx: CheckContext) -> Iterable[Finding]:
                         "value": f"{number.value:g}",
                         "unit": number.unit or "—",
                     },
+                )
+
+
+# --- слово, оборванное посреди (план Б, круг 2, К1; change `the-cut-word-is-found`) --------
+
+_WORD = re.compile(r"[A-Za-zА-Яа-яЁё]+")
+
+#: Падежные и родовые окончания: «процесс» при «процессов» в материалах — форма слова,
+#: а не обрыв. Список грамматики языка, а не слов шаблона (правило 2).
+_ENDINGS = frozenset({
+    "а", "я", "о", "е", "ы", "и", "у", "ю", "ь", "й",
+    "ом", "ем", "ой", "ей", "ам", "ям", "ов", "ев", "ах", "ях", "ый", "ий", "ая", "яя",
+    "ое", "ее", "ые", "ие", "ым", "им", "ую", "юю",
+    "ами", "ями", "ого", "его", "ому", "ему", "ыми", "ими",
+    "s", "es", "ed", "ing",
+})
+
+#: Служебные слова — местоимения, предлоги, частицы: «ИИ делает слайды сам» при
+#: «самостоятельно» в материалах — законный конец фразы, а не обрывок. Тоже грамматика языка.
+_FUNCTION_WORDS = frozenset({
+    "сам", "сама", "само", "сами", "весь", "вся", "всё", "все", "его", "её", "их", "они",
+    "она", "оно", "это", "эти", "тот", "та", "то", "те", "как", "так", "там", "тут", "где",
+    "уже", "ещё", "еще", "или", "для", "под", "над", "при", "без", "про", "через", "между",
+    "the", "and", "for", "with", "all", "its",
+})
+
+#: Ближайшее слово материалов должно быть длиннее хотя бы на столько букв: иначе
+#: «труд» при «труда» — окончание, а не обрыв.
+_MIN_TAIL = 2
+#: Короче — не судим: предлоги и союзы начинают слишком много слов.
+_MIN_STEM = 3
+
+
+def _source_words(ctx: CheckContext) -> set[str]:
+    content = ctx.content
+    if content is None:
+        return set()
+    texts = [fact.text for fact in getattr(content, "facts", [])]
+    texts.append(getattr(content, "raw_markdown", None) or "")
+    return {word.lower() for text in texts for word in _WORD.findall(text)}
+
+
+def cut_word(text: str, words: set[str]) -> str | None:
+    """Последнее слово текста, если оно — обрывок слова материалов; иначе `None`."""
+    found: list[str] = _WORD.findall(text)
+    if not found or not words:
+        return None
+    last = found[-1].lower()
+    if len(last) < _MIN_STEM or last in words or last in _FUNCTION_WORDS:
+        return None
+    tails = [word[len(last):] for word in words if word.startswith(last) and word != last]
+    if not tails or min(len(tail) for tail in tails) < _MIN_TAIL:
+        return None
+    if any(tail in _ENDINGS for tail in tails):
+        return None
+    return found[-1]
+
+
+def _texts(block: object) -> list[str]:
+    if isinstance(block, TextBlock):
+        return [block.text]
+    if isinstance(block, BulletsBlock):
+        return [item.text for item in block.items]
+    return []
+
+
+@check(id="content.word_cut", deterministic=True, severity=Severity.ERROR,
+       title="Текст оборван посреди слова")
+def word_cut(ctx: CheckContext) -> Iterable[Finding]:
+    """Текст оборван посреди слова (план Б, круг 2, К1; строка мерила 6б).
+
+    Первый живой прогон `by_example` 29.09: семь текстов на трёх колодах оборваны —
+    «AI не копирует фирменны», «Подобранный пат.». Строки мерила 1–7 их не видят. Признака два:
+
+    * **предел места** — текст в текстовом месте паспорта длиной ровно ёмкость места:
+      грамматика ответа (`maxLength`) оборвала его на знаке. Место под число так не судится —
+      «10x» ровно в три знака законно;
+    * **оборванное слово** — последнее слово не встречается в материалах, но слово материалов
+      с него начинается и длиннее на две буквы и больше, и это не падежное окончание:
+      модель сократила слово сама («пат.» при «паттерн»). Словарём этого не поймать:
+      «пат», «мин», «презент» — словарные слова.
+    """
+    words = _source_words(ctx)
+    recipes = catalogue_with_passports(ctx)
+    for slide in ctx.deck.slides:
+        recipe = recipes.get(slide.recipe_id or "")
+        places = {
+            place.zone_id: place
+            for place in (recipe.passport.places if recipe and recipe.passport else [])
+            if place.zone_id is not None
+        }
+        for block in slide.blocks:
+            place = places.get(getattr(block, "zone_id", None) or "")
+            for text in _texts(block):
+                stripped = text.strip()
+                at_limit = (
+                    place is not None
+                    and place.kind is PlaceKind.TEXT
+                    and len(stripped) == place.capacity_chars
+                )
+                broken = cut_word(stripped, words)
+                if not at_limit and broken is None:
+                    continue
+                why = (
+                    f"длина ровно предел места {place.capacity_chars} знаков"
+                    if at_limit and place is not None
+                    else f"«{broken}» — начало слова из материалов"
+                )
+                yield make_finding(
+                    check_id="content.word_cut",
+                    slide_id=slide.slide_id,
+                    block_id=block.block_id,
+                    reason="limit" if at_limit else "word",
+                    message=f"Текст «{stripped[-40:]}» оборван: {why}",
+                    evidence={"text": stripped, "sign": "limit" if at_limit else "word"},
                 )

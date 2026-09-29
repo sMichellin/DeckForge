@@ -104,8 +104,9 @@ def test_check_specs_cover_tz_appendix() -> None:
     assert len([i for i in ids if i.startswith("integrity.")]) == 8
     # 11 вопросов валидации контента из Приложения 1 плюс `content.body_repeats_headline`:
     # пересказ заголовка телом ТЗ отдельным вопросом не называет, а слайд, говорящий одно
-    # и то же дважды, не отвечает ни на один из его вопросов (RG53).
-    assert len([i for i in ids if i.startswith("content.")]) == 12
+    # и то же дважды, не отвечает ни на один из его вопросов (RG53), и `content.word_cut`:
+    # текст, оборванный посреди слова (план Б, круг 2, К1).
+    assert len([i for i in ids if i.startswith("content.")]) == 13
 
 
 def test_run_config_profiles_load() -> None:
