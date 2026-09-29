@@ -39,10 +39,10 @@ PR #3 и #4 смержены, в `main` есть:
 | `src/deckforge/planning/**`, `composition/**` | A | |
 | `prompts/{deck_planner,slide_composer,headline_writer,visual_selector}/**` | A | |
 | `src/deckforge/designsystem/**` | A | каталог рецептов `recipes.py`, `usage.py` (slide-recipes) |
-| `src/deckforge/layout/**` | B | |
-| `src/deckforge/rendering/{writer,theme_binding,images,charts,tables,smartart,icons}.py` | B | `soffice.py`, `layout_deck.py`, `layout_preview.py` — **не трогать**, они из change 6 |
-| `src/deckforge/rendering/recipe_slide.py` | B | копирование слайда-примера (slide-recipes) |
-| `src/deckforge/export/**`, `assets/icons/**` | B | |
+| `src/deckforge/layout/**` | A | с 29.09 — зона бывшего потока B (§2а) |
+| `src/deckforge/rendering/{writer,theme_binding,images,charts,tables,smartart,icons}.py` | A | `soffice.py`, `layout_deck.py`, `layout_preview.py` — **не трогать**, они из change 6 |
+| `src/deckforge/rendering/recipe_slide.py` | A | копирование слайда-примера (slide-recipes); с 29.09 — от B (§2а) |
+| `src/deckforge/export/**`, `assets/icons/**` | A | с 29.09 — от B (§2а) |
 | `src/deckforge/audit/**` | C | кроме `audit/preview.py` — он из change 6 |
 | `configs/audit_checks.yaml`, `AUDIT.md` | C | |
 | `src/deckforge/api/**`, `frontend/**` | C | |
@@ -61,6 +61,20 @@ PR #3 и #4 смержены, в `main` есть:
 
 **Если задача требует правки чужого файла — это сигнал остановиться, а не повод
 аккуратно подправить.** Пишите тимлиду, что именно нужно и зачем.
+
+### 2а. Поток B снят (29.09, план Б, круг 2)
+
+По итогам круга 1 плана Б зона потока B — вёрстка, писатель, экспорт — передана потоку A.
+Решение владельца, 29.09. Причины: #257 и #262 смержены потоком B в обход тимлида
+(§7), request changes на #257 до мержа не выполнен — исправление сделал тимлид (#264).
+
+* Матрица выше уже отражает передачу: `layout/**`, `rendering/{writer,recipe_slide,…}.py`,
+  `export/**`, `assets/icons/**` — поток **A**.
+* Задачи B круга 2 (К5, К6 из `docs/agents/tasks-plan-b-round-2.md`) — у A, issue #243.
+* Открытые ветки B не продолжаются; начатое A берёт заново от `origin/plan-b`.
+* `IMPLEMENTATION.md`: новые записи по бывшей зоне B — в разделе потока A; раздел B
+  остаётся историей и не правится.
+* Правило «два агента не пишут в один файл» не меняется: теперь в эти файлы пишет только A.
 
 ---
 
