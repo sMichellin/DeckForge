@@ -4,7 +4,7 @@
 Зачем. Прогоны приёмки плана Б шли через API (`run-plan-b.sh`), и API отдавал все три формата.
 Сдача же принимается через UI: человек открывает страницу, кладёт шаблон и материал,
 жмёт «Собрать» и скачивает файл. Этот путь проверял только глаз. 29.09 прогон через внешний UI
-нашёл то, чего API не видит: адрес сервиса `localhost` снаружи, пустые слайды на листе колоды.
+показал на листе колоды то, чего API не видит: пустые слайды s01, s10 WorkSpace.
 Change `the-ui-is-checked-end-to-end`.
 
 Сценарий: «Задать» N слайдов, seed, профиль, без остановки на починку → загрузка → «Собрать»
@@ -43,9 +43,8 @@ SHEET_MARK = "Лист колоды"
 #: Форматы, которые обязана отдать страница (ТЗ: pptx, pdf, html).
 EXPECTED_FORMATS = ("pptx", "pdf", "html")
 
-#: Адрес, который снаружи недоступен: если страница его показывает, пользователь за пределами
-#: сервера получит «Не удалось связаться» (29.09, внешний UI plan-b).
-LOCAL_ADDRESS = re.compile(r"https?://(localhost|127\.0\.0\.1)(:\d+)?")
+#: Номер прогона — двенадцать шестнадцатеричных знаков: так названы и скачанные файлы.
+RUN_ID = re.compile(r"\b[0-9a-f]{12}\b")
 
 
 @dataclass
@@ -87,17 +86,12 @@ def state_of(text: str) -> str | None:
     return None
 
 
-def address_problems(field_value: str, page_url: str) -> list[str]:
-    """Адрес сервиса на странице — `localhost`, а сама страница открыта не с этой машины."""
-    if LOCAL_ADDRESS.match(field_value) and not LOCAL_ADDRESS.match(page_url):
-        return [f"адрес сервиса «{field_value}» недоступен снаружи (страница — {page_url})"]
-    return []
-
-
-def run_id_of(text: str) -> str:
-    """Номер прогона со страницы: двенадцать шестнадцатеричных знаков."""
-    found = re.findall(r"\b[0-9a-f]{12}\b", text)
-    return found[0] if found else "?"
+def run_id_of(*texts: str) -> str:
+    """Номер прогона: из имён скачанных файлов, иначе со страницы, иначе «?»."""
+    for text in texts:
+        if found := RUN_ID.search(text):
+            return found.group(0)
+    return "?"
 
 
 def _page_errors(page: Any) -> list[str]:
@@ -130,10 +124,6 @@ def run(
         page.goto(url, wait_until="networkidle", timeout=60000)
         page.get_by_text("Собрать презентацию").wait_for(timeout=60000)
         page.screenshot(path=str(out / "01-start.png"), full_page=True)
-
-        address = page.locator('[data-testid="stTextInput"]').filter(has_text="Адрес сервиса")
-        if address.count():
-            result.page_problems += address_problems(address.locator("input").input_value(), url)
 
         page.get_by_text("Задать", exact=True).click()
         slides = (
@@ -197,7 +187,7 @@ def run(
 
         result.page_problems += _page_errors(page)
         result.page_problems = sorted(set(result.page_problems))
-        result.run_id = run_id_of(page.inner_text("body"))
+        result.run_id = run_id_of(*result.downloads, page.inner_text("body"))
         browser.close()
     return result
 

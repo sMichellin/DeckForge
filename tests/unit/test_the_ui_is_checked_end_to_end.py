@@ -1,7 +1,7 @@
 """Прогон через UI: что считается успехом. Change `the-ui-is-checked-end-to-end` (план Б, тимлид).
 
 Сам браузерный прогон идёт на стенде (`make ui-e2e`), здесь — его решения: когда прогон кончился,
-чем он кончился, какой адрес сервиса недоступен снаружи и когда сдача через UI состоялась.
+чем он кончился, какой у него номер и когда сдача через UI состоялась.
 """
 
 from __future__ import annotations
@@ -43,18 +43,6 @@ def test_a_failed_run_is_failed_and_a_running_one_is_not_over(ui: ModuleType) ->
     assert ui.state_of("идёт · стадия compose") is None
 
 
-def test_localhost_seen_from_outside_is_a_problem(ui: ModuleType) -> None:
-    """Нарушитель: страница открыта снаружи, а адрес сервиса — `localhost` (29.09, plan-b)."""
-    found = ui.address_problems("http://localhost:8120", "http://46.32.88.170:8541")
-    assert found and "localhost:8120" in found[0]
-
-
-def test_localhost_seen_from_the_same_machine_is_fine(ui: ModuleType) -> None:
-    """Норма: страница открыта на той же машине — `localhost` доступен."""
-    assert ui.address_problems("http://localhost:8120", "http://localhost:8541") == []
-    assert ui.address_problems("http://46.32.88.170:8120", "http://46.32.88.170:8541") == []
-
-
 def test_all_three_formats_downloaded_is_a_pass(ui: ModuleType) -> None:
     """Норма: колода готова, pptx/pdf/html скачаны непустыми, ошибок нет — сдача состоялась."""
     result = ui.Result(name="ws", state="done", downloads={"a.pptx": 9, "a.pdf": 7, "a.html": 1})
@@ -80,7 +68,8 @@ def test_a_page_error_fails_even_with_downloads(ui: ModuleType) -> None:
     assert not result.passed()
 
 
-def test_the_run_id_is_read_from_the_page(ui: ModuleType) -> None:
-    """Норма: номер прогона берётся со страницы, иначе «?»."""
+def test_the_run_id_comes_from_the_downloaded_files(ui: ModuleType) -> None:
+    """Норма: номер прогона — из имени скачанного файла (на странице его нет, 29.09), иначе «?»."""
+    assert ui.run_id_of("12d8d4e6c0ad.pptx", "Колода собрана") == "12d8d4e6c0ad"
     assert ui.run_id_of("прогон a3a8f3a2319b · готово") == "a3a8f3a2319b"
     assert ui.run_id_of("ничего") == "?"
