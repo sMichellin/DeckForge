@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable
 from typing import Any
 
@@ -40,6 +41,17 @@ from deckforge.domain.slide import TextBlock
 #: ёмкости, режет слово посреди («AI не копирует фирменны»). Полтора — воздух закончить
 #: мысль; настоящий предел модель узнаёт из текста промпта, а не из схемы.
 SLACK = 1.5
+
+#: Сколько знаков держит место под номер карточки. Три — это «01»–«999»: показатель
+#: «37,5 %» в такое место не встанет, а номер встанет. Граница отличает нумерацию ряда,
+#: которую ставит код, от показателя, который пишет модель.
+ORDINAL_CHARS = 3
+
+#: Чем считается цифра в материале слайда: ей и только ей место-число имеет право
+#: заполниться. Одна цифра где угодно в заголовке или фактах — грубо и намеренно:
+#: «37,5 %», «10x», «2024» одинаково годятся, а слайд без единой цифры число взять
+#: неоткуда, и просить его у модели — значит просить выдумать.
+DIGIT = re.compile(r"\d")
 
 #: Имя места внутри группы ряда: группы одного ряда одной формы, а `place_id` у них
 #: разные, и знать оба модели незачем. `t1`, `t2` — позиции мест в группе по порядку
@@ -81,6 +93,52 @@ def _limits(place: Place, chars: int | None = None, longest: int = 0) -> dict[st
     return {"type": "string", "maxLength": ceiling(hard, longest), "minLength": 1}
 
 
+def has_numbers(texts: Iterable[str]) -> bool:
+    """Есть ли слайду откуда взять число: цифра в заголовке или в фактах плана."""
+    return any(DIGIT.search(text) for text in texts)
+
+
+def ordinals(passport: ExamplePassport, row_fill: dict[str, int]) -> dict[str, str]:
+    """Номера карточек, которые ставит код: `place_id` → «01», «02», … (К2, круг 2).
+
+    Место-число внутри ряда, держащее не больше трёх знаков, — это нумерация карточек,
+    а не показатель: «37,5 %» туда не встанет. Модель такое место не получает вовсе —
+    иначе она пишет в него «1» на каждой карточке (VK Tech s08, четыре единицы подряд).
+    Ведущий ноль — когда место держит два знака и больше: так набирает автор.
+    """
+    out: dict[str, str] = {}
+    for row, groups in passport.rows.items():
+        for index, group in enumerate(groups[: row_fill.get(row, 0)], start=1):
+            for place in group.places:
+                if place.kind is PlaceKind.NUMBER and place.capacity_chars <= ORDINAL_CHARS:
+                    out[place.place_id] = (
+                        f"{index:02d}" if place.capacity_chars >= 2 else str(index)
+                    )
+    return out
+
+
+def asked_places(
+    passport: ExamplePassport, row_fill: dict[str, int], *, numbers: bool
+) -> set[str]:
+    """Какие места спрашиваются у модели (К2, круг 2).
+
+    Текстовое место — всегда. Место-число — только если слайду есть откуда взять число:
+    на прогоне 29.09 все 24 заполнения мест-чисел пришлись на слайды, где в фактах
+    не было ни одной цифры, и 19 из них аудит назвал выдуманными. Номер карточки ряда
+    не спрашивается никогда — его ставит код.
+    """
+    written_by_code = set(ordinals(passport, row_fill))
+    out: set[str] = set()
+    for group in passport.groups:
+        for place in _text_places(group):
+            if place.place_id in written_by_code:
+                continue
+            if place.kind is PlaceKind.NUMBER and not numbers:
+                continue
+            out.add(place.place_id)
+    return out
+
+
 def _singles(passport: ExamplePassport) -> list[Place]:
     """Места вне ряда: заголовок слайда, подпись, одиночный абзац."""
     return [
@@ -96,6 +154,7 @@ def response_schema(
     row_fill: dict[str, int],
     tighter: dict[str, int] | None = None,
     longest: int = 0,
+    asked: set[str] | None = None,
 ) -> dict[str, Any]:
     """Схема ответа композитора для этого примера.
 
@@ -112,6 +171,8 @@ def response_schema(
     properties: dict[str, Any] = {}
     required: list[str] = []
     for place in _singles(passport):
+        if asked is not None and place.place_id not in asked:
+            continue
         properties[place.place_id] = _limits(place, tighter.get(place.place_id), longest)
         required.append(place.place_id)
     for row, groups in passport.rows.items():
@@ -123,6 +184,10 @@ def response_schema(
             continue
         item_props: dict[str, Any] = {}
         for index, place in enumerate(places, start=1):
+            # Место, которого слайду не заказывали (место-число без чисел в фактах)
+            # или которое пишет код (номер карточки), у модели не спрашивается.
+            if asked is not None and place.place_id not in asked:
+                continue
             tight = [
                 chars
                 for group in groups[:count]
@@ -132,6 +197,8 @@ def response_schema(
             item_props[f"{ROW_ITEM_PREFIX}{index}"] = _limits(
                 place, min(tight) if tight else None, longest
             )
+        if not item_props:
+            continue
         properties[row] = {
             "type": "array",
             "minItems": count,
@@ -152,7 +219,9 @@ def response_schema(
     }
 
 
-def places_brief(passport: ExamplePassport, row_fill: dict[str, int]) -> dict[str, Any]:
+def places_brief(
+    passport: ExamplePassport, row_fill: dict[str, int], asked: set[str] | None = None
+) -> dict[str, Any]:
     """Места примера словами для промпта: что это за место и сколько в него знаков.
 
     Координат в брифе нет (ADR-003, PPTBench): модель файла не видит, ей уходят
@@ -167,11 +236,16 @@ def places_brief(passport: ExamplePassport, row_fill: dict[str, int]) -> dict[st
             "number": place.kind is PlaceKind.NUMBER,
         }
         for place in _singles(passport)
+        if asked is None or place.place_id in asked
     ]
     rows = []
     for row, groups in passport.rows.items():
         count = row_fill.get(row, 0)
         if count <= 0 or not _text_places(groups[0]):
+            continue
+        if asked is not None and not any(
+            place.place_id in asked for place in _text_places(groups[0])
+        ):
             continue
         rows.append(
             {
@@ -190,6 +264,7 @@ def places_brief(passport: ExamplePassport, row_fill: dict[str, int]) -> dict[st
                         "number": place.kind is PlaceKind.NUMBER,
                     }
                     for index, place in enumerate(_text_places(groups[0]), start=1)
+                    if asked is None or place.place_id in asked
                 ],
             }
         )
@@ -215,7 +290,10 @@ def _written(value: Any) -> str | None:
 
 
 def blocks_for_places(
-    passport: ExamplePassport, row_fill: dict[str, int], answer: dict[str, Any]
+    passport: ExamplePassport,
+    row_fill: dict[str, int],
+    answer: dict[str, Any],
+    written: dict[str, str] | None = None,
 ) -> list[TextBlock]:
     """Ответ модели, разложенный по местам один к одному.
 
@@ -223,19 +301,24 @@ def blocks_for_places(
     в ответе нет, блоком не становится — его не написали, и выдумывать за модель нечем.
     Порядок блоков — порядок мест паспорта, то есть порядок чтения примера.
     """
+    written = written or {}
     out: list[TextBlock] = []
     for place in _singles(passport):
-        if (text := _written(answer.get(place.place_id))) is not None:
+        text = written.get(place.place_id) or _written(answer.get(place.place_id))
+        if text is not None:
             out.append(_block(place, text, len(out) + 1))
     for row, groups in passport.rows.items():
-        written = answer.get(row)
-        if not isinstance(written, list):
-            continue
-        for group, item in zip(groups[: row_fill.get(row, 0)], written, strict=False):
-            if not isinstance(item, dict):
-                continue
+        answered = answer.get(row)
+        items = answered if isinstance(answered, list) else []
+        # Группы ряда перебираются всегда, а не только когда ряд есть в ответе: место,
+        # которое пишет код (номер карточки), модель не заказывала и в ответ не клала.
+        for index, group in enumerate(groups[: row_fill.get(row, 0)]):
+            item = items[index] if index < len(items) else None
+            cell = item if isinstance(item, dict) else {}
             for position, place in enumerate(_text_places(group), start=1):
-                text = _written(item.get(f"{ROW_ITEM_PREFIX}{position}"))
+                text = written.get(place.place_id) or _written(
+                    cell.get(f"{ROW_ITEM_PREFIX}{position}")
+                )
                 if text is not None:
                     out.append(_block(place, text, len(out) + 1))
     return out

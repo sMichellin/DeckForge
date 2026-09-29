@@ -25,11 +25,14 @@ from deckforge.composition.free_space import (
 from deckforge.composition.layout_picker import pick_layout
 from deckforge.composition.passport import fit_measure
 from deckforge.composition.places import (
+    asked_places,
     at_the_ceiling,
     blocks_for_places,
     by_place,
+    has_numbers,
     longest_word,
     merged,
+    ordinals,
     overflowing_places,
     places_brief,
     response_schema,
@@ -40,7 +43,7 @@ from deckforge.composition.recipe_binding import bind_to_recipe
 from deckforge.composition.recipe_picker import pick_recipe, why_recipe
 from deckforge.composition.visual_selector import select_chart
 from deckforge.designsystem import DesignSystem
-from deckforge.designsystem.models import Recipe
+from deckforge.designsystem.models import PlaceKind, Recipe
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage, Fact
 from deckforge.domain.enums import ListStyle, TextRole
@@ -78,7 +81,7 @@ from deckforge.registry import get_prompt_registry
 #: и схемы ответа у них разные — активная версия принадлежит прежнему пути, пока он
 #: не снят. Когда приёмка пройдена, `active` в `prompts/registry.yaml` становится этой
 #: версией (файл тимлида), и константа уходит.
-PLACES_PROMPT_VERSION = "2.1.0"
+PLACES_PROMPT_VERSION = "2.2.0"
 
 #: Короче этого заголовок не режется: два слова — уже не вывод, а обрубок. Такой случай
 #: означает, что рамка мала для любого текста, и дальше это забота вёрстки (кегль вниз).
@@ -555,10 +558,39 @@ class SlideComposer:
             )
         facts = [fact for ref in slide.fact_refs if (fact := content.fact(ref)) is not None]
         row_fill = assignment.row_fill
-        brief = places_brief(passport, row_fill)
+        # Место-число заказывается, только если слайду есть откуда взять число (К2,
+        # круг 2): на прогоне 29.09 все 24 заполнения мест-чисел пришлись на слайды,
+        # где в фактах не было ни одной цифры, и 19 из них аудит назвал выдуманными.
+        # Материал — утверждённый заголовок и факты плана: то же, из чего пишется текст.
+        numbers = has_numbers([slide.headline, *(fact.text for fact in facts)])
+        by_code = ordinals(passport, row_fill)
+        places = asked_places(passport, row_fill, numbers=numbers)
+        if not places and not by_code:
+            raise CompositionError(
+                f"слайд {slide.slide_id}: у примера {recipe.recipe_id} нет ни одного места, "
+                "которое можно заполнить"
+            )
+        brief = places_brief(passport, row_fill, places)
         asked = len(brief["single_places"]) + sum(
             row["count"] * len(row["cells"]) for row in brief["place_rows"]
         )
+        if by_code:
+            self._note(
+                slide.slide_id,
+                f"номера карточек ряда ставит код: {', '.join(sorted(by_code))}",
+            )
+        if not numbers:
+            skipped = sum(
+                1
+                for place in passport.places
+                if place.kind is PlaceKind.NUMBER and place.place_id not in by_code
+            )
+            if skipped:
+                self._note(
+                    slide.slide_id,
+                    f"мест под число {skipped} — не заказаны: в заголовке и фактах слайда "
+                    "нет ни одной цифры, взять число неоткуда",
+                )
 
         bundle = get_prompt_registry().load(
             "slide_composer", profile=self.profile, version=PLACES_PROMPT_VERSION
@@ -594,9 +626,9 @@ class SlideComposer:
         # Запас предела схемы меряется словами материала слайда (К1): у тесного места
         # полторы ёмкости не дают и одного слова, и оно оборвалось бы снова.
         longest = longest_word([slide.headline, *(fact.text for fact in facts)])
-        schema = response_schema(passport, row_fill, longest=longest)
+        schema = response_schema(passport, row_fill, longest=longest, asked=places)
         answer = await asyncio.to_thread(ask, user, schema, 0)
-        blocks = blocks_for_places(passport, row_fill, answer)
+        blocks = blocks_for_places(passport, row_fill, answer, by_code)
         if not blocks:
             raise CompositionError(
                 f"слайд {slide.slide_id}: модель не написала ни одного из {asked} мест "
@@ -655,7 +687,9 @@ class SlideComposer:
                 "один повторный запрос с замеренным пределом",
             )
             try:
-                retry_schema = response_schema(passport, row_fill, wanted, longest)
+                retry_schema = response_schema(
+                    passport, row_fill, wanted, longest, asked=places
+                )
                 retried = await asyncio.to_thread(
                     ask,
                     f"{user}\n\n{shorten_request(wanted)}",
@@ -667,7 +701,9 @@ class SlideComposer:
             else:
                 # Ответ повтора ложится поверх первого: место, которое он вернул пустым,
                 # остаётся с прежним текстом, а не теряется.
-                if again := blocks_for_places(passport, row_fill, merged(answer, retried)):
+                if again := blocks_for_places(
+                    passport, row_fill, merged(answer, retried), by_code
+                ):
                     blocks = again
                     limits, _ = to_shorten(blocks, retry_schema)
         if limits:
