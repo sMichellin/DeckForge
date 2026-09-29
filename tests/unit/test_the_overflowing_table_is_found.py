@@ -77,7 +77,18 @@ def long_table(box: dict[str, int]) -> Block:
 
 
 def long_process(box: dict[str, int]) -> Block:
-    return SmartArtBlock(block_id="sa-long", pattern=SmartArtPattern.PROCESS, items=LONG, **box)
+    """Восемь длинных шагов в узкой колонке: не влезают ни в один ряд, ни в несколько.
+
+    Колонка нужна с change `a-node-never-breaks-a-word` (круг 2, К5): шаги процесса
+    переносятся в ряды так, чтобы слово вставало в узел целиком, и в полную ширину полей
+    эти восемь шагов теперь влезают. Проверка `layout.object_overflow` про другое —
+    про схему, которой места нет и с переносом, — и колонка в четверть ширины даёт
+    ровно такой случай.
+    """
+    narrow = {**box, "cx": box["cx"] // 4}
+    return SmartArtBlock(
+        block_id="sa-long", pattern=SmartArtPattern.PROCESS, items=LONG, **narrow
+    )
 
 
 def test_a_long_table_written_as_is_is_a_finding(tmp_path: Path) -> None:
