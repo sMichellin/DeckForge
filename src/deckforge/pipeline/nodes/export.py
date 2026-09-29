@@ -84,6 +84,8 @@ async def export_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
                             # Без неё html собирался по системе, посчитанной из манифеста,
                             # то есть по другой, чем колода, — и молча.
                             design_system=state.get("design_system"),
+                            # Путь сборки — тот же, что у pptx: html показывает то же самое.
+                            by_example=state.get("composition_path") == "by_example",
                         )
                     )
                 except Exception as error:

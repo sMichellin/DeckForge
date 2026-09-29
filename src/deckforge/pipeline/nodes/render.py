@@ -97,6 +97,9 @@ async def render_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
                 content=state["content"],
                 fonts=deps.fonts,
                 design_system=state.get("design_system"),
+                # Путь сборки — тот же, что у вписывания (`fit`): слайд без примера на пути
+                # `by_example` пишется своими объектами, без сплющивания (change 5б).
+                by_example=state.get("composition_path") == "by_example",
             )
         )
         if wants_previews:

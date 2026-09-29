@@ -27,9 +27,14 @@ def export_pptx(
     content: ContentPackage | None = None,
     fonts: FontLibrary | None = None,
     design_system: DesignSystem | None = None,
+    *,
+    by_example: bool = False,
 ) -> Path:
-    """`design_system` — та же, что видело вписывание (DG3); нет — считается из манифеста."""
-    writer = PptxWriter(template_path, manifest, fonts=fonts, design_system=design_system)
+    """`design_system` — та же, что видело вписывание (DG3); нет — считается из манифеста.
+    `by_example` — путь сборки, тот же, что у вписывания (change 5б): узел `render` его передаёт."""
+    writer = PptxWriter(
+        template_path, manifest, fonts=fonts, design_system=design_system, by_example=by_example
+    )
     path = writer.write(deck, out, content=content)
     try:
         Presentation(str(path))

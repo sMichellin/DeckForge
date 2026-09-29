@@ -16,12 +16,17 @@ from typing import Any
 
 from langgraph.runtime import Runtime
 
+from deckforge.composition.assign import RecipeAssignment
 from deckforge.composition.composer import SlideComposer
 from deckforge.composition.layout_picker import LayoutPickError, pick_layout
+from deckforge.composition.passport import fit_measure
+from deckforge.designsystem import DesignSystem
+from deckforge.designsystem.models import PlaceKind, Recipe, TypeLevel
 from deckforge.domain.plan import DeckPlan, SlidePlan
 from deckforge.domain.slide import SlideIR
 from deckforge.domain.template import TemplateManifest
 from deckforge.domain.variants import VariantProfile
+from deckforge.layout.fonts import FontLibrary
 from deckforge.pipeline.deps import Deps
 from deckforge.pipeline.nodes import timed
 from deckforge.pipeline.nodes.plan import layout_headline_band
@@ -50,16 +55,61 @@ def _bands_of_picked_layouts(
     return bands
 
 
+def _bands_of_assigned_places(
+    assignments: dict[str, RecipeAssignment],
+    manifest: TemplateManifest,
+    design_system: DesignSystem | None,
+    fonts: FontLibrary | None,
+) -> dict[str, Band]:
+    """Полоса заголовка на пути `by_example` — место заголовка назначенного примера.
+
+    Заголовок там встаёт не в полосу макета, а в место примера со своим пределом
+    (change `the-text-is-written-for-the-places`, запрос 3 потока A). Мерить его полосой
+    макета значило бы переписать заголовок под одну рамку, а потом просить его в другую.
+    Мерило — то же вписывание, которым мерился паспорт (`passport.fit_measure`), предел —
+    ёмкость места. Место заголовка под число (меньше двух слов) полосой не считается,
+    как и полоса макета короче двух слов (`layout_headline_band`): переписывать под неё
+    нечего, кегль спустит вёрстка.
+    """
+    if design_system is None or not assignments:
+        return {}
+    recipes = {r.recipe_id: r for r in design_system.recipes if r.passport is not None}
+    fits = fit_measure(manifest, design_system, fonts)
+    bands: dict[str, Band] = {}
+    for slide_id, assignment in assignments.items():
+        recipe = recipes.get(assignment.recipe_id or "")
+        if recipe is None or recipe.passport is None:
+            continue
+        place = next(
+            (p for p in recipe.passport.places
+             if p.role is TypeLevel.SLIDE_TITLE and p.kind is PlaceKind.TEXT and p.zone_id),
+            None,
+        )
+        if place is None or place.zone_id is None:
+            continue
+
+        def landed(text: str, recipe: Recipe = recipe, zone_id: str = place.zone_id) -> bool:
+            return fits(recipe, {zone_id: text}).get(zone_id, False)
+
+        bands[slide_id] = Band(fits=landed, limit=place.capacity_chars)
+    return bands
+
+
 async def compose_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
     """`DeckPlan` + манифест → `SlideIR` по слайду (changes 11, 20)."""
     deps = runtime.context
     client, degraded = deps.llm_for("compose")
-    composer = SlideComposer(client, profile=deps.prompt_profile)
+    # Шрифты — те же, которыми мерился паспорт: на пути `by_example` текст под места
+    # проверяется ими, а без них замер шёл бы оценкой по метрикам (запрос 1 потока A).
+    composer = SlideComposer(client, profile=deps.prompt_profile, fonts=deps.fonts)
     # Заголовки под выбранный макет переписывает та же дешёвая модель, что и в узле
     # `plan`: скилл `headline_writer` объявлен на неё.
     rewriter = HeadlineRewriter(deps.llm_fast or client, profile=deps.prompt_profile)
     slots = deps.slots()
     plan = state["plan"]
+    # Назначения узла `assign` (ADR-009, решение Р2). На пути `legacy` их нет, и композитор
+    # идёт прежним путём байт в байт; есть — слайд пишется под места назначенного примера.
+    assignments = {a.slide_id: a for a in state.get("assignments") or []}
 
     # Какой рецепт стоял на прошлом слайде: два одинаковых подряд читаются как один
     # перелистнутый назад (таск 05b). Порядок слайдов в плане и есть порядок колоды.
@@ -74,6 +124,7 @@ async def compose_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
                 slide, state["content"], state["manifest"], state["variant"], state["seed"],
                 design_system=state.get("design_system"),
                 previous_recipe=picked.get(order[slide.slide_id] - 1),
+                assignment=assignments.get(slide.slide_id),
             )
             picked[order[slide.slide_id]] = composed.recipe_id
             return composed
@@ -86,7 +137,12 @@ async def compose_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
         plan = await rewriter.rewrite_for_layouts(
             plan,
             state["content"],
-            bands=_bands_of_picked_layouts(plan, state["manifest"], state["variant"]),
+            bands={
+                **_bands_of_picked_layouts(plan, state["manifest"], state["variant"]),
+                **_bands_of_assigned_places(
+                    assignments, state["manifest"], state.get("design_system"), deps.fonts
+                ),
+            },
             # Заходы узла `plan` взяли `seed` и `seed + 1`: этот заход идёт следующим.
             seed=state["seed"] + 2,
         )

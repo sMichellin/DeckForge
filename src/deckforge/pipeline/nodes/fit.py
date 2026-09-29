@@ -28,6 +28,7 @@ from deckforge.domain.slide import (
 )
 from deckforge.domain.template import TemplateManifest
 from deckforge.layout.by_design import DesignRules
+from deckforge.layout.diagram import goes_by_design
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fitting import BELOW_READING, GROW, SHORTEN, SPLIT, fit_slide
 from deckforge.layout.fonts import FontLibrary
@@ -121,6 +122,8 @@ def _fit_shortening(
     fonts: FontLibrary | None,
     content: ContentPackage,
     design: DesignRules | None = None,
+    *,
+    by_example: bool = False,
 ) -> tuple[SlideIR, list[str]]:
     """Вписывает слайд, сокращая текст, пока `fit_report` требует `shorten`.
 
@@ -143,9 +146,18 @@ def _fit_shortening(
     с названным рецептом, но блоками вне зон, уходил мимо вписывания с пустым
     `fit_report`, а писатель брал из него кегль прямым обращением — `KeyError` на стадии
     `render` (пять прогонов 24.09).
+
+    `by_example` — путь сборки (change `the-by-example-path-is-wired`, запрос потока B к 5б).
+    Слайд без примера на этом пути верстает дизайн-система: схема любого паттерна вписывается
+    своей раскладкой, а сплющивание схемы в список, выброс хвоста списка и снятие текста
+    (`_smartart_to_bullets`, `_bullets_drop_tail`, `_text_last_resort`) его не трогают —
+    не влезшее пишется своим видом, и это называет писатель и аудит (`layout.object_overflow`).
+    Флаг тот же, что у писателя: без замера вписывания схему он не пишет.
     """
+    by_design = goes_by_design(slide, by_example=by_example)
     fitted = fit_slide(
-        _into_placeholders(slide), manifest, fonts=fonts, content=content, design=design
+        _into_placeholders(slide), manifest, fonts=fonts, content=content, design=design,
+        by_example=by_example,
     )
     touched: set[str] = set()
     wanted_split = {
@@ -175,12 +187,19 @@ def _fit_shortening(
             fonts=fonts,
             content=content,
             design=design,
+            by_example=by_example,
         )
 
-    fitted, flattened = _smartart_to_bullets(fitted, manifest, fonts, content, design)
-    fitted, dropped = _bullets_drop_tail(fitted, manifest, fonts, content, design)
-    fitted, given_up = _text_last_resort(fitted, manifest, fonts, content, design)
-    fitted, shrunk = _titles_yield_size(fitted, manifest, fonts, content, design)
+    flattened: list[str] = []
+    dropped: list[str] = []
+    given_up: list[str] = []
+    if not by_design:
+        fitted, flattened = _smartart_to_bullets(fitted, manifest, fonts, content, design)
+        fitted, dropped = _bullets_drop_tail(fitted, manifest, fonts, content, design)
+        fitted, given_up = _text_last_resort(fitted, manifest, fonts, content, design)
+    fitted, shrunk = _titles_yield_size(
+        fitted, manifest, fonts, content, design, by_example=by_example
+    )
     grown = [
         f"{fitted.slide_id}/{block_id}: кегль поднят до {fit.final_size_pt:g} pt — "
         "текста было мало для отведённой рамки"
@@ -382,6 +401,8 @@ def _titles_yield_size(
     fonts: FontLibrary | None,
     content: ContentPackage,
     design: DesignRules | None = None,
+    *,
+    by_example: bool = False,
 ) -> tuple[SlideIR, list[str]]:
     """Заголовку, в котором сокращать уже нечего, уступает кегль.
 
@@ -418,6 +439,7 @@ def _titles_yield_size(
             fonts=fonts,
             content=content,
             design=design,
+            by_example=by_example,
         )
     return slide, notes
 
@@ -440,6 +462,10 @@ async def fit_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
         **({"reading_floor_pt": floor} if floor else {}),
     )
 
+    # Путь сборки — тот же, что у писателя и html (`render`, `export`): флаги должны совпадать,
+    # иначе писатель откажет схеме без замера (change 5б, так задумано).
+    by_example = state.get("composition_path") == "by_example"
+
     def work() -> tuple[list[SlideIR], list[str], list[str]]:
         fitted: list[SlideIR] = []
         failed: list[str] = []
@@ -447,7 +473,8 @@ async def fit_node(state: DeckState, runtime: Runtime[Deps]) -> DeckState:
         for slide in _ordered(state):
             try:
                 slide_fitted, slide_notes = _fit_shortening(
-                    slide, manifest, deps.fonts, state["content"], design
+                    slide, manifest, deps.fonts, state["content"], design,
+                    by_example=by_example,
                 )
             except LayoutFitError as error:
                 failed.append(f"слайд {slide.slide_id} не вписан: {error}")
