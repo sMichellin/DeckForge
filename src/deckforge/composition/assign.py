@@ -19,12 +19,19 @@ from hashlib import sha256
 
 from pydantic import Field
 
+from deckforge.composition.passport import sample
 from deckforge.composition.recipe_picker import (
     INTENT_KINDS,
     RELATED_KINDS,
     on_title_layout,
 )
-from deckforge.designsystem.models import DesignSystem, ExamplePassport, Recipe, RecipeKind
+from deckforge.designsystem.models import (
+    DesignSystem,
+    ExamplePassport,
+    PlaceKind,
+    Recipe,
+    RecipeKind,
+)
 from deckforge.designsystem.recipes import kind_for_visual
 from deckforge.domain.base import DomainModel
 from deckforge.domain.plan import DeckPlan, SlidePlan
@@ -44,6 +51,17 @@ SHAPE_DECIDES = frozenset({"bullets", "list", ""})
 
 #: Сколько пунктов делают слайд рядом карточек, а не абзацем.
 CARDS_FROM = 2
+
+#: Сколько слов делает место местом под прозу. Два слова — это подпись («Срок сделки»),
+#: три — уже мысль. Планка нужна, чтобы отличить пример, который держит текст, от примера,
+#: который держит подписи: у `ex052` VK Tech двенадцать мест — подписи полос и делений
+#: шкалы диаграммы Ганта, и проза, разрезанная по ним, читается как обрывки.
+PROSE_WORDS = 3
+
+#: Какая доля мест примера должна держать прозу, чтобы в него можно было положить прозу.
+#: Ровно половина: у карточек «название + текст» половина мест — короткие названия,
+#: и такой пример прозу держит; у шкалы Ганта коротких мест больше половины.
+PROSE_SHARE = 0.5
 
 
 class RecipeAssignment(DomainModel):
@@ -109,6 +127,31 @@ def _row_penalty(recipe: Recipe, points: int) -> int:
     return (points - best) * 2 if best < points else best - points
 
 
+def _for_prose(recipe: Recipe) -> bool:
+    """Держит ли пример прозу или он весь из чисел и подписей (К4, круг 2 плана Б).
+
+    `ex052` VK Tech каталог назвал видом «text», и слайду-прозе он законно достался:
+    двенадцать текстовых мест. Но это подписи полос и делений шкалы диаграммы Ганта
+    по 3–9 знаков, и абзац, разрезанный по ним, на слайде читается как мусор.
+
+    Считаются места под текст — картинки не в счёт. Место-число и место короче трёх слов
+    прозы не держат; больше половины таких — пример не для прозы. Слайду, который сам
+    заказал числа (`metrics`), он по-прежнему годится: там места и есть числа.
+    """
+    if recipe.passport is None:
+        return True
+    places = [place for place in recipe.passport.places if place.kind is not PlaceKind.PICTURE]
+    if not places:
+        return True
+    prose = sum(
+        1
+        for place in places
+        if place.kind is not PlaceKind.NUMBER
+        and len(sample(place.capacity_chars).split()) >= PROSE_WORDS
+    )
+    return prose >= len(places) * PROSE_SHARE
+
+
 def _tie(seed: int, slide_id: str, recipe_id: str) -> str:
     """Разрыв ровной ничьей: воспроизводимо и без привязки к порядку каталога."""
     return sha256(f"{seed}:{slide_id}:{recipe_id}".encode()).hexdigest()
@@ -126,12 +169,18 @@ def _pick(
 ) -> Recipe | None:
     points = _points(slide)
     for kind in kinds:
+        # Правило про прозу — для содержательного слайда. Структурный (обложка, раздел,
+        # финал) несёт заголовок, а не абзац, и короткие места ему нормальны: годится ли
+        # ему пример, решает отбор по местам заголовка (К3). Слайд, который сам заказал
+        # числа, берёт пример с местами-числами законно — там места и есть числа.
+        prose = not structural and kind is not RecipeKind.METRICS
         same = [
             recipe
             for recipe in catalogue
             if recipe.kind is kind
             and recipe.recipe_id != previous
             and used.get(recipe.recipe_id, 0) < MAX_USES
+            and (not prose or _for_prose(recipe))
         ]
         if not same:
             continue
