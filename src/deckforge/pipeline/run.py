@@ -322,6 +322,10 @@ class RunResult:
                 "block_id": finding.block_id,
                 "message": finding.message,
                 "auto_fix_applied": finding.auto_fix_applied,
+                # Доказательство находки — число, заголовок, факты (запрос C, #273): по нему
+                # мерило сводит одно выдуманное число на слайде в одно, а не разбирает текст
+                # сообщения (change `the-eye-rows-are-measured`).
+                "evidence": dict(finding.evidence),
             }
             for finding in found
         ]
