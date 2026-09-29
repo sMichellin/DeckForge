@@ -213,6 +213,10 @@ checks:
     deterministic: true
     severity: error
     title: "Все цифры и факты со слайда есть в исходных материалах"
+  content.word_cut:
+    deterministic: true
+    severity: error
+    title: "Текст оборван посреди слова"
   content.has_substance:
     deterministic: false
     severity: warning
