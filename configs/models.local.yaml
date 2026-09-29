@@ -74,10 +74,13 @@ models:
     supports_schema_patterns: false
     timeout_s: 300
     max_concurrency: 1
+    # Размышление съедает бюджет раньше ответа. Замер 29.09, разметка макетов VK Tech
+    # на пустом кэше: с размышлением — 1260 с и 3 отказа из 5 (`finish_reason=length`
+    # после трёх попыток), без него — 13 с и 0 отказов из 7. Change `the-judge-does-not-think`.
+    disable_thinking: true
     notes: >-
-      Картинки принимает, JSON Schema держит. Размышляет: пустой ответ при
-      finish_reason=length означает нехватку бюджета токенов, а не отказ — клиент
-      добирает бюджет сам (inference/client.py).
+      Картинки принимает, JSON Schema держит. Размышление выключено параметром шаблона,
+      как у llm_fast: с ним разметка упиралась в бюджет токенов и уходила в эвристику.
   t2i:
     hf_id: "Qwen/Qwen-Image"
     license: "apache-2.0"
