@@ -20,6 +20,6 @@ def test_every_local_llama_role_has_thinking_off() -> None:
 
 
 def test_the_judge_asks_the_template_to_stop_thinking() -> None:
-    """Нарушитель прежде: у `vlm_judge` флага не было — запрос уходил с размышлением."""
+    """Норма: у `vlm_judge` флаг стоит (до 29.09 его не было, и разметка упиралась в бюджет)."""
     spec = load_models_registry(CONFIGS_DIR / "models.local.yaml").models["vlm_judge"]
     assert spec.disable_thinking is True
