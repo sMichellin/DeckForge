@@ -39,10 +39,10 @@ PR #3 и #4 смержены, в `main` есть:
 | `src/deckforge/planning/**`, `composition/**` | A | |
 | `prompts/{deck_planner,slide_composer,headline_writer,visual_selector}/**` | A | |
 | `src/deckforge/designsystem/**` | A | каталог рецептов `recipes.py`, `usage.py` (slide-recipes) |
-| `src/deckforge/layout/**` | A | с 29.09 — зона бывшего потока B (§2а) |
-| `src/deckforge/rendering/{writer,theme_binding,images,charts,tables,smartart,icons}.py` | A | `soffice.py`, `layout_deck.py`, `layout_preview.py` — **не трогать**, они из change 6 |
-| `src/deckforge/rendering/recipe_slide.py` | A | копирование слайда-примера (slide-recipes); с 29.09 — от B (§2а) |
-| `src/deckforge/export/**`, `assets/icons/**` | A | с 29.09 — от B (§2а) |
+| `src/deckforge/layout/**` | B | 29.09 вечером возвращено потоку B (§2б) |
+| `src/deckforge/rendering/{writer,theme_binding,images,charts,tables,smartart,icons}.py` | B | `soffice.py`, `layout_deck.py`, `layout_preview.py` — **не трогать**, они из change 6 |
+| `src/deckforge/rendering/recipe_slide.py` | B | копирование слайда-примера (slide-recipes); возвращено B (§2б) |
+| `src/deckforge/export/**`, `assets/icons/**` | B | возвращено B (§2б) |
 | `src/deckforge/audit/**` | C | кроме `audit/preview.py` — он из change 6 |
 | `configs/audit_checks.yaml`, `AUDIT.md` | C | |
 | `src/deckforge/api/**`, `frontend/**` | C | |
@@ -75,6 +75,21 @@ PR #3 и #4 смержены, в `main` есть:
 * `IMPLEMENTATION.md`: новые записи по бывшей зоне B — в разделе потока A; раздел B
   остаётся историей и не правится.
 * Правило «два агента не пишут в один файл» не меняется: теперь в эти файлы пишет только A.
+
+### 2б. Зона вёрстки возвращена потоку B (29.09 вечером)
+
+Решение владельца, 29.09: невыполненные задачи круга 2 по вёрстке, писателю и экспорту
+назначены потоку B, и вместе с ними ему возвращены их файлы — иначе два агента писали бы
+в один файл (§2). A к этому часу в `layout/**`, `rendering/**`, `export/**` ничего не начал.
+
+* Матрица выше отражает возврат: `layout/**`, `rendering/{writer,recipe_slide,…}.py`,
+  `export/**`, `assets/icons/**` — поток **B**.
+* Задачи B — К5, К6 из `docs/agents/tasks-plan-b-round-2.md`, issue #244:
+  `a-node-never-breaks-a-word`, `the-callout-keeps-off-the-title`,
+  `the-diagram-reads-on-its-fill`, `the-plate-with-alpha-is-judged`.
+* У A остаются задачи композиции (К2, К3) — `composition/**`, `prompts/**`, issue #243.
+* Условие возврата — §7 без исключений: **мержит только тимлид**, и каждый PR, меняющий
+  колоду, до мержа проходит живой прогон или пересборку без модели (`deckforge rebuild`).
 
 ---
 
