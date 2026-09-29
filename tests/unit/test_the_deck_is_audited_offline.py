@@ -132,3 +132,29 @@ def test_the_cli_audits_a_fixture(tmp_path: Path) -> None:
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["run_id"] == "3a93c140202f"
     assert "design.ink_balance" in payload["skipped_checks"]
+
+
+#: Первый живой прогон пути `by_example` после #266 (стенд plan-b, профиль `plan_b`, входы 28.09):
+#: колода → (run_id, слайдов путём дизайн-системы). По ним потоки меряют круг 2 плана Б
+#: (`docs/agents/tasks-plan-b-round-2.md`) без стенда.
+BY_EXAMPLE = ROOT / "tests" / "fixtures" / "runs" / "2026-09-29"
+BY_EXAMPLE_DECKS = {
+    "workspace": ("9228517e69f7", 0),
+    "vk-tech": ("1a0512176a2c", 4),
+    "education": ("77f33f05561f", 6),
+}
+
+
+@pytest.mark.parametrize("name", sorted(BY_EXAMPLE_DECKS))
+def test_the_by_example_fixtures_of_29_09_read_as_models(name: str) -> None:
+    """Норма: фикстура пути `by_example` читается, у каждого слайда назначение, паспорта есть."""
+    run_id, by_design = BY_EXAMPLE_DECKS[name]
+
+    snapshot = from_fixture(BY_EXAMPLE / name)
+
+    assert snapshot.run_id == run_id
+    assert snapshot.report["composition_path"] == "by_example"
+    assignments = snapshot.report["assignments"]
+    assert len(assignments) == len(snapshot.deck.slides)
+    assert sum(1 for a in assignments if a["recipe_id"] is None) == by_design
+    assert any(r.passport is not None for r in snapshot.design_system.recipes)
