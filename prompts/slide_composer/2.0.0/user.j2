@@ -1,0 +1,33 @@
+## Места этого слайда (пример шаблона, вид: {{ recipe_kind }})
+{% for place in single_places %}
+- `{{ place.place_id }}` — ступень {{ place.role }}{% if place.number %}, **число**{% endif %}, до {{ place.chars }} знаков
+{% endfor %}
+{% for row in place_rows %}
+- `{{ row.row }}` — ряд повторов, заполнить ровно {{ row.count }}; в каждом:
+{% for item in row.cells %}
+  - `{{ item.key }}` — ступень {{ item.role }}{% if item.number %}, **число**{% endif %}, до {{ item.chars }} знаков
+{% endfor %}
+{% endfor %}
+
+## Что должно быть на слайде
+slide_id: {{ slide.slide_id }}
+Заголовок (утверждён планировщиком): {{ slide.headline }}
+Назначение слайда: {{ slide.intent }}
+{% if slide.intent == "title" %}
+Это титульный слайд: кроме заголовка — одна строка о том, о чём колода и для кого.
+Опирайся на бриф: назначение «{{ brief.purpose }}», аудитория «{{ brief.audience }}»{% if brief.key_message %},
+ключевое сообщение «{{ brief.key_message }}»{% endif %}. Чисел в ней нет: в брифе их нет.
+{% elif slide.intent == "closing" %}
+Это финальный слайд: кроме заголовка — то, что должно произойти после презентации:
+следующий шаг, решение, контакт. Без сроков, которых нет в фактах.
+{% endif %}
+Факты для этого слайда:
+{% for f in facts %}
+- [{{ f.fact_id }}] {{ f.text }}
+{% endfor %}
+
+Напиши текст мест для варианта «{{ variant }}». Seed: {{ seed }}.
+В ответе — только перечисленные места, каждое в своём пределе знаков.
+{% if no_think %}
+/no_think
+{% endif %}

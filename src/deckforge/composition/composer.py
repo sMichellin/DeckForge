@@ -15,6 +15,7 @@ import re
 from functools import partial
 from typing import Any
 
+from deckforge.composition.assign import RecipeAssignment
 from deckforge.composition.free_space import (
     clip,
     effective_capacity,
@@ -22,6 +23,17 @@ from deckforge.composition.free_space import (
     spare_zone,
 )
 from deckforge.composition.layout_picker import pick_layout
+from deckforge.composition.passport import fit_measure
+from deckforge.composition.places import (
+    blocks_for_places,
+    by_place,
+    merged,
+    overflowing_places,
+    places_brief,
+    response_schema,
+    shorten_request,
+    trimmed_to_fit,
+)
 from deckforge.composition.recipe_binding import bind_to_recipe
 from deckforge.composition.recipe_picker import pick_recipe, why_recipe
 from deckforge.composition.visual_selector import select_chart
@@ -48,15 +60,23 @@ from deckforge.domain.slide import (
 from deckforge.domain.slide import TableBlock as TableBlockIR
 from deckforge.domain.template import LayoutCapacity, LayoutSpec, TemplateManifest
 from deckforge.domain.variants import VariantProfile
-from deckforge.inference.client import InferenceClient
-from deckforge.inference.structured import generate_model
+from deckforge.inference.client import InferenceClient, InferenceError
+from deckforge.inference.structured import generate_json, generate_model
 from deckforge.layout.by_design import DesignRules
 from deckforge.layout.constraints import solve_positions
 from deckforge.layout.diagram import SUPPORTED_PATTERNS
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fitting import fit_block
+from deckforge.layout.fonts import FontLibrary
 from deckforge.parsing.capacity import lines_that_fit
 from deckforge.registry import get_prompt_registry
+
+#: Версия промпта, которая пишет текст **под места примера** (план Б, шаг 3). Названа
+#: путём сборки, а не реестром: пути `legacy` и `by_example` живут рядом до приёмки,
+#: и схемы ответа у них разные — активная версия принадлежит прежнему пути, пока он
+#: не снят. Когда приёмка пройдена, `active` в `prompts/registry.yaml` становится этой
+#: версией (файл тимлида), и константа уходит.
+PLACES_PROMPT_VERSION = "2.0.0"
 
 #: Короче этого заголовок не режется: два слова — уже не вывод, а обрубок. Такой случай
 #: означает, что рамка мала для любого текста, и дальше это забота вёрстки (кегль вниз).
@@ -300,9 +320,18 @@ def _design_context(rules: DesignRules) -> dict[str, Any]:
 
 
 class SlideComposer:
-    def __init__(self, llm_client: InferenceClient, profile: str | None = None) -> None:
+    def __init__(
+        self,
+        llm_client: InferenceClient,
+        profile: str | None = None,
+        fonts: FontLibrary | None = None,
+    ) -> None:
         self.llm = llm_client
         self.profile = profile
+        #: Библиотека шрифтов шаблона. Нужна пути `by_example`: текст, написанный под места,
+        #: проверяется тем же вписыванием, которым мерился паспорт (`passport.fit_measure`),
+        #: и мерить его другими метриками — значит обещать одно, а верстать другое.
+        self.fonts = fonts
         #: Что композиция изменила или выбросила. Забирает узел графа в отчёт прогона.
         self.notes: list[str] = []
         #: Почему слайд собран так (Т7): рецепт или макет, путь выбора, фраза для человека.
@@ -321,6 +350,7 @@ class SlideComposer:
         no_think: bool = False,
         design_system: DesignSystem | None = None,
         previous_recipe: str | None = None,
+        assignment: RecipeAssignment | None = None,
     ) -> SlideIR:
         """Наполняет макет содержимым слайда.
 
@@ -337,8 +367,35 @@ class SlideComposer:
         композиция называет модели роли цветов и виды списков и callout (не координаты),
         проверяет названный моделью цвет и разводит свободные блоки шагом `grid.spacing`.
         Нет — считается из манифеста (`DesignRules`).
+
+        `assignment` — назначенный до текста пример (ADR-009, узел `assign`). Есть
+        назначение с примером и паспортом — слайд идёт путём `by_example`: модель пишет
+        текст **под места этого примера**, а не под макет. Нет назначения или примера
+        в нём нет (`recipe_id is None`) — путь прежний, байт в байт.
         """
         layout = pick_layout(slide, manifest, variant)
+        if assignment is not None and design_system is not None:
+            recipe = next(
+                (
+                    item
+                    for item in design_system.recipes
+                    if item.recipe_id == assignment.recipe_id and item.passport is not None
+                ),
+                None,
+            )
+            if recipe is not None:
+                return await self._for_places(
+                    slide,
+                    content,
+                    manifest,
+                    variant,
+                    seed,
+                    layout=layout,
+                    design_system=design_system,
+                    recipe=recipe,
+                    assignment=assignment,
+                    no_think=no_think,
+                )
         rules = DesignRules(manifest, design_system)
         # Композиция шаблона под этот слайд (таск 05b). Вид назвал план, пример выбрал
         # счёт; модель о рецепте не знает — ей уходят только лимиты его зон, теми же
@@ -448,6 +505,169 @@ class SlideComposer:
         # ни на строку, а слайд с рецептом теряет координаты — рамку ему даёт автор.
         return (
             bind_to_recipe(composed, recipe, self.notes) if recipe is not None else composed
+        )
+
+    async def _for_places(
+        self,
+        slide: SlidePlan,
+        content: ContentPackage,
+        manifest: TemplateManifest,
+        variant: VariantProfile,
+        seed: int,
+        *,
+        layout: LayoutSpec,
+        design_system: DesignSystem,
+        recipe: Recipe,
+        assignment: RecipeAssignment,
+        no_think: bool,
+    ) -> SlideIR:
+        """Текст под места назначенного примера (план Б, шаг 3, ADR-009).
+
+        Порядок обратный прежнему: сначала известны места, потом пишется текст. Схема
+        ответа собирается из паспорта (`places.response_schema`) — предел знаков каждого
+        места держит грамматика, а не просьба в промпте; ответ ложится в места один
+        к одному, и снимать при раскладке нечего.
+
+        За схемой остаётся ширина букв: `maxLength` считает знаки, а место меряется
+        шрифтом. Не вставшее место получает один повторный запрос с **замеренным**
+        пределом этого текста и, если не помогло, обрезку по словам — названную в отчёте.
+        """
+        passport = recipe.passport
+        if passport is None:  # pragma: no cover — вызывающий проверяет паспорт
+            raise CompositionError(
+                f"слайд {slide.slide_id}: у примера {recipe.recipe_id} нет паспорта"
+            )
+        facts = [fact for ref in slide.fact_refs if (fact := content.fact(ref)) is not None]
+        row_fill = assignment.row_fill
+        brief = places_brief(passport, row_fill)
+        asked = len(brief["single_places"]) + sum(
+            row["count"] * len(row["cells"]) for row in brief["place_rows"]
+        )
+
+        bundle = get_prompt_registry().load(
+            "slide_composer", profile=self.profile, version=PLACES_PROMPT_VERSION
+        )
+        system, user = bundle.render(
+            slide=slide,
+            facts=facts,
+            recipe_kind=recipe.kind.value,
+            variant=variant.variant_id,
+            seed=seed,
+            language=content.brief.language,
+            brief=content.brief,
+            no_think=no_think,
+            **brief,
+        )
+
+        def ask(text: str, schema: dict[str, Any], attempt: int) -> dict[str, Any]:
+            answer, _completion = generate_json(
+                self.llm,
+                system=system,
+                user=text,
+                response_schema=schema,
+                # Тот же seed повторил бы тот же текст, а его уже отвергло место.
+                seed=seed + attempt,
+                temperature=bundle.meta.temperature,
+                top_p=bundle.meta.top_p,
+                max_tokens=bundle.meta.max_tokens,
+                schema_name="SlidePlaces",
+                skill_ref=bundle.ref,
+            )
+            return answer
+
+        answer = await asyncio.to_thread(ask, user, response_schema(passport, row_fill), 0)
+        blocks = blocks_for_places(passport, row_fill, answer)
+        if not blocks:
+            raise CompositionError(
+                f"слайд {slide.slide_id}: модель не написала ни одного из {asked} мест "
+                f"примера {recipe.recipe_id}"
+            )
+        if len(blocks) < asked:
+            self._note(
+                slide.slide_id,
+                f"мест примера {recipe.recipe_id} заказано {asked}, написано {len(blocks)}: "
+                "пустые места вёрстка удалит вместе с их группой",
+            )
+
+        fits = fit_measure(manifest, design_system, self.fonts)
+        limits = overflowing_places(recipe, fits, blocks)
+        wanted: dict[str, int] = {}
+        if limits:
+            by_id = by_place(passport, limits)
+            # Место, которое не держит и одного слова, сокращать бессмысленно: короче
+            # слова текста не бывает. Такому месту кегль спустит вёрстка, а просить
+            # у модели «до нуля знаков» значило бы потерять место (WorkSpace `ex024`,
+            # место заголовка в девять знаков: повтор вернул пустую строку).
+            wanted.update({pid: chars for pid, chars in by_id.items() if chars > 0})
+            wordless = sorted(pid for pid, chars in by_id.items() if chars <= 0)
+            if wordless:
+                self._note(
+                    slide.slide_id,
+                    f"места {', '.join(wordless)} не держат и одного слова этого текста: "
+                    "он остаётся, кегль ему спустит вёрстка",
+                )
+        if limits and wanted:
+            self._note(
+                slide.slide_id,
+                f"по ширине букв не встали места {', '.join(sorted(wanted))} — "
+                "один повторный запрос с замеренным пределом",
+            )
+            try:
+                retried = await asyncio.to_thread(
+                    ask,
+                    f"{user}\n\n{shorten_request(wanted)}",
+                    response_schema(passport, row_fill, wanted),
+                    1,
+                )
+            except InferenceError as error:
+                self._note(slide.slide_id, f"повторный запрос не удался ({error})")
+            else:
+                # Ответ повтора ложится поверх первого: место, которое он вернул пустым,
+                # остаётся с прежним текстом, а не теряется.
+                if again := blocks_for_places(passport, row_fill, merged(answer, retried)):
+                    blocks = again
+                    limits = overflowing_places(recipe, fits, blocks)
+        if limits:
+            by_block = {block.block_id: block.zone_id for block in blocks}
+            blocks, cut = trimmed_to_fit(blocks, limits)
+            for block_id, (before, after) in sorted(cut.items()):
+                held = limits.get(by_block.get(block_id) or "", 0)
+                self._note(
+                    slide.slide_id,
+                    f"блок {block_id} обрезан по словам под место: {before} → {after} знаков"
+                    + (
+                        ""
+                        if after <= held
+                        else f" — место держит {held}, а первое слово длиннее: "
+                        "кегль ему спустит вёрстка"
+                    ),
+                )
+
+        self.choices[slide.slide_id] = {
+            "slide_id": slide.slide_id,
+            "intent": slide.intent.value,
+            "visual": slide.suggested_visual,
+            "recipe_id": recipe.recipe_id,
+            "recipe_kind": recipe.kind.value,
+            "layout_id": layout.layout_id,
+            "layout_kind": layout.kind.value,
+            # Причина — из назначения: выбор сделан до текста, и повторять его здесь
+            # значило бы объяснять слайд вторым, уже неверным способом.
+            "why": assignment.reason,
+        }
+        return SlideIR(
+            slide_id=slide.slide_id,
+            layout_id=layout.layout_id,
+            variant=variant.variant_id,
+            blocks=list(blocks),
+            recipe_id=recipe.recipe_id,
+            speaker_note=slide.speaker_note,
+            provenance=Provenance(
+                fact_refs=slide.fact_refs,
+                prompt_version=bundle.ref,
+                model=getattr(self.llm, "model", None),
+                seed=seed,
+            ),
         )
 
     def _trim_headline(
