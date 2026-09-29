@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from deckforge.composition.passport import Fits, capacity
@@ -35,6 +35,12 @@ from deckforge.designsystem.models import (
 from deckforge.domain.enums import TextRole
 from deckforge.domain.slide import TextBlock
 
+#: Во сколько раз предел поля схемы шире ёмкости места (К1, круг 2 плана Б). Грамматика
+#: llama.cpp держит `maxLength` знаками и обрывает генерацию ровно на нём: предел, равный
+#: ёмкости, режет слово посреди («AI не копирует фирменны»). Полтора — воздух закончить
+#: мысль; настоящий предел модель узнаёт из текста промпта, а не из схемы.
+SLACK = 1.5
+
 #: Имя места внутри группы ряда: группы одного ряда одной формы, а `place_id` у них
 #: разные, и знать оба модели незачем. `t1`, `t2` — позиции мест в группе по порядку
 #: паспорта, то есть по порядку чтения.
@@ -46,19 +52,33 @@ def _text_places(group: PlaceGroup) -> list[Place]:
     return [place for place in group.places if place.kind is not PlaceKind.PICTURE]
 
 
-def _limits(place: Place, chars: int | None = None) -> dict[str, Any]:
-    """Поле схемы под одно место: строка не длиннее его ёмкости и не пустая.
+def ceiling(hard: int, longest_word: int = 0) -> int:
+    """Предел поля схемы над настоящим пределом места (К1).
+
+    Полторы ёмкости — воздух закончить мысль. Но у тесного места полтора не дают и слова:
+    у места на 3 знака («10x») потолок вышел бы 5, и «презентаций» оборвалось бы снова.
+    Поэтому не меньше, чем ёмкость плюс самое длинное слово материала слайда: запас
+    меряется тем же, чем пишут, — словами, а не долями.
+    """
+    hard = max(1, hard)
+    return max(round(hard * SLACK), hard + longest_word)
+
+
+def longest_word(texts: Iterable[str]) -> int:
+    """Самое длинное слово материала слайда — мерило запаса для тесных мест."""
+    return max((len(word) for text in texts for word in text.split()), default=0)
+
+
+def _limits(place: Place, chars: int | None = None, longest: int = 0) -> dict[str, Any]:
+    """Поле схемы под одно место: строка не пустая и не длиннее потолка с запасом.
 
     Предел не бывает нулевым: `minLength: 1` с `maxLength: 0` — неисполнимая схема,
     и грамматика отдала бы пустую строку, то есть потеряла бы место. Место, которое
     не держит и одного слова, повторным запросом не сокращают вовсе (`shorten_request`
     его не называет), а текст в нём оставляют вёрстке.
     """
-    return {
-        "type": "string",
-        "maxLength": max(1, chars if chars is not None else place.capacity_chars),
-        "minLength": 1,
-    }
+    hard = chars if chars is not None else place.capacity_chars
+    return {"type": "string", "maxLength": ceiling(hard, longest), "minLength": 1}
 
 
 def _singles(passport: ExamplePassport) -> list[Place]:
@@ -75,6 +95,7 @@ def response_schema(
     passport: ExamplePassport,
     row_fill: dict[str, int],
     tighter: dict[str, int] | None = None,
+    longest: int = 0,
 ) -> dict[str, Any]:
     """Схема ответа композитора для этого примера.
 
@@ -91,7 +112,7 @@ def response_schema(
     properties: dict[str, Any] = {}
     required: list[str] = []
     for place in _singles(passport):
-        properties[place.place_id] = _limits(place, tighter.get(place.place_id))
+        properties[place.place_id] = _limits(place, tighter.get(place.place_id), longest)
         required.append(place.place_id)
     for row, groups in passport.rows.items():
         count = row_fill.get(row, 0)
@@ -109,7 +130,7 @@ def response_schema(
                 and (chars := tighter.get(peer[0].place_id)) is not None
             ]
             item_props[f"{ROW_ITEM_PREFIX}{index}"] = _limits(
-                place, min(tight) if tight else None
+                place, min(tight) if tight else None, longest
             )
         properties[row] = {
             "type": "array",
@@ -303,6 +324,60 @@ def overflowing_places(
             recipe, zones[zone_id], fits, ceiling=len(text), make=_by_words(text)
         )
     return limits
+
+
+def _ceilings(
+    passport: ExamplePassport, row_fill: dict[str, int], schema: dict[str, Any]
+) -> dict[str, int]:
+    """Потолок поля схемы по зоне каждого места — тем же обходом, каким схема собрана."""
+    props = schema.get("properties") or {}
+    out: dict[str, int] = {}
+    for place in _singles(passport):
+        spec = props.get(place.place_id)
+        if isinstance(spec, dict) and place.zone_id:
+            out[place.zone_id] = int(spec.get("maxLength") or 0)
+    for row, groups in passport.rows.items():
+        spec = props.get(row)
+        if not isinstance(spec, dict):
+            continue
+        fields = (spec.get("items") or {}).get("properties") or {}
+        for group in groups[: row_fill.get(row, 0)]:
+            for index, place in enumerate(_text_places(group), start=1):
+                field = fields.get(f"{ROW_ITEM_PREFIX}{index}")
+                if isinstance(field, dict) and place.zone_id:
+                    out[place.zone_id] = int(field.get("maxLength") or 0)
+    return out
+
+
+def at_the_ceiling(
+    passport: ExamplePassport,
+    row_fill: dict[str, int],
+    blocks: list[TextBlock],
+    schema: dict[str, Any],
+) -> dict[str, int]:
+    """Места, чей текст упёрся в потолок схемы: зона → настоящая ёмкость места (К1).
+
+    Грамматика обрывает генерацию ровно на `maxLength`, поэтому текст такой длины —
+    не выбор модели, а обрыв: «AI не копирует фирменны». Замер вписывания его не ловит,
+    потому что обрубок короче места и «встаёт». Ловится он только так — по длине,
+    и только потому, что потолок стоит выше настоящего предела: у текста, который писали
+    свободно, ровно потолок — совпадение на один знак из полутора ёмкостей.
+    """
+    ceilings = _ceilings(passport, row_fill, schema)
+    caps = {
+        place.zone_id: place.capacity_chars
+        for place in passport.places
+        if place.zone_id is not None
+    }
+    out: dict[str, int] = {}
+    for block in blocks:
+        zone_id = block.zone_id
+        if zone_id is None:
+            continue
+        top = ceilings.get(zone_id)
+        if top and len(block.text) >= top:
+            out[zone_id] = caps.get(zone_id) or len(block.text)
+    return out
 
 
 def by_place(passport: ExamplePassport, by_zone: dict[str, int]) -> dict[str, int]:
