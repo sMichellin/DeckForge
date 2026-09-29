@@ -20,6 +20,7 @@ from deckforge.composition.passport import fit_measure
 from deckforge.composition.places import (
     blocks_for_places,
     by_place,
+    merged,
     overflowing_places,
     places_brief,
     response_schema,
@@ -360,6 +361,40 @@ def test_trimming_by_words_is_the_last_step_and_is_named() -> None:
     assert trimmed[1].text == "Коротко", "встал — не режем"
 
 
+def test_the_retry_does_not_take_away_what_was_written() -> None:
+    """Норма: пустое место в ответе повтора оставляет прежний текст, а не отнимает его.
+
+    Повтор просит сократить одно место, а схема требует все: модель переписывает заодно
+    и остальные. Пустая строка при этом — осечка, а не решение «здесь ничего не надо»
+    (WorkSpace `ex024`, место заголовка в девять знаков: слайд остался без заголовка).
+    """
+    first = {"p01": "Выручка выросла", "r1": [{"t1": "Подписки", "t2": "Плюс 37,5 %"}]}
+    retried = {"p01": "", "r1": [{"t1": "Подписки", "t2": ""}]}
+
+    assert merged(first, retried) == first
+
+
+def test_the_retry_replaces_only_what_it_wrote() -> None:
+    """Норма: непустое место повтора заменяет прежнее, лишние группы ответа не теряются."""
+    first = {"p01": "Длинный заголовок", "r1": [{"t1": "Подписки"}, {"t1": "Услуги"}]}
+    retried = {"p01": "Рост", "r1": [{"t1": "Подписки и услуги"}]}
+
+    assert merged(first, retried) == {
+        "p01": "Рост",
+        "r1": [{"t1": "Подписки и услуги"}, {"t1": "Услуги"}],
+    }
+
+
+def test_a_place_that_holds_no_word_is_never_asked_for_zero_chars() -> None:
+    """Нарушитель: предел схемы не бывает нулевым — иначе грамматика отдаёт пустое место."""
+    card = passport_with_row(cards=2)
+
+    schema = response_schema(card, {"r1": 2}, {"p01": 0})
+
+    assert schema["properties"]["p01"]["maxLength"] == 1
+    assert schema["properties"]["p01"]["minLength"] == 1
+
+
 # --- промпт 2.0.0 ----------------------------------------------------------------
 
 
@@ -596,3 +631,60 @@ async def test_after_the_retry_the_text_is_trimmed_by_words_and_named(
     assert len(title.text) < len(long)
     assert long.startswith(title.text), "обрезка по словам с начала, а не пересказ"
     assert any("обрезан по словам под место" in note for note in composer.notes)
+
+
+@pytest.mark.asyncio
+async def test_a_place_too_small_for_one_word_keeps_its_text(
+    manifest: TemplateManifest, variant_a: VariantProfile
+) -> None:
+    """Нарушитель: место не держит и слова — повтора нет, текст остался, случай назван.
+
+    Тот самый случай WorkSpace `ex024`: место заголовка в девять знаков, ёмкость которого
+    паспорт посчитал пробными узкими буквами. Повторный запрос «до нуля знаков» вернул бы
+    пустую строку, и слайд остался бы без заголовка.
+    """
+    card = ExamplePassport(
+        groups=[
+            PlaceGroup(
+                group_id="g01",
+                places=[place("p01", "z01", TypeLevel.SLIDE_TITLE, chars=9)],
+            )
+        ]
+    )
+    recipe = Recipe(
+        recipe_id="ex024",
+        example_index=1,
+        kind=RecipeKind.TEXT,
+        zones=[
+            Zone(
+                zone_id="z01",
+                role=TypeLevel.SLIDE_TITLE,
+                capacity_chars=9,
+                size_pt=40,
+                x=EMU_PER_CM,
+                y=EMU_PER_CM,
+                cx=EMU_PER_CM,
+                cy=EMU_PER_CM,
+            )
+        ],
+        passport=card,
+        layout_name="Контент",
+    )
+    llm = FakeLlm({"p01": "Автоматиз"})
+    composer = SlideComposer(llm)
+
+    composed = await composer.compose(
+        plan_slide(),
+        content(),
+        manifest,
+        variant_a,
+        1341,
+        design_system=design_system(recipe),
+        assignment=RecipeAssignment(slide_id="s03", recipe_id="ex024", reason="вид text"),
+    )
+
+    assert len(llm.asked) == 1, "сокращать до нуля знаков нечего — повтора нет"
+    title = composed.block("b01")
+    assert title is not None and isinstance(title, TextBlock)
+    assert title.text == "Автоматиз", "место без текста — это потеря, а не сокращение"
+    assert any("не держат и одного слова" in note for note in composer.notes)

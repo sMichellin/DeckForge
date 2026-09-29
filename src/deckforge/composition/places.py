@@ -47,10 +47,16 @@ def _text_places(group: PlaceGroup) -> list[Place]:
 
 
 def _limits(place: Place, chars: int | None = None) -> dict[str, Any]:
-    """Поле схемы под одно место: строка не длиннее его ёмкости и не пустая."""
+    """Поле схемы под одно место: строка не длиннее его ёмкости и не пустая.
+
+    Предел не бывает нулевым: `minLength: 1` с `maxLength: 0` — неисполнимая схема,
+    и грамматика отдала бы пустую строку, то есть потеряла бы место. Место, которое
+    не держит и одного слова, повторным запросом не сокращают вовсе (`shorten_request`
+    его не называет), а текст в нём оставляют вёрстке.
+    """
     return {
         "type": "string",
-        "maxLength": chars if chars is not None else place.capacity_chars,
+        "maxLength": max(1, chars if chars is not None else place.capacity_chars),
         "minLength": 1,
     }
 
@@ -211,6 +217,38 @@ def blocks_for_places(
                 text = _written(item.get(f"{ROW_ITEM_PREFIX}{position}"))
                 if text is not None:
                     out.append(_block(place, text, len(out) + 1))
+    return out
+
+
+def merged(first: dict[str, Any], retried: dict[str, Any]) -> dict[str, Any]:
+    """Ответ повтора, положенный поверх первого: пустое место не отнимает написанное.
+
+    Повторный запрос называет одно-два места, а схема требует все, и модель переписывает
+    заодно и то, о чём не просили. Пустая строка в ответе повтора — не решение «здесь
+    ничего не надо», а осечка: на WorkSpace `ex024` место заголовка в девять знаков
+    вернулось пустым, и слайд остался без заголовка при непустом первом ответе.
+    """
+    out = dict(first)
+    for key, value in retried.items():
+        if isinstance(value, str):
+            if value.strip():
+                out[key] = value
+            continue
+        if not isinstance(value, list):
+            continue
+        was = first.get(key)
+        if not isinstance(was, list):
+            out[key] = value
+            continue
+        rows: list[Any] = []
+        for index, item in enumerate(value):
+            before = was[index] if index < len(was) else None
+            if isinstance(item, dict) and isinstance(before, dict):
+                rows.append({**before, **{k: v for k, v in item.items() if str(v).strip()}})
+            else:
+                rows.append(item if str(item).strip() or before is None else before)
+        rows.extend(was[len(value):])
+        out[key] = rows
     return out
 
 

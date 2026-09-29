@@ -27,6 +27,7 @@ from deckforge.composition.passport import fit_measure
 from deckforge.composition.places import (
     blocks_for_places,
     by_place,
+    merged,
     overflowing_places,
     places_brief,
     response_schema,
@@ -590,8 +591,22 @@ class SlideComposer:
 
         fits = fit_measure(manifest, design_system, self.fonts)
         limits = overflowing_places(recipe, fits, blocks)
+        wanted: dict[str, int] = {}
         if limits:
-            wanted = by_place(passport, limits)
+            by_id = by_place(passport, limits)
+            # Место, которое не держит и одного слова, сокращать бессмысленно: короче
+            # слова текста не бывает. Такому месту кегль спустит вёрстка, а просить
+            # у модели «до нуля знаков» значило бы потерять место (WorkSpace `ex024`,
+            # место заголовка в девять знаков: повтор вернул пустую строку).
+            wanted.update({pid: chars for pid, chars in by_id.items() if chars > 0})
+            wordless = sorted(pid for pid, chars in by_id.items() if chars <= 0)
+            if wordless:
+                self._note(
+                    slide.slide_id,
+                    f"места {', '.join(wordless)} не держат и одного слова этого текста: "
+                    "он остаётся, кегль ему спустит вёрстка",
+                )
+        if limits and wanted:
             self._note(
                 slide.slide_id,
                 f"по ширине букв не встали места {', '.join(sorted(wanted))} — "
@@ -607,7 +622,9 @@ class SlideComposer:
             except InferenceError as error:
                 self._note(slide.slide_id, f"повторный запрос не удался ({error})")
             else:
-                if again := blocks_for_places(passport, row_fill, retried):
+                # Ответ повтора ложится поверх первого: место, которое он вернул пустым,
+                # остаётся с прежним текстом, а не теряется.
+                if again := blocks_for_places(passport, row_fill, merged(answer, retried)):
                     blocks = again
                     limits = overflowing_places(recipe, fits, blocks)
         if limits:
