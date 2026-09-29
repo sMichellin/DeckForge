@@ -329,10 +329,10 @@ def test_the_acceptance_rows_move_on_the_fixtures(name: str) -> None:
 
     intents = {item.slide_id: item.intent.value for item in run.plan.slides}
     content = [item for item in out if intents[item.slide_id] not in STRUCTURAL_INTENTS]
-    by_meaning = [item for item in content if not item.reason.startswith("заказанного вида нет")]
+    by_seats = [item for item in content if item.reason.startswith("заказанного вида нет")]
     ids = [item.recipe_id for item in out]
     uses = Counter(recipe_id for recipe_id in ids if recipe_id)
 
-    assert len(by_meaning) == len(content), "строка 1: пример должен выбираться по смыслу"
+    assert by_seats == [], "строка 1: пример по местам, а не по смыслу — их быть не должно"
     assert max(uses.values(), default=0) <= MAX_USES, "строка 2: один пример на колоду"
     assert not [1 for left, right in pairwise(ids) if left and left == right], "строка 2: подряд"
