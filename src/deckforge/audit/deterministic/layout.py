@@ -32,6 +32,7 @@ from deckforge.domain.audit import Finding
 from deckforge.domain.base import BBox
 from deckforge.domain.enums import AutoFix, Severity, TextRole
 from deckforge.domain.slide import (
+    Block,
     BulletsBlock,
     ChartBlock,
     SlideIR,
@@ -78,12 +79,17 @@ def out_of_bounds(ctx: CheckContext) -> Iterable[Finding]:
     title="Два блока наложились друг на друга",
 )
 def overlap(ctx: CheckContext) -> Iterable[Finding]:
-    """Два блока наложились друг на друга."""
+    """Два блока наложились друг на друга.
+
+    Заголовок судится строже (`_crowds_the_title`, план Б, круг 2): выноска, упёршаяся
+    в него текстом, и блок в полосе над ним видны сразу, какую бы долю площади ни заняли.
+    """
     threshold = ctx.param("min_overlap_ratio", 0.05)
     slide_box = ctx.manifest.slide_size.bbox
     for slide in ctx.deck.slides:
         placed = positioned_blocks(slide, ctx.manifest)
         layout = layout_of(slide, ctx.manifest)
+        yield from _crowds_the_title(slide, placed, slide_box, threshold)
 
         # Фигуры макета, несущие содержание: плашка с текстом, врезанная диаграмма,
         # таблица. Блок, легший поверх такой фигуры, перекрывает чужое содержание —
@@ -143,6 +149,67 @@ def overlap(ctx: CheckContext) -> Iterable[Finding]:
                     ),
                     evidence={"other_block_id": other.block_id, "ratio": f"{ratio:.3f}"},
                 )
+
+
+def _occupied(slide: SlideIR, block: Block, bbox: BBox) -> BBox:
+    """Место блока: рамка, а если текст не влез — до замеренной высоты текста вниз.
+
+    Не влезший текст выходит за рамку (`fit_report.required_cy_emu`), и рядом стоящий
+    заголовок он задевает текстом, а не рамкой — рамки при этом лишь касаются.
+    """
+    measured = slide.fit_report.get(block.block_id)
+    required = measured.required_cy_emu if measured is not None else None
+    if not required or required <= bbox.cy:
+        return bbox
+    return BBox(x=bbox.x, y=bbox.y, cx=bbox.cx, cy=required)
+
+
+def _crowds_the_title(
+    slide: SlideIR, placed: list[tuple[Block, BBox]], slide_box: BBox, threshold: float
+) -> Iterable[Finding]:
+    """Блок, который мы поставили, задевает заголовок или стоит в полосе над ним.
+
+    Education 29.09 s02, s08: решатель положил выноску и схему над заголовком, их текст
+    не влез и упёрся в заголовок. Рамки только касались, а от площади меньшего блока
+    пересечение — четыре процента, ниже порога, и проверка молчала. Заголовок —
+    не рядовой сосед: касание его видно сразу, поэтому порога площади для него нет.
+
+    Судятся только блоки со своими координатами (`block.bbox`): положение плейсхолдера
+    выбрал автор шаблона. Полоса над заголовком — только у заголовка в верхней половине
+    слайда: над заголовком внизу слайда содержанию место есть.
+    """
+    titles = [
+        (block, bbox) for block, bbox in placed if getattr(block, "role", None) is TextRole.TITLE
+    ]
+    for block, bbox in placed:
+        if block.bbox is None or getattr(block, "role", None) is TextRole.TITLE:
+            continue
+        taken = _occupied(slide, block, bbox)
+        for title, title_box in titles:
+            smaller = min(bbox.area, title_box.area)
+            if smaller > 0 and bbox.intersection_area(title_box) / smaller >= threshold:
+                continue  # это наложение рамок, его назовёт общая часть проверки
+            across = min(taken.right, title_box.right) - max(taken.x, title_box.x) > 0
+            touches = taken.intersection_area(title_box) > 0
+            above = across and taken.bottom <= title_box.y and title_box.y < slide_box.cy // 2
+            if not touches and not above:
+                continue
+            yield make_finding(
+                check_id="layout.overlap",
+                slide_id=slide.slide_id,
+                block_id=block.block_id,
+                bbox=taken,
+                reason=f"title:{title.block_id}",
+                message=(
+                    f"Блок {block.block_id} ({block.type}) "
+                    + ("задевает заголовок" if touches else "стоит в полосе над заголовком")
+                    + f" {title.block_id}"
+                ),
+                evidence={
+                    "title_block_id": title.block_id,
+                    "kind": "touches" if touches else "above",
+                },
+            )
 
 
 @check(

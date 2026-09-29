@@ -22,6 +22,7 @@ from deckforge.composition.passport import fit_measure
 from deckforge.composition.places import (
     blocks_for_places,
     by_place,
+    ceiling,
     merged,
     overflowing_places,
     places_brief,
@@ -154,13 +155,17 @@ def test_the_schema_names_every_place_with_its_own_limit() -> None:
     card = passport_with_row(cards=5)
     schema = response_schema(card, {"r1": 3})
 
-    assert schema["properties"]["p01"] == {"type": "string", "maxLength": 60, "minLength": 1}
+    # Предел поля — с запасом поверх ёмкости (К1, `the-limit-is-not-a-guillotine`):
+    # равный ёмкости, он обрывал слово посреди. Настоящий предел называет промпт.
+    assert schema["properties"]["p01"] == {
+        "type": "string", "maxLength": ceiling(60), "minLength": 1
+    }
     row = schema["properties"]["r1"]
     assert (row["minItems"], row["maxItems"]) == (3, 3)
     item = row["items"]
     assert item["required"] == ["t1", "t2"]
-    assert item["properties"]["t1"]["maxLength"] == 24
-    assert item["properties"]["t2"]["maxLength"] == 90
+    assert item["properties"]["t1"]["maxLength"] == ceiling(24)
+    assert item["properties"]["t2"]["maxLength"] == ceiling(90)
     assert item["additionalProperties"] is False
     assert schema["additionalProperties"] is False
 
@@ -186,10 +191,10 @@ def test_the_retry_asks_the_measured_limit_not_the_one_that_failed() -> None:
 
     schema = response_schema(card, {"r1": 2}, {"p01": 41, "p02": 12})
 
-    assert schema["properties"]["p01"]["maxLength"] == 41
-    assert schema["properties"]["r1"]["items"]["properties"]["t1"]["maxLength"] == 12
+    assert schema["properties"]["p01"]["maxLength"] == ceiling(41)
+    assert schema["properties"]["r1"]["items"]["properties"]["t1"]["maxLength"] == ceiling(12)
     # Место, которое встало, просится как прежде: сокращать написанное дважды незачем.
-    assert schema["properties"]["r1"]["items"]["properties"]["t2"]["maxLength"] == 90
+    assert schema["properties"]["r1"]["items"]["properties"]["t2"]["maxLength"] == ceiling(90)
 
 
 def test_the_brief_shows_the_model_the_places_not_the_zones() -> None:
@@ -393,7 +398,7 @@ def test_a_place_that_holds_no_word_is_never_asked_for_zero_chars() -> None:
 
     schema = response_schema(card, {"r1": 2}, {"p01": 0})
 
-    assert schema["properties"]["p01"]["maxLength"] == 1
+    assert schema["properties"]["p01"]["maxLength"] == ceiling(1) >= 1
     assert schema["properties"]["p01"]["minLength"] == 1
 
 

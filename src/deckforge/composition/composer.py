@@ -25,8 +25,10 @@ from deckforge.composition.free_space import (
 from deckforge.composition.layout_picker import pick_layout
 from deckforge.composition.passport import fit_measure
 from deckforge.composition.places import (
+    at_the_ceiling,
     blocks_for_places,
     by_place,
+    longest_word,
     merged,
     overflowing_places,
     places_brief,
@@ -76,7 +78,7 @@ from deckforge.registry import get_prompt_registry
 #: и схемы ответа у них разные — активная версия принадлежит прежнему пути, пока он
 #: не снят. Когда приёмка пройдена, `active` в `prompts/registry.yaml` становится этой
 #: версией (файл тимлида), и константа уходит.
-PLACES_PROMPT_VERSION = "2.0.0"
+PLACES_PROMPT_VERSION = "2.1.0"
 
 #: Короче этого заголовок не режется: два слова — уже не вывод, а обрубок. Такой случай
 #: означает, что рамка мала для любого текста, и дальше это забота вёрстки (кегль вниз).
@@ -538,9 +540,13 @@ class SlideComposer:
         места держит грамматика, а не просьба в промпте; ответ ложится в места один
         к одному, и снимать при раскладке нечего.
 
-        За схемой остаётся ширина букв: `maxLength` считает знаки, а место меряется
-        шрифтом. Не вставшее место получает один повторный запрос с **замеренным**
-        пределом этого текста и, если не помогло, обрезку по словам — названную в отчёте.
+        За схемой остаётся ширина букв: предел считает знаки, а место меряется шрифтом.
+        Не вставшее место получает один повторный запрос с **замеренным** пределом этого
+        текста и, если не помогло, обрезку по словам — названную в отчёте.
+
+        Сам предел схемы стоит **выше** ёмкости места (К1, круг 2): грамматика держит его
+        знаками и обрывает слово ровно на нём. Настоящий предел модель узнаёт из промпта,
+        а текст, упёршийся в потолок схемы, считается оборванным и зовёт повтор.
         """
         passport = recipe.passport
         if passport is None:  # pragma: no cover — вызывающий проверяет паспорт
@@ -585,7 +591,11 @@ class SlideComposer:
             )
             return answer
 
-        answer = await asyncio.to_thread(ask, user, response_schema(passport, row_fill), 0)
+        # Запас предела схемы меряется словами материала слайда (К1): у тесного места
+        # полторы ёмкости не дают и одного слова, и оно оборвалось бы снова.
+        longest = longest_word([slide.headline, *(fact.text for fact in facts)])
+        schema = response_schema(passport, row_fill, longest=longest)
+        answer = await asyncio.to_thread(ask, user, schema, 0)
         blocks = blocks_for_places(passport, row_fill, answer)
         if not blocks:
             raise CompositionError(
@@ -600,7 +610,29 @@ class SlideComposer:
             )
 
         fits = fit_measure(manifest, design_system, self.fonts)
-        limits = overflowing_places(recipe, fits, blocks)
+
+        def to_shorten(
+            written: list[TextBlock], asked: dict[str, Any]
+        ) -> tuple[dict[str, int], list[str]]:
+            """Места, которые надо сократить: не встало по ширине или оборвано грамматикой.
+
+            Замер вписывания обрубок не видит — он короче места и честно «встаёт»
+            (К1, круг 2). Поэтому рядом с замером стоит признак «упёрся в потолок схемы»,
+            и предел такому месту — его настоящая ёмкость, названная промптом.
+            """
+            out = overflowing_places(recipe, fits, written)
+            broken = at_the_ceiling(passport, row_fill, written, asked)
+            for zone, hard in broken.items():
+                out.setdefault(zone, hard)
+            return out, sorted(broken)
+
+        limits, broken = to_shorten(blocks, schema)
+        if broken:
+            self._note(
+                slide.slide_id,
+                f"текст {len(broken)} мест упёрся в предел схемы — считаю оборванным "
+                "грамматикой и прошу короче",
+            )
         wanted: dict[str, int] = {}
         if limits:
             by_id = by_place(passport, limits)
@@ -623,10 +655,11 @@ class SlideComposer:
                 "один повторный запрос с замеренным пределом",
             )
             try:
+                retry_schema = response_schema(passport, row_fill, wanted, longest)
                 retried = await asyncio.to_thread(
                     ask,
                     f"{user}\n\n{shorten_request(wanted)}",
-                    response_schema(passport, row_fill, wanted),
+                    retry_schema,
                     1,
                 )
             except InferenceError as error:
@@ -636,7 +669,7 @@ class SlideComposer:
                 # остаётся с прежним текстом, а не теряется.
                 if again := blocks_for_places(passport, row_fill, merged(answer, retried)):
                     blocks = again
-                    limits = overflowing_places(recipe, fits, blocks)
+                    limits, _ = to_shorten(blocks, retry_schema)
         if limits:
             by_block = {block.block_id: block.zone_id for block in blocks}
             blocks, cut = trimmed_to_fit(blocks, limits)
