@@ -47,9 +47,9 @@ gates: ## CI-гейты: C1/C2 (лицензии), C6 (константы шаб
 
 ui-e2e: ## Прогон через UI в образе Playwright: make ui-e2e URL=… TEMPLATE=… CONTENT=… NAME=…
 	$(PODMAN) run --rm -v $(CURDIR):/app:z -w /app \
-		-v $(abspath $(TEMPLATE)):/in/template.pptx:ro,z -v $(abspath $(CONTENT)):/in/$(notdir $(CONTENT)):ro,z \
+		-v $(abspath $(TEMPLATE)):/in/$(notdir $(TEMPLATE)):ro,z -v $(abspath $(CONTENT)):/in/$(notdir $(CONTENT)):ro,z \
 		$(PLAYWRIGHT_IMAGE) sh -c 'pip install -q playwright==$(PLAYWRIGHT_VERSION) >/dev/null 2>&1; \
-		python scripts/ui_e2e.py $(URL) /in/template.pptx /in/$(notdir $(CONTENT)) --name $(or $(NAME),run)'
+		python scripts/ui_e2e.py $(URL) /in/$(notdir $(TEMPLATE)) /in/$(notdir $(CONTENT)) --name $(or $(NAME),run)'
 
 spec-coverage: ## Одно предложение против спецификации: make spec-coverage CHANGE=<имя>
 	$(RUN) python scripts/lint_spec_coverage.py --only $(CHANGE)
