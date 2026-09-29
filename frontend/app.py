@@ -75,7 +75,7 @@ def sidebar() -> dict[str, Any]:
         or os.environ.get("DECKFORGE_API_URL", DEFAULT_BASE_URL),
     )
     settings = {
-        "variant": st.radio("Вариант вёрстки", ["A", "B", "C"], horizontal=True),
+        "variant": variant_choice(),
         "purpose": st.text_input("Зачем колода", value="report"),
         "audience": st.text_input("Кому", value="правление"),
         "slides_mode": st.radio(
@@ -101,6 +101,28 @@ def sidebar() -> dict[str, Any]:
         if st.button("Начать заново", use_container_width=True):
             forget_run()
     return settings
+
+
+#: Варианты, когда сервис их не назвал: выбрать всё равно можно, только буквой.
+FALLBACK_VARIANTS = ["A", "B", "C"]
+
+
+def variant_choice() -> str:
+    """Вариант вёрстки по названию, а не по букве: человек выбирает подачу колоды."""
+    base = st.session_state.get("base_url")
+    if st.session_state.get("_variants_base") != base or not st.session_state.get("_variants"):
+        st.session_state["_variants"] = client().variants()
+        st.session_state["_variants_base"] = base
+    names: dict[str, str] = dict(st.session_state["_variants"])
+    return str(
+        st.radio(
+            "Вариант вёрстки",
+            list(names) or FALLBACK_VARIANTS,
+            format_func=lambda vid: names.get(vid, vid),
+            help="Подача колоды: плотность, порядок слайдов и как показаны данные. "
+            "Шаблон и материалы одни и те же",
+        )
+    )
 
 
 def known_profiles() -> list[str]:

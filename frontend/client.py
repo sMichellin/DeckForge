@@ -80,6 +80,22 @@ class DeckForgeClient:
         names = payload.get("profiles") if isinstance(payload, dict) else None
         return [str(name) for name in names or []]
 
+    def variants(self) -> dict[str, str]:
+        """Варианты вёрстки: буква → название. Пустой словарь — сервис недоступен.
+
+        Отказ, как и у профилей, не ломает панель: без названий вариант выбирается буквой.
+        """
+        try:
+            payload = self._json(self.http.get("/variants", timeout=LOOKUP_TIMEOUT_S))
+        except Exception:
+            return {}
+        rows = payload.get("variants") if isinstance(payload, dict) else None
+        return {
+            str(row["variant_id"]): str(row.get("name") or row["variant_id"])
+            for row in rows or []
+            if isinstance(row, dict) and row.get("variant_id")
+        }
+
     # --- прогон --------------------------------------------------------------
 
     def create_run(self, **fields: Any) -> str:
