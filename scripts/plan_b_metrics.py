@@ -22,6 +22,11 @@
 (`checks_known`) и она не пропущена; иначе прочерк, а не ноль: «не мерили» и «ноль» —
 разные ответы (change `the-third-row-is-measured`).
 
+Строки 6б, 8 и 9 (круг 2) — тем же способом: обрыв посреди слова (`content.word_cut`),
+выдуманные числа (`content.numbers_grounded`, одно число на слайде — одна находка) и слайды,
+потерявшие содержание (`integrity.content_lost` + `integrity.empty_slide`). Change
+`the-eye-rows-are-measured`.
+
     python scripts/plan_b_metrics.py artifacts/runs/2026-09-28-main-19e3b7e/*/
     python scripts/plan_b_metrics.py --json <каталог прогона> …
 """
@@ -33,6 +38,7 @@ import json
 import re
 import sys
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from itertools import pairwise
 from pathlib import Path
@@ -114,6 +120,14 @@ class DeckMetrics:
     empty_cards: int | None = None
     #: Строка 7: блоков ниже порога читаемости по файлу колоды; `None` — файла нет.
     below_floor: int | None = None
+    #: Строки, которые до круга 2 плана Б были видны только глазами
+    #: (`docs/agents/tasks-plan-b-round-2.md`, «мерило врёт в хорошую сторону»).
+    #: Строка 6б: текстов, оборванных посреди слова; `None` — проверка не шла.
+    word_cuts: int | None = None
+    #: Строка 8: выдуманных чисел — разных чисел на слайде; `None` — проверка не шла.
+    invented_numbers: int | None = None
+    #: Строка 9: слайдов, потерявших содержание; `None` — проверки не шли.
+    lost_slides: int | None = None
 
     @property
     def flattened_total(self) -> int:
@@ -160,6 +174,11 @@ def deck_metrics(report: dict[str, Any]) -> DeckMetrics:
             metrics.cut_by_code += 1
     metrics.flattened = dict(sorted(flattened.items()))
     metrics.empty_cards = _empty_cards(report)
+    metrics.word_cuts = _counted(
+        report, (WORD_CUT,), lambda f: (f.get("slide_id"), f.get("block_id"), f.get("message"))
+    )
+    metrics.invented_numbers = _counted(report, (NUMBERS,), _number_key)
+    metrics.lost_slides = _counted(report, LOST, lambda f: f.get("slide_id"))
     return metrics
 
 
@@ -177,6 +196,44 @@ def _empty_cards(report: dict[str, Any]) -> int | None:
         for finding in report.get("findings_detail") or []
         if finding.get("check_id") == EMPTY_GROUP
     })
+
+
+#: Проверки строк 6б, 8, 9 (поток C: #271, `content.numbers_grounded`, #273).
+WORD_CUT = "content.word_cut"
+NUMBERS = "content.numbers_grounded"
+LOST = ("integrity.content_lost", "integrity.empty_slide")
+
+
+def _counted(
+    report: dict[str, Any], checks: tuple[str, ...], key: Callable[[dict[str, Any]], Any]
+) -> int | None:
+    """Число разных находок этих проверок по ключу — или `None`, если хоть одна не шла.
+
+    «Не мерили» и «ноль» различаются так же, как в строке 3: по `checks_known` и
+    `skipped_checks` отчёта. Прогон, собранный кодом без проверки, даёт прочерк.
+    """
+    known = report.get("checks_known") or []
+    skipped = report.get("skipped_checks") or []
+    if any(check not in known or check in skipped for check in checks):
+        return None
+    return len({
+        key(finding)
+        for finding in report.get("findings_detail") or []
+        if finding.get("check_id") in checks
+    })
+
+
+def _number_key(finding: dict[str, Any]) -> tuple[Any, ...]:
+    """Одно выдуманное число на слайде — одна находка, сколько бы раз оно ни стояло.
+
+    Число — из `evidence` (`value` и `unit`); у отчёта без поля `evidence` — из текста
+    сообщения, где число стоит в кавычках-ёлочках.
+    """
+    evidence = finding.get("evidence") or {}
+    if "value" in evidence:
+        return finding.get("slide_id"), evidence["value"], evidence.get("unit")
+    shown = re.search(r"«([^»]*)»", str(finding.get("message") or ""))
+    return finding.get("slide_id"), shown.group(1) if shown else finding.get("message")
 
 
 def below_floor(run_dir: Path) -> int | None:
@@ -216,6 +273,10 @@ def load_report(run_dir: Path) -> dict[str, Any]:
     raise FileNotFoundError(f"{run_dir}: нет ни out/run.json, ни run.json")
 
 
+def _cell(value: int | None) -> str:
+    return "—" if value is None else str(value)
+
+
 def table(decks: list[DeckMetrics]) -> str:
     """Таблица приёмки: строки плана Б, колонка на колоду."""
     head = "| # | Метрика | " + " | ".join(d.run_id for d in decks) + " |"
@@ -250,6 +311,9 @@ def table(decks: list[DeckMetrics]) -> str:
         row("6", "Обрезка или снятие текста кодом", [str(d.cut_by_code) for d in decks]),
         row("7", "Блоков ниже порога читаемости",
             ["—" if d.below_floor is None else str(d.below_floor) for d in decks]),
+        row("6б", "Текстов, оборванных посреди слова", [_cell(d.word_cuts) for d in decks]),
+        row("8", "Выдуманных чисел на слайдах", [_cell(d.invented_numbers) for d in decks]),
+        row("9", "Слайдов, потерявших содержание", [_cell(d.lost_slides) for d in decks]),
     ]
     by_seats = sum(d.by_seats for d in decks)
     with_example = sum(d.with_example for d in decks)
