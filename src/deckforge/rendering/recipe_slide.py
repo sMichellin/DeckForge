@@ -414,15 +414,23 @@ def _fill_by_passport(
         filled.add(zone.zone_id)
 
     tree = _shapes_tree(slide)
-    kept: set[str] = set()
+    kept = {group.group_id for group in passport.groups if _stays(group, filled)}
+    # Фигура остающейся группы не снимается, даже если её адрес есть и у уходящей: паспорт
+    # обязан держать фигуру ровно в одной группе, но на Education `ex045` фигура 1001 —
+    # и картинка, и декор карточки g03 (инвариант — change A по паспорту). Писатель не
+    # снимает то, что сам же решил оставить (change `the-author-picture-stays`).
+    staying = {
+        xml_id
+        for group in passport.groups if group.group_id in kept
+        for xml_id in _group_xml_ids(group, zones)
+    }
     for group in passport.groups:
-        titled = any(place.role is TypeLevel.SLIDE_TITLE for place in group.places)
-        if titled or any(place.zone_id in filled for place in group.places):
+        if group.group_id in kept:
             _drop_empty_places(group, filled, zones, shapes)
-            kept.add(group.group_id)
             continue
         for xml_id in _group_xml_ids(group, zones):
-            _remove(_node(tree, shapes, xml_id))
+            if xml_id not in staying:
+                _remove(_node(tree, shapes, xml_id))
     if design is not None:
         boxes = {node: box for node, box in _placed(tree) if box is not None}
         color_map = parse_color_map(slide.slide_layout.slide_master.part.blob)
@@ -534,6 +542,20 @@ def _raise_to_floor(shape: Any, zone: Zone, design: DesignRules) -> None:
                           design.reading_floor_pt)
         if step is not None:
             props.set("sz", size_hundredths(step))
+
+
+def _stays(group: PlaceGroup, filled: set[str]) -> bool:
+    """Группа остаётся: в ней наш текст, заголовок слайда или она — иллюстрация автора.
+
+    Группа из одних картинок (`build_passport` кладёт так `recipe.picture_xml_id`) — иллюстрация
+    автора: ассет в рецептный слайд писатель не ставит, заполнять её нечем, и «незаполненной»
+    она не бывает. Остаётся, как на пути `legacy` (change `the-author-picture-stays`). Картинка
+    в карточке с текстовыми местами уходит вместе с незаполненной карточкой.
+    """
+    if all(place.kind is PlaceKind.PICTURE for place in group.places):
+        return True
+    titled = any(place.role is TypeLevel.SLIDE_TITLE for place in group.places)
+    return titled or any(place.zone_id in filled for place in group.places)
 
 
 def _group_xml_ids(group: PlaceGroup, zones: dict[str, Zone]) -> list[int]:
