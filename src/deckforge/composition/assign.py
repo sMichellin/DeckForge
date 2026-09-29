@@ -19,7 +19,11 @@ from hashlib import sha256
 
 from pydantic import Field
 
-from deckforge.composition.recipe_picker import INTENT_KINDS, RELATED_KINDS
+from deckforge.composition.recipe_picker import (
+    INTENT_KINDS,
+    RELATED_KINDS,
+    on_title_layout,
+)
 from deckforge.designsystem.models import DesignSystem, ExamplePassport, Recipe, RecipeKind
 from deckforge.designsystem.recipes import kind_for_visual
 from deckforge.domain.base import DomainModel
@@ -110,12 +114,6 @@ def _tie(seed: int, slide_id: str, recipe_id: str) -> str:
     return sha256(f"{seed}:{slide_id}:{recipe_id}".encode()).hexdigest()
 
 
-def _structural_last(recipe: Recipe) -> int:
-    """Пример со структурного макета достаётся содержательному слайду последним (Т8)."""
-    name = (recipe.layout_name or "").casefold()
-    return 1 if any(word in name for word in ("титул", "раздел", "финал", "title")) else 0
-
-
 def _pick(
     slide: SlidePlan,
     kinds: tuple[RecipeKind, ...],
@@ -140,7 +138,12 @@ def _pick(
         return min(
             same,
             key=lambda recipe: (
-                0 if structural else _structural_last(recipe),
+                #: Т8: содержательному слайду пример с макета титула, раздела или финала
+                #: достаётся последним. Вид макета по имени берётся из словаря
+                #: `configs/layout_names.yaml` (`on_title_layout`), а не из слов в коде:
+                #: своими словами стандартное «Title and Content» считалось титулом,
+                #: а словарь ставит «контент» раньше «титула» и зовёт его содержательным.
+                0 if structural else int(on_title_layout(recipe)),
                 _row_penalty(recipe, points),
                 used.get(recipe.recipe_id, 0),
                 _tie(seed, slide.slide_id, recipe.recipe_id),

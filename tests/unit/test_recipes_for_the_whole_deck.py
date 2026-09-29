@@ -295,6 +295,23 @@ def test_an_example_from_a_structural_layout_is_taken_last() -> None:
     assert out[0].recipe_id == "ex02"
 
 
+def test_a_standard_title_and_content_layout_is_not_a_title() -> None:
+    """Нарушитель: стандартное «Title and Content» — содержательный макет, а не титул.
+
+    Вид макета по имени берётся из словаря Т8 (`configs/layout_names.yaml`), где «контент»
+    стоит раньше «титула». Своими словами в коде этот макет считался титульным, и примеры
+    самого ходового макета PowerPoint уходили в конец очереди (замечание тимлида к #248).
+    """
+    ds = design_system(
+        recipe("ex01", RecipeKind.TEXT, layout_name="Title and Content"),
+        recipe("ex02", RecipeKind.TEXT, layout_name="Титульный слайд"),
+    )
+
+    out = assign(deck(slide("s01", points=1)), ds)
+
+    assert out[0].recipe_id == "ex01", "стандартный макет содержания не должен уходить в конец"
+
+
 # --- мерило change: строки приёмки 1 и 2 на фикстурах 28.09 -----------------------
 
 
