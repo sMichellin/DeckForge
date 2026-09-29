@@ -2,6 +2,8 @@
 PODMAN ?= podman
 COMPOSE ?= podman compose -f docker/compose.yaml
 IMAGE ?= localhost/deckforge:dev
+PLAYWRIGHT_VERSION ?= 1.49.0
+PLAYWRIGHT_IMAGE ?= mcr.microsoft.com/playwright/python:v$(PLAYWRIGHT_VERSION)-noble
 RUN = $(PODMAN) run --rm -v $(CURDIR):/app:z -w /app -e PYTHONPATH=/app/src $(IMAGE)
 
 .PHONY: help image test lint typecheck gates schemas checks up down logs shell clean warm-cache
@@ -42,6 +44,12 @@ gates: ## CI-гейты: C1/C2 (лицензии), C6 (константы шаб
 	$(RUN) python scripts/lint_no_template_constants.py
 	$(RUN) python scripts/lint_skill_contracts.py
 	$(RUN) python scripts/lint_spec_coverage.py
+
+ui-e2e: ## Прогон через UI в образе Playwright: make ui-e2e URL=… TEMPLATE=… CONTENT=… NAME=…
+	$(PODMAN) run --rm -v $(CURDIR):/app:z -w /app \
+		-v $(abspath $(TEMPLATE)):/in/$(notdir $(TEMPLATE)):ro,z -v $(abspath $(CONTENT)):/in/$(notdir $(CONTENT)):ro,z \
+		$(PLAYWRIGHT_IMAGE) sh -c 'pip install -q playwright==$(PLAYWRIGHT_VERSION) >/dev/null 2>&1; \
+		python scripts/ui_e2e.py $(URL) /in/$(notdir $(TEMPLATE)) /in/$(notdir $(CONTENT)) --name $(or $(NAME),run)'
 
 spec-coverage: ## Одно предложение против спецификации: make spec-coverage CHANGE=<имя>
 	$(RUN) python scripts/lint_spec_coverage.py --only $(CHANGE)
