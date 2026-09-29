@@ -39,10 +39,10 @@ PR #3 и #4 смержены, в `main` есть:
 | `src/deckforge/planning/**`, `composition/**` | A | |
 | `prompts/{deck_planner,slide_composer,headline_writer,visual_selector}/**` | A | |
 | `src/deckforge/designsystem/**` | A | каталог рецептов `recipes.py`, `usage.py` (slide-recipes) |
-| `src/deckforge/layout/**` | B | 29.09 вечером возвращено потоку B (§2б) |
-| `src/deckforge/rendering/{writer,theme_binding,images,charts,tables,smartart,icons}.py` | B | `soffice.py`, `layout_deck.py`, `layout_preview.py` — **не трогать**, они из change 6 |
-| `src/deckforge/rendering/recipe_slide.py` | B | копирование слайда-примера (slide-recipes); возвращено B (§2б) |
-| `src/deckforge/export/**`, `assets/icons/**` | B | возвращено B (§2б) |
+| `src/deckforge/layout/**` | A | 29.09 23:15 окончательно у A (§2в) |
+| `src/deckforge/rendering/{writer,theme_binding,images,charts,tables,smartart,icons}.py` | A | `soffice.py`, `layout_deck.py`, `layout_preview.py` — **не трогать**, они из change 6 |
+| `src/deckforge/rendering/recipe_slide.py` | A | копирование слайда-примера (slide-recipes); у A (§2в) |
+| `src/deckforge/export/**`, `assets/icons/**` | A | у A (§2в) |
 | `src/deckforge/audit/**` | C | кроме `audit/preview.py` — он из change 6 |
 | `configs/audit_checks.yaml`, `AUDIT.md` | C | |
 | `src/deckforge/api/**`, `frontend/**` | C | |
@@ -90,6 +90,21 @@ PR #3 и #4 смержены, в `main` есть:
 * У A остаются задачи композиции (К2, К3) — `composition/**`, `prompts/**`, issue #243.
 * Условие возврата — §7 без исключений: **мержит только тимлид**, и каждый PR, меняющий
   колоду, до мержа проходит живой прогон или пересборку без модели (`deckforge rebuild`).
+
+### 2в. Зона вёрстки окончательно у потока A (29.09, 23:15)
+
+Решение владельца, 29.09. После возврата зоны потоку B (§2б) в ней не появилось ни одного
+коммита потока B; B1 (#289) и B3 (#290) сделал и довёл до мержа поток A, B2 он взял в работу.
+Дефекты вёрстки видны на каждой колоде, а до сдачи — часы.
+
+* Матрица выше отражает передачу: `layout/**`, `rendering/{writer,recipe_slide,…}.py`,
+  `export/**`, `assets/icons/**` — поток **A**.
+* Задачи вёрстки круга 3 — у A, issue #243: **B2** `the-plate-with-alpha-is-judged` (в работе),
+  **B5** `an-empty-picture-is-removed` (серый пустой круг вместо картинки), **B6** декор снятых групп
+  остаётся (WorkSpace s08, `ex022`), **B4** `the-diagram-reads-on-its-fill`.
+* Поток B в эти файлы больше не пишет. Начатое им, если появится, — только запросом тимлиду.
+* Условие §7 прежнее: мержит только тимлид; каждый PR, меняющий колоду, — живой прогон
+  или `deckforge rebuild` до мержа.
 
 ---
 
