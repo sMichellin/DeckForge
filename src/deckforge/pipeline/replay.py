@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import gzip
 import json
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -185,3 +186,59 @@ async def reaudit(
         design_system=snapshot.design_system,
     )
     return Reaudit(report=report, skipped_checks=list(runner.skipped_checks))
+
+
+# --- пересборка без модели (change `the-deck-is-rebuilt-without-a-model`) --------------------
+
+#: Узел, с которого пересборка идёт заново: всё до него — план, назначения, текст слайдов —
+#: берётся из чекпойнта готового прогона, всё после — вписывание, запись, аудит, фиксы,
+#: экспорт — считается текущим кодом. Ни одному из этих узлов модель не нужна.
+REBUILD_FROM = "fit"
+
+
+async def _rebuild(checkpoint: Path, run_id: str, variant: str, deps: Any) -> dict[str, Any]:
+    from deckforge.pipeline.graph import build_graph
+    from deckforge.pipeline.run import open_checkpointer, thread_id
+
+    async with open_checkpointer(checkpoint) as saver:
+        graph = build_graph(checkpointer=saver)
+        config = {"configurable": {"thread_id": thread_id(run_id, variant)}}
+        start = None
+        async for state in graph.aget_state_history(config):
+            if state.next == (REBUILD_FROM,):
+                start = state
+                break
+        if start is None:
+            raise ReplayError(
+                f"{checkpoint}: в истории нити {thread_id(run_id, variant)} нет точки перед "
+                f"`{REBUILD_FROM}` — прогон не дошёл до композиции"
+            )
+        final: dict[str, Any] = await graph.ainvoke(None, start.config, context=deps)
+    return final
+
+
+def rebuild(run_dir: Path, out_dir: Path, deps: Any, *, variant: str = "A") -> Any:
+    """Колода заново без модели: текст из чекпойнта, вёрстка и аудит — текущим кодом.
+
+    Правка вписывания, писателя, экспорта или аудита меряется на настоящей колоде за десятки
+    секунд, а не за 2–3 минуты живого прогона и без очереди к модели. Правку композиции так
+    не проверить: текст слайдов берётся готовым.
+
+    Чекпойнт копируется в `out_dir`, исходный прогон не трогается. Раскладка `out_dir` —
+    как у прогона стенда (`checkpoint.sqlite`, `out/run.json`, `out/deck.pptx`), поэтому
+    мерило плана Б, `deckforge audit` и `from_checkpoint` читают её как любой прогон.
+    `deps` — без модели: `llm` и `vlm` пусты, смысловой аудит не идёт и назван пропущенным.
+    """
+    from deckforge.pipeline.run import RunResult
+
+    source = run_dir / CHECKPOINT_NAME
+    if not source.is_file():
+        raise ReplayError(f"{run_dir}: нет {CHECKPOINT_NAME} — пересобирать не из чего")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint = out_dir / CHECKPOINT_NAME
+    shutil.copyfile(source, checkpoint)
+    run_id = _run_id_of(run_dir)
+    final = asyncio.run(_rebuild(checkpoint, run_id, variant, deps))
+    result = RunResult(variant=variant, run_id=run_id, out_dir=deps.out_dir, state=final)  # type: ignore[arg-type]
+    result.write_report()
+    return result
