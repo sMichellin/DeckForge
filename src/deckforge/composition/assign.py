@@ -19,7 +19,7 @@ from hashlib import sha256
 
 from pydantic import Field
 
-from deckforge.composition.passport import sample
+from deckforge.composition.passport import COVER_TITLE_LEVELS, TITLE_LEVELS, sample
 from deckforge.composition.recipe_picker import (
     INTENT_KINDS,
     RELATED_KINDS,
@@ -28,6 +28,7 @@ from deckforge.composition.recipe_picker import (
 from deckforge.designsystem.models import (
     DesignSystem,
     ExamplePassport,
+    Place,
     PlaceKind,
     Recipe,
     RecipeKind,
@@ -127,6 +128,45 @@ def _row_penalty(recipe: Recipe, points: int) -> int:
     return (points - best) * 2 if best < points else best - points
 
 
+def title_place(recipe: Recipe) -> Place | None:
+    """Место примера, в которое встанет заголовок слайда: самое просторное своей ступени.
+
+    Ступени — те же, что у паспорта (`passport.TITLE_LEVELS`): на обложке заголовок
+    законно набран кеглем `display`, на остальных видах `display` — крупное число.
+    """
+    if recipe.passport is None:
+        return None
+    levels = COVER_TITLE_LEVELS if recipe.kind is RecipeKind.COVER else TITLE_LEVELS
+    titles = [place for place in recipe.passport.places if place.role in levels]
+    return max(titles, key=lambda place: place.capacity_chars, default=None)
+
+
+def _body_places(recipe: Recipe, heading: Place | None) -> list[Place]:
+    """Места примера под текст, кроме заголовка: туда встают факты слайда."""
+    if recipe.passport is None:
+        return []
+    return [
+        place
+        for place in recipe.passport.places
+        if place is not heading
+        and place.kind is PlaceKind.TEXT
+    ]
+
+
+def holds_the_slide(recipe: Recipe, slide: SlidePlan) -> bool:
+    """Держит ли пример то, что слайду нести: заголовок целиком и факты (К3, круг 2).
+
+    Заголовок утверждён планировщиком, и место, которое держит его наполовину, даёт
+    не заголовок, а обрубок: обложка WorkSpace `ex014` — 23 знака при заголовке в 61.
+    Факты требуют своего места: у того же `ex014` других текстовых мест нет вовсе,
+    и два факта финала просто некуда было положить (`integrity.content_lost`).
+    """
+    heading = title_place(recipe)
+    if heading is None or heading.capacity_chars < len(slide.headline):
+        return False
+    return not slide.fact_refs or bool(_body_places(recipe, heading))
+
+
 def _for_prose(recipe: Recipe) -> bool:
     """Держит ли пример прозу или он весь из чисел и подписей (К4, круг 2 плана Б).
 
@@ -166,6 +206,7 @@ def _pick(
     previous: str | None,
     seed: int,
     structural: bool,
+    by_places: bool = True,
 ) -> Recipe | None:
     points = _points(slide)
     for kind in kinds:
@@ -181,6 +222,7 @@ def _pick(
             and recipe.recipe_id != previous
             and used.get(recipe.recipe_id, 0) < MAX_USES
             and (not prose or _for_prose(recipe))
+            and (not by_places or holds_the_slide(recipe, slide))
         ]
         if not same:
             continue
@@ -234,12 +276,31 @@ def assign_recipes(plan: DeckPlan, ds: DesignSystem, *, seed: int) -> list[Recip
             previous=previous,
             seed=seed,
             structural=structural,
+            # Отбор по местам — для структурного слайда (К3, круг 2). Содержательному
+            # его ставить нельзя: замер по фикстурам показал, что место заголовка
+            # содержательных примеров держит заголовок редко, и слайдов с примером
+            # осталось бы 2 из 8 вместо 8 — правило остановки круга 2 такое откатывает.
+            by_places=structural,
         )
         if chosen is None:
+            # Пример был, но не держит заголовок или факты (К3): это другая причина,
+            # чем «вида нет вовсе», и в отчёте она обязана читаться по-другому.
+            blocked = structural and _pick(
+                slide,
+                tuple(kind for kind in kinds if kind is not None),
+                catalogue,
+                used=used,
+                previous=previous,
+                seed=seed,
+                structural=structural,
+                by_places=False,
+            )
             out.append(
                 RecipeAssignment(
                     slide_id=slide.slide_id,
-                    reason=_no_example_reason(slide, structural, kinds),
+                    reason=_by_places_reason(slide, blocked)
+                    if blocked
+                    else _no_example_reason(slide, structural, kinds),
                 )
             )
             previous = None
@@ -274,6 +335,22 @@ def _chosen_reason(
     return (
         f"заказ плана «{order}», пунктов {_points(slide)}: "
         f"пример вида «{chosen.kind.value}»{shape}"
+    )
+
+
+def _by_places_reason(slide: SlidePlan, blocked: Recipe) -> str:
+    """Почему структурному слайду не достался пример, который подходил по виду (К3)."""
+    heading = title_place(blocked)
+    held = heading.capacity_chars if heading is not None else 0
+    if held < len(slide.headline):
+        return (
+            f"пример {blocked.recipe_id} вида «{blocked.kind.value}» держит в заголовке "
+            f"{held} знаков, а заголовок слайда — {len(slide.headline)}: "
+            "слайд собирается дизайн-системой"
+        )
+    return (
+        f"у примера {blocked.recipe_id} вида «{blocked.kind.value}» нет места под текст, "
+        f"а план дал слайду фактов {len(slide.fact_refs)}: слайд собирается дизайн-системой"
     )
 
 

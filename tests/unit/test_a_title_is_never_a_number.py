@@ -231,15 +231,19 @@ def test_a_structural_slide_keeps_its_short_example() -> None:
 
 
 @pytest.mark.parametrize(
-    ("name", "with_example"), [("education", 7), ("vk-tech", 6), ("workspace", 10)]
+    ("name", "with_example"), [("education", 5), ("vk-tech", 4), ("workspace", 8)]
 )
 def test_no_title_place_is_a_number_and_row_one_holds(name: str, with_example: int) -> None:
     """Мерило change на прогонах 28.09: заголовков-чисел нет, а слайдов с примером не меньше.
 
     «До»: мест ступени `slide_title` с видом «число» — 4 у WorkSpace, 9 у Education,
-    0 у VK Tech; слайдов с примером — 10, 7 и 6. Правило «пример не для прозы» снимает
-    `ex052` (шкала Ганта) и `ex027` (номера карточек) с содержательных слайдов VK Tech,
-    и на их место встают примеры с местами под прозу — число слайдов с примером то же.
+    0 у VK Tech; **содержательных** слайдов с примером — 8, 4 и 5. Правило «пример
+    не для прозы» снимает `ex052` (шкала Ганта) и `ex027` (номера карточек)
+    с содержательных слайдов VK Tech, и на их место встают примеры с местами под прозу —
+    число слайдов с примером то же.
+
+    Считаются содержательные слайды: строка 1 приёмки — про них. Структурные с круга 2
+    отбираются по местам (`the-cover-holds-its-facts`), и их счёт живёт в тесте того change.
     """
     run = from_fixture(FIXTURES / name)
     ds, _report = with_passports(run.design_system, run.manifest, FontLibrary.default())
@@ -253,5 +257,9 @@ def test_no_title_place_is_a_number_and_row_one_holds(name: str, with_example: i
     ]
     out = assign_recipes(run.plan, ds, seed=run.plan.seed)
 
+    structural = {"title", "section", "closing"}
+    intents = {slide.slide_id: slide.intent.value for slide in run.plan.slides}
+    content = [item for item in out if intents[item.slide_id] not in structural]
+
     assert numbered == [], "место заголовка слайда числом не бывает"
-    assert sum(1 for item in out if item.recipe_id) == with_example, "строка 1 не просела"
+    assert sum(1 for item in content if item.recipe_id) == with_example, "строка 1 не просела"
