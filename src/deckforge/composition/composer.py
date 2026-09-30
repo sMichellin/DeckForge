@@ -197,6 +197,23 @@ def _why_not_free(block: Block, layout: LayoutSpec) -> str:
     )
 
 
+def _is_title(block: Block) -> bool:
+    """Заголовок слайда — текстовый блок роли «заголовок»."""
+    return isinstance(block, TextBlock) and block.role is TextRole.TITLE
+
+
+def _down_to(box: BBox, content: BBox) -> BBox:
+    """Рамка заголовка вместе с полосой над ней: от верха области контента до её низа.
+
+    Щель между верхом области и рамкой заголовка — не свободное место, а воздух над
+    заголовком. Решатель без этого ставил туда выноску и схему (Education s02 и s08),
+    и они выходили выше заголовка слайда.
+    """
+    if box.y <= content.y:
+        return box
+    return BBox(x=box.x, y=content.y, cx=box.cx, cy=box.bottom - content.y)
+
+
 def _slot_lines(layout: LayoutSpec, manifest: TemplateManifest) -> dict[int, int]:
     """Сколько строк вмещает каждое место под текст — в самом мелком кегле шкалы.
 
@@ -984,6 +1001,13 @@ class SlideComposer:
 
         Промежуток между свободными блоками — шаг шкалы отступов дизайн-системы (DG3):
         чему кратен отступ, решает она, а не решатель.
+
+        Полоса над заголовком считается занятой самим заголовком (К5, круг 2). Между
+        верхом области контента и рамкой заголовка у шаблонов остаётся щель — у Education
+        это 5,2 мм на всю ширину слайда, — и решатель честно считал её свободной:
+        на s02 туда встала выноска, на s08 — схема, и обе оказались **над** заголовком
+        слайда. Место над заголовком принадлежит заголовку: слайд читается сверху вниз,
+        и первым должен стоять он.
         """
         content = manifest.content_bbox
         rules = rules if rules is not None else DesignRules(manifest)
@@ -998,6 +1022,8 @@ class SlideComposer:
                 # заголовок VK WorkSpace шире полей шаблона, проверка «целиком внутри»
                 # его не видела, и свободный текст ложился прямо на него.
                 box = clip(placeholder.bbox, content) if placeholder is not None else None
+                if box is not None and _is_title(block):
+                    box = _down_to(box, content)
                 if box is not None:
                     fixed.append((block.block_id, box))
             elif block.bbox is not None and (box := clip(block.bbox, content)) is not None:
