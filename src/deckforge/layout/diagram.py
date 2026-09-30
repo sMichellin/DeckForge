@@ -117,17 +117,24 @@ def diagram_geometry(
     count: int,
     box: BBox,
     component: Component | None = None,
+    *,
+    columns: int | None = None,
 ) -> Diagram:
     """Геометрия составного компонента.
 
     `component` — плитка, которую рисует сам шаблон (DS3). Когда она есть, пропорции
     и зазор берутся у неё: плитки получаются в пропорциях автора шаблона, а не в наших
     (DS4). Нет компонента — раскладка прежняя.
+
+    `columns` — сколько шагов процесса ставить в ряд. Не задано — все в один ряд, как
+    было: прежний путь закреплён эталонами XML (`tests/fixtures/no-example-goes-by-design`)
+    и меняться не должен. Считает это число вписывание (`fitting.process_columns`), потому
+    что зависит оно от длины слова и кегля, а не от одной геометрии.
     """
     if count < 1:
         raise LayoutFitError("в составном компоненте нет элементов")
     if pattern is SmartArtPattern.PROCESS:
-        return _process(count, box)
+        return _process(count, box, columns)
     if pattern is SmartArtPattern.TIMELINE:
         return _timeline(count, box)
     if pattern is SmartArtPattern.CYCLE:
@@ -141,24 +148,44 @@ def diagram_geometry(
     raise LayoutFitError(f"паттерн {pattern} не поддерживается составными компонентами")
 
 
-def _process(count: int, box: BBox) -> Diagram:
-    width = box.cx / (count + (count - 1) * _PROCESS_GAP)
+def _process(count: int, box: BBox, columns: int | None = None) -> Diagram:
+    """Шаги процесса. `columns` не задан — все в один ряд, как на прежнем пути."""
+    columns = count if columns is None else max(1, min(columns, count))
+    rows = -(-count // columns)
+    width = box.cx / (columns + (columns - 1) * _PROCESS_GAP)
     gap = width * _PROCESS_GAP
     # Карточка не выше своей ширины, а ряд стоит по середине рамки: решатель отдаёт
     # блоку всю свободную площадь слайда, и растянутая на неё карточка — не шаг, а столб.
-    height = min(box.cy, max(1, int(width * _PROCESS_NODE_ASPECT)))
-    top = box.y + (box.cy - height) // 2
+    if rows == 1:
+        height = min(box.cy, max(1, int(width * _PROCESS_NODE_ASPECT)))
+    else:
+        band = (box.cy - (rows - 1) * gap) / rows
+        height = max(1, int(min(band, width * _PROCESS_NODE_ASPECT)))
+    top = box.y + (box.cy - (rows * height + int((rows - 1) * gap))) // 2
     nodes = tuple(
-        BBox(x=box.x + int(i * (width + gap)), y=top, cx=max(1, int(width)), cy=height)
-        for i in range(count)
+        BBox(
+            x=box.x + int((index % columns) * (width + gap)),
+            y=top + int((index // columns) * (height + gap)),
+            cx=max(1, int(width)),
+            cy=height,
+        )
+        for index in range(count)
     )
     labels = tuple(_inset(node, round(min(node.cx, node.cy) * _ROUND_RECT_TEXT_INSET))
                    for node in nodes)
     margin = round(gap * _PROCESS_LINK_MARGIN)
+    # Одна строка — стрелка по середине рамки, как было (эталон прежнего пути);
+    # несколько — по середине самих шагов, и через перенос ряда стрелки нет.
     middle = box.y + box.cy // 2
     links = tuple(
-        Link(a.right + margin, middle, b.x - margin, middle)
-        for a, b in pairwise(nodes)
+        Link(
+            a.right + margin,
+            middle if rows == 1 else a.y + a.cy // 2,
+            b.x - margin,
+            middle if rows == 1 else b.y + b.cy // 2,
+        )
+        for index, (a, b) in enumerate(pairwise(nodes))
+        if (index + 1) % columns
     )
     return Diagram(nodes=nodes, labels=labels, links=links, arrows=True, round_nodes=False,
                    text_inside=True)

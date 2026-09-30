@@ -17,13 +17,15 @@ from pptx.oxml.ns import nsdecls, qn
 from pptx.util import Emu, Pt
 
 from deckforge.domain.base import BBox
-from deckforge.domain.enums import ColorRef, TextRole
+from deckforge.domain.enums import ColorRef, SmartArtPattern, TextRole
 from deckforge.domain.rules import contrast_ratio
 from deckforge.domain.slide import SmartArtBlock
 from deckforge.domain.template import ComponentKind, TemplateManifest
 from deckforge.domain.units import EMU_PER_PT
 from deckforge.layout.by_design import DesignRules
 from deckforge.layout.diagram import diagram_geometry
+from deckforge.layout.fitting import process_columns
+from deckforge.layout.fonts import FontLibrary
 from deckforge.layout.nonbreaking import bind as nonbreaking
 from deckforge.rendering.theme_binding import apply_theme_color, theme_font_token
 
@@ -55,17 +57,27 @@ def add_smartart(
     text_color: ColorRef | None,
     design: DesignRules | None = None,
     fill: ColorRef = ColorRef.ACCENT1,
+    by_example: bool = False,
+    fonts: FontLibrary | None = None,
 ) -> object:
     """Группа фигур компонента. `text_color` — цвет свободного текста макета: им подписаны
     элементы шкалы времени и нарисованы коннекторы, потому что они лежат на фоне слайда.
 
     `design` — плитка из каталога дизайн-системы (та же, что у вписывания), `fill` —
-    заливка узлов, когда IR слотов не назвал."""
+    заливка узлов, когда IR слотов не назвал. `by_example` — путь сборки по примерам:
+    на нём шаги процесса переносятся в несколько рядов, если рамка узкая."""
     box = block.bbox
     if box is None:
         raise ValueError(f"компонент {block.block_id} без координат")
     tile = design.tile() if design is not None else manifest.component(ComponentKind.TILE)
-    geometry = diagram_geometry(block.pattern, len(block.items), box, tile)
+    # Та же геометрия, которую померило вписывание: число шагов в ряду считается тем же
+    # `process_columns`, иначе писатель нарисовал бы схему не там, где её мерили (К5).
+    columns = (
+        process_columns(block.items, box, manifest, tile=tile, fonts=fonts)
+        if by_example and block.pattern is SmartArtPattern.PROCESS
+        else None
+    )
+    geometry = diagram_geometry(block.pattern, len(block.items), box, tile, columns=columns)
     body = manifest.typography(TextRole.BODY)
     on_background = text_color or (body.color_ref if body else None) or ColorRef.DK1
     font_token = theme_font_token(body.font_ref) if body else None

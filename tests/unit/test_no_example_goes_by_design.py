@@ -220,16 +220,30 @@ def test_every_kind_without_example_keeps_its_own_object(tmp_path: Path, block_i
 
 
 @pytest.mark.parametrize(("block_id", "native"), [
-    ("sa-long", 'name="Компонент process"'),
     ("table-long", "<a:tbl>"),
 ])
 def test_overflow_is_named_not_flattened(tmp_path: Path, block_id: str, native: str) -> None:
-    """Не влезшая схема или таблица остаётся своим видом, переполнение названо: прежний путь
-    сплющивал схему в буллеты, а длинную таблицу снимал отказом записи всей колоды."""
+    """Не влезшая таблица остаётся своим видом, переполнение названо: прежний путь
+    снимал длинную таблицу отказом записи всей колоды."""
     writer, xml = by_example(tmp_path, block_id)
     assert flattened_or_dropped(writer) == []
     assert native in xml
     assert any("переполнен" in d for d in writer.degradations)
+
+
+def test_a_long_process_now_fits_by_wrapping_its_rows(tmp_path: Path) -> None:
+    """Длинный процесс больше не переполняет рамку: шаги переносятся в несколько рядов.
+
+    Было (change 5б): восемь шагов в один ряд не влезали, схема оставалась схемой,
+    а переполнение называлось заметкой. Стало (круг 2, К5,
+    change `a-node-never-breaks-a-word`): число шагов в ряду выбирается так, чтобы слово
+    вставало в узел целиком, и схема влезает — называть нечего.
+    """
+    writer, xml = by_example(tmp_path, "sa-long")
+
+    assert flattened_or_dropped(writer) == []
+    assert 'name="Компонент process"' in xml
+    assert not [d for d in writer.degradations if "переполнен" in d]
 
 
 def test_fitting_measures_every_pattern_only_on_the_by_example_path(tmp_path: Path) -> None:

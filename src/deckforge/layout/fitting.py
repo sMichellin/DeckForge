@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from functools import partial
 from typing import Any
@@ -20,7 +20,7 @@ from typing import Any
 from deckforge.designsystem.models import Zone
 from deckforge.domain.base import BBox
 from deckforge.domain.content import ContentPackage, Dataset
-from deckforge.domain.enums import TextRole
+from deckforge.domain.enums import SmartArtPattern, TextRole
 from deckforge.domain.rules import next_size_down, next_size_up
 from deckforge.domain.slide import (
     BulletsBlock,
@@ -42,7 +42,12 @@ from deckforge.domain.template import (
 from deckforge.domain.units import EMU_PER_PT, TEXT_FRAME_INSET_Y_EMU
 from deckforge.layout.boxed import BoxedBlock, paragraphs, style_of, text_frame
 from deckforge.layout.by_design import READING_FLOOR_PT, DesignRules, KpiSizes
-from deckforge.layout.diagram import buildable_patterns, diagram_geometry
+from deckforge.layout.diagram import (
+    Component,
+    buildable_patterns,
+    diagram_geometry,
+    goes_by_design,
+)
 from deckforge.layout.errors import LayoutFitError
 from deckforge.layout.fonts import FontLibrary
 from deckforge.layout.lists import draws_icons, icon_column, icon_text_frame
@@ -496,6 +501,43 @@ def _grown_kpi(
     return best
 
 
+def process_columns(
+    items: Sequence[str],
+    box: BBox,
+    manifest: TemplateManifest,
+    *,
+    tile: Component | None = None,
+    fonts: FontLibrary | None = None,
+) -> int:
+    """Сколько шагов процесса ставить в ряд, чтобы слово не рвалось по слогам (К5, круг 2).
+
+    Самое большое число, при котором **самое длинное слово** каждой подписи встаёт в узел
+    кеглем тела: строка шаблона в один ряд бывает такой узкой, что слово не влезает и на
+    пороге читаемости. Education s07, прогон 29.09 — четыре шага в колонке 13 см: узлы по
+    2,8 см, и «документов» рвётся на «докум ентов». Два ряда дают 5,8 см, один столбец —
+    13 см, и слово встаёт целиком.
+
+    Кегль тела, а не порог: лестница шаблона бывает короткой (у Education она кончается
+    на 18 pt), и спускаться вписыванию некуда. Ни одно число не подошло — берётся один
+    столбец: шире узла не бывает.
+    """
+    step = _step_for(TextRole.BODY, manifest)
+    font = _font_of(step, manifest)
+    count = len(items)
+    for columns in range(count, 0, -1):
+        labels = diagram_geometry(
+            SmartArtPattern.PROCESS, count, box, tile, columns=columns
+        ).labels
+        if all(
+            measure_text(word, font_family=font, size_pt=step.size_pt, box=label,
+                         bold=step.bold, fonts=fonts).lines <= 1
+            for text, label in zip(items, labels, strict=True)
+            for word in text.split()
+        ):
+            return columns
+    return 1
+
+
 def fit_smartart(
     block: SmartArtBlock,
     box: BBox,
@@ -503,6 +545,7 @@ def fit_smartart(
     *,
     fonts: FontLibrary | None = None,
     design: DesignRules | None = None,
+    by_example: bool = False,
 ) -> FitResult:
     """Все подписи компонента одним кеглем: от `body` вниз по шкале, пока каждая не влезет
     в свою рамку из `diagram_geometry`. Разный кегль у соседних шагов выглядит ошибкой.
@@ -515,11 +558,22 @@ def fit_smartart(
     было: запись pptx и html берут её из того же места, иначе рамки подписей разошлись бы.
 
     Ниже порога читаемости (RG35) подписи не спускаются: не влезли — переполнение, и узел
-    `fit` пишет схему списком тех же пунктов."""
+    `fit` пишет схему списком тех же пунктов.
+
+    `by_example` — путь сборки по примерам: на нём шаги процесса переносятся в несколько
+    рядов, если рамка узкая (`diagram.process_columns`). Мерится та же геометрия, которую
+    потом нарисует писатель: оба зовут `diagram_geometry` с одним и тем же путём."""
     step = _step_for(TextRole.BODY, manifest)
     font = _font_of(step, manifest)
     tile = design.tile() if design is not None else manifest.component(ComponentKind.TILE)
-    labels = diagram_geometry(block.pattern, len(block.items), box, tile).labels
+    columns = (
+        process_columns(block.items, box, manifest, tile=tile, fonts=fonts)
+        if by_example and block.pattern is SmartArtPattern.PROCESS
+        else None
+    )
+    labels = diagram_geometry(
+        block.pattern, len(block.items), box, tile, columns=columns
+    ).labels
     available = min(usable_height_emu(label) for label in labels)
 
     def measured(size_pt: float) -> tuple[bool, int, int]:
@@ -1048,7 +1102,10 @@ def fit_slide(
             if block.bbox is None:
                 raise LayoutFitError(f"блок {block.block_id}: smartart требует координат")
             report[block.block_id] = fit_smartart(
-                block, block.bbox, manifest, fonts=fonts, design=rules
+                block, block.bbox, manifest, fonts=fonts, design=rules,
+                # Перенос шагов в несколько рядов — только на пути по примерам: прежний
+                # закреплён эталонами XML и меняться не должен.
+                by_example=goes_by_design(slide, by_example=by_example),
             )
         elif isinstance(block, QuoteBlock | CalloutBlock):
             if block.bbox is None:

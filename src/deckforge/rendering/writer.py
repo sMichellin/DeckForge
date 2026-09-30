@@ -669,6 +669,8 @@ class PptxWriter:
                     text_color=text_color,
                     design=self.design,
                     fill=self.design.block_accent(background),
+                    by_example=goes_by_design(slide_ir, by_example=self.by_example),
+                    fonts=self.fonts,
                 )
             elif isinstance(block, IconBlock):
                 add_icon(slide, block, default=self.design.block_accent(background))
