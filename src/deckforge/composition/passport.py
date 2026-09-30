@@ -404,11 +404,48 @@ def build_passport(
             **_frame([picture] if picture is not None else []),
         ))
 
+    groups = _one_owner(groups)
+
     try:
         passport = ExamplePassport(groups=groups)
     except ValidationError as error:
         return f"паспорт не сложился: {error.errors()[0]['msg']}"
     return _trial_fill(recipe, passport, fits) or passport
+
+
+def _one_owner(groups: list[PlaceGroup]) -> list[PlaceGroup]:
+    """Фигура живёт ровно в одной группе: место сильнее декора, первая группа — сильнее.
+
+    Группа паспорта — это то, что уходит со слайда целиком (план Б, шаг 4). Пока одна
+    фигура записана в две группы, «уходит целиком» перестаёт быть правдой: у Education
+    `ex045` картинка `1001` была местом группы `g04` и декором заполненной карточки `g03`,
+    и снятие пустой `g04` уносило иллюстрацию заполненной карточки. Писатель от этого
+    защищён (#264), но защищаться ему приходится от паспорта, а не от шаблона.
+
+    Место сильнее декора, потому что место — это то, что мы заполняем или подменяем
+    (картинка), а декор — то, что просто уезжает вместе с группой. Между двумя декорами
+    выигрывает первая группа в порядке чтения: она и удалится первой.
+    """
+    owned = {
+        place.xml_id
+        for group in groups
+        for place in group.places
+        if place.xml_id is not None
+    }
+    taken: set[int] = set()
+    out: list[PlaceGroup] = []
+    for group in groups:
+        decor = [
+            xml_id
+            for xml_id in group.decor_xml_ids
+            if xml_id not in owned and xml_id not in taken
+        ]
+        taken.update(decor)
+        out.append(
+            group if decor == list(group.decor_xml_ids)
+            else group.model_copy(update={"decor_xml_ids": decor})
+        )
+    return out
 
 
 def _rows(groups: list[PlaceGroup], sizes: list[tuple[int, int] | None]) -> list[PlaceGroup]:
