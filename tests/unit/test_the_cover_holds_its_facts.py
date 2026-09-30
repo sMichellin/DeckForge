@@ -127,8 +127,12 @@ def test_a_short_title_place_loses_the_cover() -> None:
 
 
 def test_a_roomy_title_place_keeps_the_cover() -> None:
-    """Норма: место держит заголовок целиком — пример назначается."""
-    roomy = recipe_of("ex003", RecipeKind.COVER, title_chars=64)
+    """Норма: место держит заголовок целиком — пример назначается.
+
+    Место под строку у примера тоже есть: обложке она нужна всегда
+    (change `the-closing-says-the-next-step`).
+    """
+    roomy = recipe_of("ex003", RecipeKind.COVER, title_chars=64, body_chars=40)
     slide = cover("Итоги квартала")
 
     assert holds_the_slide(roomy, slide)
@@ -147,8 +151,14 @@ def test_the_roomiest_title_place_decides() -> None:
 def test_display_is_a_title_on_the_cover_only() -> None:
     """Норма и нарушитель: крупная строка — заголовок обложки, но не плитки показателей."""
     slide = cover("Итоги квартала")
-    on_cover = recipe_of("ex028", RecipeKind.COVER, title_chars=40, title_role=TypeLevel.DISPLAY)
-    on_tiles = recipe_of("ex019", RecipeKind.METRICS, title_chars=40, title_role=TypeLevel.DISPLAY)
+    on_cover = recipe_of(
+        "ex028", RecipeKind.COVER, title_chars=40, body_chars=40,
+        title_role=TypeLevel.DISPLAY,
+    )
+    on_tiles = recipe_of(
+        "ex019", RecipeKind.METRICS, title_chars=40, body_chars=40,
+        title_role=TypeLevel.DISPLAY,
+    )
 
     assert holds_the_slide(on_cover, slide)
     assert title_place(on_tiles) is None
@@ -169,13 +179,17 @@ def test_a_closing_with_facts_needs_a_place_for_them() -> None:
     assert "нет места под текст" in out[0].reason and "фактов 2" in out[0].reason
 
 
-def test_a_closing_without_facts_takes_the_bare_example() -> None:
-    """Норма: фактов план не дал — хватит и одного места под заголовок."""
-    bare = recipe_of("ex014", RecipeKind.FINAL, title_chars=40)
-    slide = closing("Спасибо")
+def test_a_section_without_facts_takes_the_bare_example() -> None:
+    """Норма: фактов план не дал — разделу хватит одного места под заголовок.
+
+    Финалу с этого change (`the-closing-says-the-next-step`) одного места мало:
+    строку следующего шага он берёт из брифа, а не из фактов плана.
+    """
+    bare = recipe_of("ex041", RecipeKind.SECTION, title_chars=40)
+    slide = SlidePlan(slide_id="s05", intent=SlideIntent.SECTION, headline="Часть вторая")
 
     assert holds_the_slide(bare, slide)
-    assert assign_recipes(deck(slide), design_system(bare), seed=1341)[0].recipe_id == "ex014"
+    assert assign_recipes(deck(slide), design_system(bare), seed=1341)[0].recipe_id == "ex041"
 
 
 def test_a_related_kind_is_taken_when_its_places_hold() -> None:

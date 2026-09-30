@@ -35,6 +35,7 @@ from deckforge.designsystem.models import (
 )
 from deckforge.designsystem.recipes import kind_for_visual
 from deckforge.domain.base import DomainModel
+from deckforge.domain.enums import SlideIntent
 from deckforge.domain.plan import DeckPlan, SlidePlan
 
 #: Сколько раз один пример может встретиться в колоде. Третий раз — это уже не шаблон,
@@ -153,18 +154,31 @@ def _body_places(recipe: Recipe, heading: Place | None) -> list[Place]:
     ]
 
 
+#: Места в колоде, где одного заголовка мало. Обложка говорит, о чём колода и для кого;
+#: финал — что должно произойти после презентации. И то и другое — строка текста, а не
+#: заголовок, и пример без места под неё этим слайдам не годится, даже если план фактов
+#: не дал: Education s10 взял `ex012` вида «раздел» и вышел одним заголовком
+#: (`integrity.empty_slide`, строка 9 мерила). Раздел сюда не входит — он и есть
+#: одна строка, отделяющая части колоды.
+NEEDS_A_LINE = frozenset({SlideIntent.TITLE, SlideIntent.CLOSING})
+
+
 def holds_the_slide(recipe: Recipe, slide: SlidePlan) -> bool:
-    """Держит ли пример то, что слайду нести: заголовок целиком и факты (К3, круг 2).
+    """Держит ли пример то, что слайду нести: заголовок целиком и строку текста (К3).
 
     Заголовок утверждён планировщиком, и место, которое держит его наполовину, даёт
     не заголовок, а обрубок: обложка WorkSpace `ex014` — 23 знака при заголовке в 61.
-    Факты требуют своего места: у того же `ex014` других текстовых мест нет вовсе,
-    и два факта финала просто некуда было положить (`integrity.content_lost`).
+
+    Текст требует своего места. Факты — когда план их дал; обложке и финалу — всегда:
+    у них строка под заголовком есть по замыслу («о чём колода и для кого», «следующий
+    шаг»), и промпт композитора просит её отдельным правилом, а положить её некуда.
     """
     heading = title_place(recipe)
     if heading is None or heading.capacity_chars < len(slide.headline):
         return False
-    return not slide.fact_refs or bool(_body_places(recipe, heading))
+    if slide.fact_refs or slide.intent in NEEDS_A_LINE:
+        return bool(_body_places(recipe, heading))
+    return True
 
 
 def _for_prose(recipe: Recipe) -> bool:
